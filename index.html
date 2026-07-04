@@ -1,5 +1,1733 @@
 <!DOCTYPE html>
-<html>
-<head><meta charset="UTF-8"><title>Test</title></head>
-<body><h1>Ca marche !</h1></body>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>BW Multiservice – Gestion</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script type="module">
+import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
+import { getFirestore, collection, addDoc, onSnapshot, doc, updateDoc, deleteDoc, query, orderBy } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
+const firebaseConfig = {
+  apiKey: "AIzaSyBtk9kE-vJ-cNA3_1GMM5Zm63RbMMHjaNg",
+  authDomain: "bw-multiservice07.firebaseapp.com",
+  projectId: "bw-multiservice07",
+  storageBucket: "bw-multiservice07.firebasestorage.app",
+  messagingSenderId: "281277807196",
+  appId: "1:281277807196:web:276d79f1a959ad0dcb0499"
+};
+const fireApp = initializeApp(firebaseConfig);
+const db = getFirestore(fireApp);
+window._db = db;
+window._fbFns = { collection, addDoc, onSnapshot, doc, updateDoc, deleteDoc, query, orderBy };
+window._fbReady = true;
+window.dispatchEvent(new Event('fb-ready'));
+</script>
+<style>
+:root{--bg:#f4f6fa;--surface:#fff;--surface2:#f0f2f7;--border:#e2e6ef;--accent:#1a56db;--accent-bg:#e8f0fd;--accent-text:#1a3a8a;--success:#0f7b4f;--success-bg:#e6f6ef;--danger:#c0392b;--danger-bg:#fdecea;--warn:#b45309;--warn-bg:#fef3e2;--text:#1a1a2e;--text2:#5a6282;--text3:#9099b7;--radius:10px;}
+*{box-sizing:border-box;margin:0;padding:0;}
+body{font-family:'Segoe UI',Arial,sans-serif;background:var(--bg);color:var(--text);min-height:100vh;font-size:15px;}
+#auth-screen{display:flex;align-items:center;justify-content:center;min-height:100vh;background:linear-gradient(135deg,#1a56db 0%,#0f2a6b 100%);}
+.auth-box{background:#fff;border-radius:18px;padding:2.5rem 2rem;width:100%;max-width:360px;box-shadow:0 8px 40px rgba(0,0,0,.18);}
+.brand{font-size:1.5rem;font-weight:700;color:#1a56db;letter-spacing:1px;text-align:center;display:block;}
+.tagline{font-size:.8rem;color:#9099b7;text-align:center;display:block;margin-bottom:1.5rem;}
+.auth-box h2{font-size:1.1rem;font-weight:600;margin-bottom:1.2rem;text-align:center;}
+.fg{margin-bottom:.9rem;}
+.fg label{display:block;font-size:.75rem;color:var(--text2);margin-bottom:3px;font-weight:600;text-transform:uppercase;letter-spacing:.5px;}
+.fg input,.fg select,.fg textarea{width:100%;padding:.55rem .8rem;border:1.5px solid var(--border);border-radius:8px;font-size:.92rem;outline:none;font-family:inherit;transition:border .2s;}
+.fg input:focus,.fg select:focus,.fg textarea:focus{border-color:var(--accent);}
+.fg textarea{resize:vertical;min-height:55px;}
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;padding:.6rem 1.1rem;border-radius:8px;font-size:.9rem;font-weight:600;border:none;cursor:pointer;transition:all .18s;}
+.btn:active{transform:scale(.97);}
+.btn-primary{background:var(--accent);color:#fff;}
+.btn-primary:hover{background:#1342b0;}
+.btn-full{width:100%;}
+.btn-success{background:var(--success);color:#fff;}
+.btn-danger{background:var(--danger);color:#fff;}
+.btn-outline{background:transparent;border:1.5px solid var(--border);color:var(--text2);}
+.btn-outline:hover{border-color:var(--accent);color:var(--accent);}
+.btn-warn{background:var(--warn-bg);color:var(--warn);border:1px solid #f7c948;}
+.auth-err{color:#c0392b;font-size:.82rem;text-align:center;margin-top:.5rem;min-height:18px;}
+#app{display:none;flex-direction:column;min-height:100vh;}
+.topbar{background:#fff;border-bottom:1px solid var(--border);display:flex;align-items:center;padding:0 1rem;height:52px;gap:10px;position:sticky;top:0;z-index:100;box-shadow:0 1px 6px rgba(26,86,219,.06);}
+.topbar .brand2{font-weight:700;color:var(--accent);font-size:1rem;}
+.user-pill{margin-left:auto;display:flex;align-items:center;gap:7px;background:var(--accent-bg);border-radius:20px;padding:3px 10px 3px 3px;font-size:.8rem;font-weight:500;color:var(--accent-text);}
+.avatar{width:24px;height:24px;border-radius:50%;background:var(--accent);color:#fff;display:flex;align-items:center;justify-content:center;font-size:.68rem;font-weight:700;}
+.sdot{width:8px;height:8px;border-radius:50%;background:#e74c3c;display:inline-block;}
+.sdot.on{background:#27ae60;}
+.off-banner{background:var(--warn-bg);color:var(--warn);font-size:.78rem;padding:4px 1rem;text-align:center;border-bottom:1px solid #f7c948;display:none;}
+.off-banner.show{display:block;}
+.fb-banner{background:var(--success-bg);color:var(--success);font-size:.78rem;padding:4px 1rem;text-align:center;border-bottom:1px solid #7ed8b4;display:none;}
+.fb-banner.show{display:block;}
+.tabs{display:flex;background:#fff;border-bottom:1px solid var(--border);overflow-x:auto;}
+.tabs button{padding:.65rem 1rem;border:none;background:transparent;font-size:.85rem;font-weight:500;color:var(--text2);cursor:pointer;border-bottom:2.5px solid transparent;white-space:nowrap;transition:all .18s;}
+.tabs button.active{color:var(--accent);border-bottom-color:var(--accent);}
+.mc{flex:1;padding:1rem;max-width:1100px;margin:0 auto;width:100%;}
+.tc{display:none;}
+.tc.active{display:block;}
+.mg{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin-bottom:1rem;}
+.mcard{background:var(--surface);border-radius:var(--radius);border:1px solid var(--border);padding:.9rem 1rem;}
+.mcard .lbl{font-size:.7rem;color:var(--text3);text-transform:uppercase;letter-spacing:.5px;margin-bottom:3px;}
+.mcard .val{font-size:1.4rem;font-weight:700;}
+.mcard .sub{font-size:.72rem;color:var(--text2);margin-top:2px;}
+.mcard.ac{border-color:#a0b8f5;background:var(--accent-bg);}.mcard.ac .val{color:var(--accent);}
+.mcard.sc{border-color:#7ed8b4;background:var(--success-bg);}.mcard.sc .val{color:var(--success);}
+.card{background:var(--surface);border-radius:var(--radius);border:1px solid var(--border);padding:1.1rem;margin-bottom:.9rem;}
+.ct{font-size:.92rem;font-weight:600;margin-bottom:.9rem;display:flex;align-items:center;gap:7px;}
+.fr{display:flex;gap:9px;flex-wrap:wrap;margin-bottom:.8rem;}
+.fr .fg{flex:1;min-width:130px;}
+.sbtn{padding:.6rem 1.2rem;font-size:1rem;border-radius:8px;background:var(--accent);color:#fff;border:none;cursor:pointer;display:flex;align-items:center;gap:7px;font-weight:600;transition:background .18s;}
+.sbtn:hover{background:#1342b0;}
+.tw{overflow-x:auto;}
+table{width:100%;border-collapse:collapse;font-size:.84rem;}
+th{text-align:left;padding:6px 9px;background:var(--surface2);color:var(--text2);font-weight:600;font-size:.72rem;text-transform:uppercase;letter-spacing:.4px;border-bottom:1px solid var(--border);}
+td{padding:6px 9px;border-bottom:1px solid #f0f2f7;color:var(--text);vertical-align:middle;}
+tr:last-child td{border-bottom:none;}
+tr:hover td{background:#f7f9ff;}
+.badge{display:inline-block;padding:2px 8px;border-radius:20px;font-size:.7rem;font-weight:600;}
+.b-cash{background:#e6f6ef;color:#0f7b4f;}
+.b-credit{background:#fef3e2;color:#b45309;}
+.b-sent{background:var(--success-bg);color:var(--success);}
+.b-pend{background:var(--warn-bg);color:var(--warn);}
+.b-in{background:var(--accent-bg);color:var(--accent-text);}
+.b-out{background:#fdecea;color:#c0392b;}
+.b-vente{background:#fdecea;color:#c0392b;}
+.b-achat{background:var(--accent-bg);color:var(--accent-text);}
+.b-payroll{background:#f3e8ff;color:#7c3aed;}
+.b-autre{background:var(--surface2);color:var(--text2);}
+.pq{background:var(--warn-bg);border:1px solid #f7c948;border-radius:var(--radius);padding:.7rem 1rem;margin-bottom:.9rem;font-size:.8rem;color:var(--warn);display:none;}
+.pq.show{display:block;}
+#toast{position:fixed;bottom:18px;right:18px;background:#1a3a8a;color:#fff;padding:9px 16px;border-radius:8px;font-size:.84rem;z-index:9999;opacity:0;transition:opacity .3s;pointer-events:none;max-width:300px;}
+#toast.show{opacity:1;}
+.modal-bg{display:none;position:fixed;inset:0;background:rgba(0,0,0,.4);z-index:500;align-items:center;justify-content:center;}
+.modal-bg.show{display:flex;}
+.modal{background:#fff;border-radius:14px;padding:1.4rem;width:100%;max-width:420px;box-shadow:0 8px 40px rgba(0,0,0,.18);}
+.modal h3{font-size:.95rem;font-weight:700;margin-bottom:.9rem;}
+.sec-title{font-size:.95rem;font-weight:700;margin-bottom:.7rem;padding-bottom:.4rem;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;}
+.user-chip{display:inline-flex;align-items:center;gap:7px;background:var(--surface2);border-radius:20px;padding:3px 10px 3px 3px;margin:3px;font-size:.8rem;}
+.user-chip .av{width:20px;height:20px;border-radius:50%;background:var(--accent);color:#fff;display:flex;align-items:center;justify-content:center;font-size:.62rem;font-weight:700;}
+.user-chip .rb{background:var(--accent-bg);color:var(--accent-text);border-radius:10px;padding:1px 6px;font-size:.68rem;font-weight:600;}
+.user-chip .db{background:none;border:none;color:var(--danger);cursor:pointer;font-size:.95rem;}
+.atabs{display:flex;gap:4px;margin-bottom:.9rem;flex-wrap:wrap;}
+.atab{padding:4px 12px;border:1.5px solid var(--border);border-radius:20px;font-size:.8rem;cursor:pointer;background:transparent;color:var(--text2);font-weight:500;transition:all .18s;}
+.atab.active{background:var(--accent);color:#fff;border-color:var(--accent);}
+.asheet{display:none;}
+.asheet.active{display:block;}
+.stock-summary{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:8px;margin-bottom:1rem;}
+.ss-card{background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:.8rem;text-align:center;}
+.ss-card .ss-lbl{font-size:.7rem;color:var(--text3);text-transform:uppercase;margin-bottom:4px;}
+.ss-card .ss-val{font-size:1.2rem;font-weight:700;}
+.radio-group{display:flex;gap:10px;margin-top:4px;}
+.radio-group label{display:flex;align-items:center;gap:5px;font-size:.88rem;cursor:pointer;}
+@media(max-width:600px){.mc{padding:.6rem;}.mg{grid-template-columns:repeat(2,1fr);}.fr{flex-direction:column;}.tabs button{font-size:.76rem;padding:.55rem .65rem;}}
+</style>
+</head>
+<body>
+
+<div id="auth-screen">
+  <div class="auth-box">
+    <span class="brand">BW Multiservice</span>
+    <span class="tagline">Système de gestion intégré</span>
+    <h2>Connexion</h2>
+    <div class="fg"><label>Nom d'utilisateur</label><input type="text" id="lu" autocomplete="username"/></div>
+    <div class="fg"><label>Mot de passe</label><input type="password" id="lp" autocomplete="current-password"/></div>
+    <button class="btn btn-primary btn-full" onclick="doLogin()">Se connecter →</button>
+    <div class="auth-err" id="aerr"></div>
+  </div>
+</div>
+
+<div id="app">
+  <div class="topbar">
+    <div class="brand2">BW Multiservice</div>
+    <span id="sdot" class="sdot" title="Hors ligne"></span>
+    <span style="font-size:.7rem;color:var(--text3);" id="slbl">Connexion…</span>
+    <div class="user-pill"><div class="avatar" id="tav">?</div><span id="tun">—</span></div>
+    <button class="btn btn-outline" style="padding:3px 10px;font-size:.77rem;" onclick="handleLogout()">Déconnexion</button>
+  </div>
+  <div class="off-banner" id="off-banner">⚠ Hors ligne — <span id="pc">0</span> transaction(s) en attente</div>
+  <div class="fb-banner" id="fb-banner">✅ Firebase connecté — synchronisation en temps réel active</div>
+  <div class="tabs" id="main-tabs">
+    <button class="active" onclick="switchTab('ventes')">🧾 Ventes</button>
+    <button id="tb-stocks" onclick="switchTab('stocks')" style="display:none;">📦 Stocks</button>
+    <button id="tb-achat" onclick="switchTab('achat')" style="display:none;">🛒 Achats</button>
+    <button id="tb-autre" onclick="switchTab('autre')" style="display:none;">📌 Autres transactions</button>
+    <button id="tb-tableau" onclick="switchTab('tableau')" style="display:none;">📊 Tableau de bord</button>
+    <button id="tb-admin" onclick="switchTab('admin')" style="display:none;">⚙ Administration</button>
+    <button id="tb-compta" onclick="switchTab('compta')" style="display:none;">📒 Comptabilité</button>
+  </div>
+
+  <div class="mc">
+
+    <!-- VENTES -->
+    <div class="tc active" id="tab-ventes">
+      <div class="pq" id="pq-box">📤 <strong><span id="pq-cnt">0</span> transaction(s)</strong> en attente — sync dès retour internet.</div>
+      <div class="card">
+        <div class="ct">🧾 Enregistrer une vente</div>
+        <div class="fr">
+          <div class="fg" style="flex:2;min-width:200px;"><label>Description des marchandises</label><textarea id="v-desc" placeholder="Ex: Riz 50kg, boissons..."></textarea></div>
+        </div>
+        <div class="fr">
+          <div class="fg"><label>Quantité</label><input type="number" id="v-qty" min="1" placeholder="Ex: 10"/></div>
+          <div class="fg"><label>Unité</label><input type="text" id="v-unit" placeholder="Ex: kg, litre, sac..."/></div>
+          <div class="fg"><label>Montant (HTG)</label><input type="number" id="v-amount" min="0" step="0.01" placeholder="Ex: 500.00"/></div>
+        </div>
+        <div class="fr">
+          <div class="fg">
+            <label>Mode de paiement</label>
+            <div class="radio-group">
+              <label><input type="radio" name="vpay" value="cash" checked/> 💵 Cash</label>
+              <label><input type="radio" name="vpay" value="credit"/> 📋 Crédit</label>
+            </div>
+          </div>
+        </div>
+        <button class="sbtn" onclick="submitSale()">Envoyer ➤</button>
+        <button class="btn btn-outline" style="margin-top:.6rem;" onclick="printTodaySales()">🖨 Imprimer ma fiche du jour</button>
+      </div>
+      <div class="card">
+        <div class="ct">📋 Transactions du jour
+          <div style="display:flex;gap:7px;margin-left:auto;flex-wrap:wrap;align-items:center;">
+            <input type="date" id="ventes-filter-date" style="padding:4px 7px;border:1.5px solid var(--border);border-radius:7px;font-size:.8rem;" oninput="filterVentes()"/>
+            <button class="btn btn-outline" style="font-size:.78rem;padding:4px 10px;" onclick="clearVentesFilter()">Aujourd'hui</button>
+            <button id="btn-reset-ventes" class="btn" style="font-size:.78rem;padding:4px 10px;background:var(--danger-bg);color:var(--danger);border:1px solid #f5b7b1;display:none;" onclick="resetTodayVentes()">🗑 Remettre à zéro</button>
+          </div>
+        </div>
+        <div class="tw"><table>
+          <thead><tr><th>Date</th><th>Heure</th><th>Vendeur</th><th>Description</th><th>Qté</th><th>Unité</th><th>Montant HTG</th><th>Paiement</th><th>Statut</th><th id="actions-col" style="display:none;">Actions</th></tr></thead>
+          <tbody id="my-sales-body"><tr><td colspan="9" style="text-align:center;color:var(--text3);padding:1.2rem;">Aucune vente aujourd'hui.</td></tr></tbody>
+        </table></div>
+      </div>
+    </div>
+
+    <!-- STOCKS -->
+    <div class="tc" id="tab-stocks">
+      <div class="card">
+        <div class="ct">📋 Stock de départ
+          <button class="btn btn-outline" style="font-size:.78rem;padding:3px 10px;margin-left:auto;" onclick="addStockDepartRow()">+ Ajouter un produit</button>
+          <button class="btn btn-success" style="font-size:.78rem;padding:3px 10px;" onclick="saveStockDepart()">💾 Sauvegarder</button>
+          <button class="btn" style="font-size:.78rem;padding:3px 10px;background:var(--danger-bg);color:var(--danger);border:1px solid #f5b7b1;" onclick="resetStockDepart()">🗑 Effacer</button>
+        </div>
+        <div class="tw">
+          <table id="stock-depart-table">
+            <thead><tr><th>Produit / Description</th><th>Unité</th><th>Quantité initiale</th><th>Prix unitaire (HTG)</th><th>Valeur (HTG)</th><th></th></tr></thead>
+            <tbody id="stock-depart-body"></tbody>
+            <tfoot><tr>
+              <td colspan="4" style="font-weight:700;padding:6px 9px;">Total stock de départ</td>
+              <td id="sd-total" style="font-weight:700;padding:6px 9px;color:var(--success);"></td>
+              <td></td>
+            </tr></tfoot>
+          </table>
+        </div>
+      </div>
+      <div class="card">
+        <div class="ct">📊 Résumé du stock</div>
+        <div class="tw"><table>
+          <thead><tr><th>Produit</th><th>Stock précédent</th><th>Entrées</th><th>Sorties (ventes)</th><th>Stock actuel</th><th>Unité</th></tr></thead>
+          <tbody id="stock-recap-body"><tr><td colspan="6" style="text-align:center;color:var(--text3);padding:1.2rem;">Aucun produit.</td></tr></tbody>
+        </table></div>
+      </div>
+      <div class="card">
+        <div class="ct">📥 Entrée de stock</div>
+        <div class="fr">
+          <div class="fg" style="flex:2;min-width:180px;"><label>Description du produit</label><textarea id="s-desc" placeholder="Ex: Farine 25kg..."></textarea></div>
+        </div>
+        <div class="fr">
+          <div class="fg"><label>Quantité reçue</label><input type="number" id="s-qty" min="1" placeholder="Ex: 50"/></div>
+          <div class="fg"><label>Unité</label><input type="text" id="s-unit" placeholder="Ex: kg, carton..."/></div>
+          <div class="fg"><label>Prix unitaire (HTG)</label><input type="number" id="s-price" min="0" step="0.01" placeholder="Ex: 150.00"/></div>
+          <div class="fg"><label>Fournisseur</label><input type="text" id="s-supplier" placeholder="Ex: Marché central"/></div>
+        </div>
+        <button class="sbtn" onclick="submitStock()">Enregistrer ➤</button>
+      </div>
+      <div class="card">
+        <div class="ct">📦 Historique des mouvements de stock</div>
+        <div class="tw"><table>
+          <thead><tr><th>Date</th><th>Heure</th><th>Description</th><th>Qté</th><th>Unité</th><th>Type</th><th>Valeur HTG</th></tr></thead>
+          <tbody id="stock-hist-body"><tr><td colspan="7" style="text-align:center;color:var(--text3);padding:1.2rem;">Aucun mouvement.</td></tr></tbody>
+        </table></div>
+      </div>
+    </div>
+
+    <!-- ACHATS -->
+    <div class="tc" id="tab-achat">
+      <div class="card">
+        <div class="ct">🛒 Enregistrer un achat</div>
+        <div class="fr">
+          <div class="fg" style="flex:2;min-width:200px;"><label>Description</label><textarea id="a-desc" placeholder="Ex: Achat fournisseur, marchandises..."></textarea></div>
+        </div>
+        <div class="fr">
+          <div class="fg"><label>Quantité</label><input type="number" id="a-qty" min="1" placeholder="Ex: 10"/></div>
+          <div class="fg"><label>Unité</label><input type="text" id="a-unit" placeholder="Ex: kg, carton..."/></div>
+          <div class="fg"><label>Montant (HTG)</label><input type="number" id="a-amount" min="0" step="0.01" placeholder="Ex: 5000"/></div>
+        </div>
+        <div class="fr">
+          <div class="fg"><label>Fournisseur / Bénéficiaire</label><input type="text" id="a-benef" placeholder="Ex: Marché central"/></div>
+          <div class="fg">
+            <label>Mode de paiement</label>
+            <div class="radio-group">
+              <label><input type="radio" name="apay" value="cash" checked/> 💵 Cash</label>
+              <label><input type="radio" name="apay" value="credit"/> 📋 Crédit</label>
+            </div>
+          </div>
+        </div>
+        <button class="sbtn" onclick="submitAchat()">Enregistrer ➤</button>
+      </div>
+      <div class="card">
+        <div class="ct">📋 Historique des achats
+          <div style="display:flex;gap:7px;margin-left:auto;">
+            <input type="date" id="achat-filter" style="padding:4px 7px;border:1.5px solid var(--border);border-radius:7px;font-size:.8rem;" oninput="filterAchats()"/>
+            <button class="btn btn-outline" style="font-size:.78rem;padding:4px 10px;" onclick="clearAchatFilter()">Tout</button>
+          </div>
+        </div>
+        <div class="tw"><table>
+          <thead><tr><th>Date</th><th>Heure</th><th>Par</th><th>Description</th><th>Qté</th><th>Unité</th><th>Montant HTG</th><th>Paiement</th><th>Fournisseur</th><th>Actions</th></tr></thead>
+          <tbody id="achat-body"><tr><td colspan="10" style="text-align:center;color:var(--text3);padding:1.2rem;">Aucun achat enregistré.</td></tr></tbody>
+        </table></div>
+        <div style="margin-top:.8rem;display:flex;gap:1rem;">
+          <div class="mcard ac" style="flex:1;"><div class="lbl">Total achats cash</div><div class="val" id="achat-cash-total">0 HTG</div></div>
+          <div class="mcard" style="flex:1;border-color:#f7c948;background:#fef3e2;"><div class="lbl">Total achats crédit</div><div class="val" id="achat-credit-total" style="color:#b45309;">0 HTG</div></div>
+          <div class="mcard sc" style="flex:1;"><div class="lbl">Total général achats</div><div class="val" id="achat-total">0 HTG</div></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- AUTRES TRANSACTIONS -->
+    <div class="tc" id="tab-autre">
+      <div class="card">
+        <div class="ct">📌 Enregistrer une autre transaction</div>
+        <div class="fr">
+          <div class="fg">
+            <label>Type</label>
+            <select id="at-type">
+              <option value="payroll">👷 Payroll / Salaire</option>
+              <option value="depense">💸 Dépense générale</option>
+              <option value="autre">📌 Autre</option>
+            </select>
+          </div>
+          <div class="fg" style="flex:2;"><label>Description</label><input type="text" id="at-desc" placeholder="Ex: Salaire employé, loyer, électricité..."/></div>
+        </div>
+        <div class="fr">
+          <div class="fg"><label>Montant (HTG)</label><input type="number" id="at-amount" min="0" step="0.01" placeholder="Ex: 10000"/></div>
+          <div class="fg"><label>Bénéficiaire</label><input type="text" id="at-benef" placeholder="Ex: Jean Pierre"/></div>
+          <div class="fg">
+            <label>Mode de paiement</label>
+            <div class="radio-group">
+              <label><input type="radio" name="atpay" value="cash" checked/> 💵 Cash</label>
+              <label><input type="radio" name="atpay" value="credit"/> 📋 Crédit</label>
+            </div>
+          </div>
+        </div>
+        <button class="sbtn" onclick="submitAutre()">Enregistrer ➤</button>
+      </div>
+      <div class="card">
+        <div class="ct">📋 Historique des autres transactions
+          <div style="display:flex;gap:7px;margin-left:auto;">
+            <input type="date" id="autre-filter" style="padding:4px 7px;border:1.5px solid var(--border);border-radius:7px;font-size:.8rem;" oninput="filterAutre()"/>
+            <button class="btn btn-outline" style="font-size:.78rem;padding:4px 10px;" onclick="clearAutreFilter()">Tout</button>
+          </div>
+        </div>
+        <div class="tw"><table>
+          <thead><tr><th>Date</th><th>Heure</th><th>Par</th><th>Type</th><th>Description</th><th>Montant HTG</th><th>Paiement</th><th>Bénéficiaire</th><th>Actions</th></tr></thead>
+          <tbody id="autre-body"><tr><td colspan="9" style="text-align:center;color:var(--text3);padding:1.2rem;">Aucune transaction.</td></tr></tbody>
+        </table></div>
+        <div style="margin-top:.8rem;display:flex;gap:1rem;flex-wrap:wrap;">
+          <div class="mcard" style="flex:1;min-width:140px;border-color:#f3e8ff;background:#f3e8ff;"><div class="lbl">Total payroll</div><div class="val" id="at-payroll-total" style="color:#7c3aed;">0 HTG</div></div>
+          <div class="mcard" style="flex:1;min-width:140px;"><div class="lbl">Total dépenses</div><div class="val" id="at-depense-total">0 HTG</div></div>
+          <div class="mcard" style="flex:1;min-width:140px;"><div class="lbl">Total autres</div><div class="val" id="at-autre-total">0 HTG</div></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- TABLEAU DE BORD -->
+    <div class="tc" id="tab-tableau">
+      <div style="display:flex;gap:8px;margin-bottom:.9rem;flex-wrap:wrap;">
+        <button class="btn btn-success" onclick="exportExcel()">📥 Exporter en Excel</button>
+        <button class="btn btn-outline" onclick="exportTransCSV()">📄 Exporter CSV</button>
+      </div>
+      <div style="font-size:.78rem;font-weight:700;color:var(--accent-text);background:var(--accent-bg);padding:5px 10px;border-radius:7px;margin-bottom:.5rem;">📤 VENTES</div>
+      <div class="mg" style="margin-bottom:.5rem;">
+        <div class="mcard ac"><div class="lbl">Ventes Cash — Jour</div><div class="val" id="d-cash-day">0 HTG</div><div class="sub" id="d-cash-day-q">0 transactions</div></div>
+        <div class="mcard ac"><div class="lbl">Ventes Crédit — Jour</div><div class="val" id="d-credit-day">0 HTG</div><div class="sub" id="d-credit-day-q">0 transactions</div></div>
+        <div class="mcard ac" style="border-color:#1a56db;background:#dce8fd;"><div class="lbl">Ventes Total — Jour</div><div class="val" id="d-total-day">0 HTG</div><div class="sub" id="d-total-day-q">0 transactions</div></div>
+        <div class="mcard sc"><div class="lbl">Ventes Cash — Mois</div><div class="val" id="d-cash-month">0 HTG</div><div class="sub" id="d-cash-month-q">0 transactions</div></div>
+        <div class="mcard sc"><div class="lbl">Ventes Crédit — Mois</div><div class="val" id="d-credit-month">0 HTG</div><div class="sub" id="d-credit-month-q">0 transactions</div></div>
+        <div class="mcard sc" style="border-color:#0f7b4f;background:#d0f0e0;"><div class="lbl">Ventes Total — Mois</div><div class="val" id="d-total-month">0 HTG</div><div class="sub" id="d-total-month-q">0 transactions</div></div>
+      </div>
+      <div style="font-size:.78rem;font-weight:700;color:#b45309;background:#fef3e2;padding:5px 10px;border-radius:7px;margin-bottom:.5rem;">🛒 ACHATS</div>
+      <div class="mg" style="margin-bottom:.5rem;">
+        <div class="mcard" style="border-color:#f7c948;background:#fef3e2;"><div class="lbl">Achats Cash — Jour</div><div class="val" id="d-achat-cash-day" style="color:#b45309;">0 HTG</div><div class="sub" id="d-achat-cash-day-q">0 achats</div></div>
+        <div class="mcard" style="border-color:#f7c948;background:#fef3e2;"><div class="lbl">Achats Crédit — Jour</div><div class="val" id="d-achat-day" style="color:#b45309;">0 HTG</div><div class="sub" id="d-achat-day-q">0 achats</div></div>
+        <div class="mcard" style="border-color:#e67e22;background:#fde8d0;"><div class="lbl">Achats Total — Jour</div><div class="val" id="d-achat-total-day" style="color:#e67e22;">0 HTG</div><div class="sub" id="d-achat-total-day-q">0 achats</div></div>
+        <div class="mcard" style="border-color:#f7c948;background:#fef3e2;"><div class="lbl">Achats Cash — Mois</div><div class="val" id="d-achat-cash-month" style="color:#b45309;">0 HTG</div><div class="sub" id="d-achat-cash-month-q">0 achats</div></div>
+        <div class="mcard" style="border-color:#f7c948;background:#fef3e2;"><div class="lbl">Achats Crédit — Mois</div><div class="val" id="d-achat-month" style="color:#b45309;">0 HTG</div><div class="sub" id="d-achat-month-q">0 achats</div></div>
+        <div class="mcard" style="border-color:#e67e22;background:#fde8d0;"><div class="lbl">Achats Total — Mois</div><div class="val" id="d-achat-total-month" style="color:#e67e22;">0 HTG</div><div class="sub" id="d-achat-total-month-q">0 achats</div></div>
+      </div>
+      <div style="font-size:.78rem;font-weight:700;color:#7c3aed;background:#f3e8ff;padding:5px 10px;border-radius:7px;margin-bottom:.5rem;">📌 AUTRES TRANSACTIONS</div>
+      <div class="mg">
+        <div class="mcard" style="border-color:#c4b5fd;background:#f3e8ff;"><div class="lbl">Payroll — Jour</div><div class="val" id="d-payroll-day" style="color:#7c3aed;">0 HTG</div><div class="sub" id="d-payroll-day-q">0</div></div>
+        <div class="mcard" style="border-color:#c4b5fd;background:#f3e8ff;"><div class="lbl">Dépenses — Jour</div><div class="val" id="d-depense-day" style="color:#7c3aed;">0 HTG</div><div class="sub" id="d-depense-day-q">0</div></div>
+        <div class="mcard" style="border-color:#c4b5fd;background:#f3e8ff;"><div class="lbl">Autres — Jour</div><div class="val" id="d-autre-day" style="color:#7c3aed;">0 HTG</div><div class="sub" id="d-autre-day-q">0</div></div>
+        <div class="mcard" style="border-color:#c4b5fd;background:#f3e8ff;"><div class="lbl">Payroll — Mois</div><div class="val" id="d-payroll-month" style="color:#7c3aed;">0 HTG</div><div class="sub" id="d-payroll-month-q">0</div></div>
+        <div class="mcard" style="border-color:#c4b5fd;background:#f3e8ff;"><div class="lbl">Dépenses — Mois</div><div class="val" id="d-depense-month" style="color:#7c3aed;">0 HTG</div><div class="sub" id="d-depense-month-q">0</div></div>
+        <div class="mcard" style="border-color:#c4b5fd;background:#f3e8ff;"><div class="lbl">Autres — Mois</div><div class="val" id="d-autre-month" style="color:#7c3aed;">0 HTG</div><div class="sub" id="d-autre-month-q">0</div></div>
+      </div>
+      <div class="card">
+        <div class="ct">📋 Toutes les transactions
+          <div style="display:flex;gap:7px;margin-left:auto;">
+            <input type="date" id="fdate" style="padding:4px 7px;border:1.5px solid var(--border);border-radius:7px;font-size:.8rem;" oninput="filterT()"/>
+            <button class="btn btn-outline" style="font-size:.78rem;padding:4px 10px;" onclick="clearF()">Tout</button>
+          </div>
+        </div>
+        <div class="tw"><table>
+          <thead><tr><th>Date</th><th>Heure</th><th>Utilisateur</th><th>Description</th><th>Qté</th><th>Unité</th><th>Montant HTG</th><th>Type</th><th>Paiement</th><th>Actions</th></tr></thead>
+          <tbody id="all-trans-body"><tr><td colspan="10" style="text-align:center;color:var(--text3);padding:1.2rem;">Aucune transaction.</td></tr></tbody>
+        </table></div>
+      </div>
+    </div>
+
+    <!-- ADMIN -->
+    <div class="tc" id="tab-admin">
+      <div class="card">
+        <div class="sec-title">👥 Utilisateurs <button class="btn btn-primary" style="font-size:.78rem;padding:4px 12px;width:auto;" onclick="showAddUser()">+ Ajouter</button></div>
+        <div id="users-list"></div>
+      </div>
+      <div class="card">
+        <div class="sec-title">➕ Ajouter une transaction (Gestionnaire)
+        </div>
+        <div class="fr">
+          <div class="fg">
+            <label>Type de transaction</label>
+            <select id="tx-type">
+              <option value="achat">Achat</option>
+              <option value="payroll">Payroll / Salaire</option>
+              <option value="depense">Dépense</option>
+              <option value="autre">Autre</option>
+            </select>
+          </div>
+          <div class="fg" style="flex:2;"><label>Description</label><input type="text" id="tx-desc" placeholder="Ex: Achat fournisseur, salaire employé..."/></div>
+        </div>
+        <div class="fr">
+          <div class="fg"><label>Montant (HTG)</label><input type="number" id="tx-amount" min="0" step="0.01" placeholder="Ex: 5000"/></div>
+          <div class="fg"><label>Bénéficiaire / Fournisseur</label><input type="text" id="tx-benef" placeholder="Ex: Jean Pierre"/></div>
+        </div>
+        <button class="sbtn" onclick="submitExtra()">Enregistrer ➤</button>
+      </div>
+      <div class="card">
+        <div class="sec-title">✏ Corriger / Supprimer une transaction</div>
+        <div class="tw"><table>
+          <thead><tr><th>Date</th><th>Heure</th><th>Vendeur</th><th>Description</th><th>Qté</th><th>Montant</th><th>Type</th><th>Actions</th></tr></thead>
+          <tbody id="admin-trans-body"></tbody>
+        </table></div>
+      </div>
+    </div>
+
+    <!-- COMPTABILITE -->
+    <div class="tc" id="tab-compta">
+      <div class="atabs">
+        <button class="atab active" onclick="switchAcc('transactions',this)">Transactions</button>
+        <button class="atab" onclick="switchAcc('journal',this)">Journal</button>
+        <button class="atab" onclick="switchAcc('grandlivre',this)">Grand livre</button>
+        <button class="atab" onclick="switchAcc('balance',this)">Balance</button>
+        <button class="atab" onclick="switchAcc('bilan',this)">Bilan</button>
+        <button class="atab" onclick="switchAcc('analyse',this)">Analyse</button>
+      </div>
+      <div style="display:flex;gap:7px;margin-bottom:.9rem;">
+        <button class="btn btn-success" onclick="exportExcel()">📥 Exporter Excel</button>
+        <button class="btn btn-outline" onclick="refreshAcc()">🔄 Actualiser</button>
+      </div>
+      <div class="asheet active" id="acc-transactions">
+        <div class="card"><div class="ct">📋 Feuille de transactions cumulatives</div>
+        <div class="tw"><table><thead><tr><th>#</th><th>Date</th><th>Heure</th><th>Vendeur</th><th>Description</th><th>Qté</th><th>Unité</th><th>Montant HTG</th><th>Type</th><th>Paiement</th><th>Cumul ventes</th></tr></thead>
+        <tbody id="sh-trans"></tbody>
+        <tfoot><tr><td colspan="7" style="font-weight:700;padding:6px 9px;">Total ventes</td><td id="sh-total" style="font-weight:700;padding:6px 9px;"></td><td colspan="3"></td></tr></tfoot>
+        </table></div></div>
+      </div>
+      <div class="asheet" id="acc-journal">
+        <div class="card"><div class="ct">📖 Journal général</div>
+        <div class="tw"><table><thead><tr><th>Date</th><th>N° Pièce</th><th>Compte débiteur</th><th>Compte créditeur</th><th>Libellé</th><th>Débit HTG</th><th>Crédit HTG</th></tr></thead>
+        <tbody id="sh-journal"></tbody>
+        <tfoot><tr><td colspan="5" style="font-weight:700;padding:6px 9px;">Totaux</td><td id="jd" style="font-weight:700;padding:6px 9px;"></td><td id="jc" style="font-weight:700;padding:6px 9px;"></td></tr></tfoot>
+        </table></div></div>
+      </div>
+      <div class="asheet" id="acc-grandlivre">
+        <div class="card"><div class="ct">📚 Grand livre</div><div id="gl-content"></div></div>
+      </div>
+      <div class="asheet" id="acc-balance">
+        <div class="card"><div class="ct">⚖ Balance de vérification</div>
+        <div class="tw"><table><thead><tr><th>N° Compte</th><th>Intitulé</th><th>Débit HTG</th><th>Crédit HTG</th></tr></thead>
+        <tbody id="sh-balance"></tbody>
+        <tfoot><tr><td colspan="2" style="font-weight:700;padding:6px 9px;">Totaux</td><td id="bd" style="font-weight:700;padding:6px 9px;"></td><td id="bc" style="font-weight:700;padding:6px 9px;"></td></tr></tfoot>
+        </table></div></div>
+      </div>
+      <div class="asheet" id="acc-bilan">
+        <div class="card"><div class="ct">🏦 Bilan</div><div style="display:grid;grid-template-columns:1fr 1fr;gap:1rem;" id="bilan-c"></div></div>
+      </div>
+      <div class="asheet" id="acc-analyse">
+        <div class="card"><div class="ct">📈 Analyse financière</div><div id="ana-c"></div></div>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<!-- MODALS -->
+<div class="modal-bg" id="edit-modal">
+  <div class="modal">
+    <h3>✏ Modifier la transaction</h3>
+    <input type="hidden" id="edit-id"/>
+    <div class="fg"><label>Description</label><textarea id="edit-desc"></textarea></div>
+    <div style="display:flex;gap:8px;">
+      <div class="fg" style="flex:1;"><label>Quantité</label><input type="number" id="edit-qty"/></div>
+      <div class="fg" style="flex:1;"><label>Unité</label><input type="text" id="edit-unit"/></div>
+    </div>
+    <div style="display:flex;gap:8px;">
+      <div class="fg" style="flex:1;"><label>Montant (HTG)</label><input type="number" id="edit-amount" step="0.01"/></div>
+      <div class="fg" style="flex:1;"><label>Paiement</label>
+        <select id="edit-payment">
+          <option value="cash">💵 Cash</option>
+          <option value="credit">📋 Crédit</option>
+        </select>
+      </div>
+    </div>
+    <div style="display:flex;gap:7px;margin-top:.8rem;">
+      <button class="btn btn-primary" onclick="saveEdit()" style="flex:1;">💾 Sauvegarder</button>
+      <button class="btn btn-outline" onclick="closeModal('edit-modal')" style="flex:1;">Annuler</button>
+    </div>
+  </div>
+</div>
+
+<!-- SAVE BEFORE LOGOUT MODAL -->
+<div class="modal-bg" id="save-modal">
+  <div class="modal">
+    <h3>💾 Sauvegarder avant déconnexion</h3>
+    <p style="font-size:.88rem;color:var(--text2);margin-bottom:1rem;">Choisissez le format de sauvegarde avant de vous déconnecter.</p>
+    <div style="display:flex;flex-direction:column;gap:8px;margin-bottom:1rem;">
+      <button class="btn btn-success" onclick="exportExcel();closeModal('save-modal');" style="width:100%;">📥 Télécharger en Excel (toutes les feuilles)</button>
+      <button class="btn btn-outline" onclick="exportTransCSV();closeModal('save-modal');" style="width:100%;">📄 Télécharger en CSV</button>
+      <button class="btn btn-outline" onclick="printAllTrans();closeModal('save-modal');" style="width:100%;">🖨 Imprimer le rapport</button>
+    </div>
+    <div style="display:flex;gap:7px;">
+      <button class="btn btn-primary" onclick="closeModal('save-modal');doLogout();" style="flex:1;">Se déconnecter sans sauvegarder</button>
+      <button class="btn btn-outline" onclick="closeModal('save-modal')" style="flex:1;">Annuler</button>
+    </div>
+  </div>
+</div>
+
+<!-- PRINT RECEIPT MODAL -->
+<div class="modal-bg" id="print-modal">
+  <div class="modal" style="max-width:500px;">
+    <h3>🖨 Fiche de vente</h3>
+    <div id="print-content" style="font-size:.88rem;"></div>
+    <div style="display:flex;gap:7px;margin-top:1rem;">
+      <button class="btn btn-primary" onclick="doPrint()" style="flex:1;">🖨 Imprimer</button>
+      <button class="btn btn-outline" onclick="closeModal('print-modal')" style="flex:1;">Fermer</button>
+    </div>
+  </div>
+</div>
+<div class="modal-bg" id="user-modal">
+  <div class="modal">
+    <h3>👤 Ajouter un utilisateur</h3>
+    <div class="fg"><label>Nom d'utilisateur</label><input type="text" id="nu"/></div>
+    <div class="fg"><label>Mot de passe</label><input type="password" id="np"/></div>
+    <div class="fg"><label>Rôle</label><select id="nr"><option value="vendeur">Vendeur</option><option value="gestionnaire">Gestionnaire</option><option value="admin">Administrateur</option></select></div>
+    <div style="display:flex;gap:7px;margin-top:.8rem;">
+      <button class="btn btn-primary" onclick="addUser()" style="flex:1;">Ajouter</button>
+      <button class="btn btn-outline" onclick="closeModal('user-modal')" style="flex:1;">Annuler</button>
+    </div>
+    <div class="auth-err" id="uerr"></div>
+  </div>
+</div>
+<div id="toast"></div>
+
+<script>
+// ============================================================
+// STATE
+// ============================================================
+let STATE = {
+  users: [
+    {username:'admin', password:'bwadmin2024', role:'admin'},
+    {username:'gestionnaire', password:'bwgest2024', role:'gestionnaire'},
+    {username:'vendeur', password:'bwvente2024', role:'vendeur'}
+  ],
+  transactions: [],
+  stocks: [],
+  pendingQueue: [],
+  currentUser: null,
+  isOnline: navigator.onLine,
+  fbReady: false
+};
+let currentTab = 'ventes';
+let unsubT = null, unsubS = null;
+
+function loadLocal() {
+  try {
+    const s = localStorage.getItem('bw_v2');
+    if (s) { const p = JSON.parse(s); if(p.users) STATE.users=p.users; if(p.pendingQueue) STATE.pendingQueue=p.pendingQueue; }
+  } catch(e){}
+}
+function saveLocal() {
+  try { localStorage.setItem('bw_v2', JSON.stringify({users:STATE.users, pendingQueue:STATE.pendingQueue})); } catch(e){}
+}
+loadLocal();
+
+// ============================================================
+// FIREBASE
+// ============================================================
+function startFB() {
+  if (!window._fbReady || !window._db) return;
+  const {collection, onSnapshot} = window._fbFns;
+  const db = window._db;
+
+  // Unsubscribe previous listeners
+  if (unsubT) { unsubT(); unsubT = null; }
+  if (unsubS) { unsubS(); unsubS = null; }
+
+  // Listen to ALL transactions in real time
+  unsubT = onSnapshot(collection(db,'transactions'), snap => {
+    if (!STATE.currentUser) return;
+    STATE.transactions = snap.docs.map(d => ({id:d.id, ...d.data()}));
+    STATE.transactions.sort((a,b) => {
+      const da = a.createdAt || a.isoDate || '';
+      const db2 = b.createdAt || b.isoDate || '';
+      return db2.localeCompare(da);
+    });
+    // Always update ALL views regardless of current tab
+    renderMySales();
+    renderDash();
+    renderAllTrans(STATE.transactions);
+    renderAdminTrans();
+    if (currentTab==='compta') refreshAcc();
+    if (currentTab==='stocks') renderStocks();
+    if (currentTab==='achat') renderAchats();
+    if (currentTab==='autre') renderAutre();
+  }, err => {
+    console.error('Firebase transactions error:', err);
+    showToast('⚠ Erreur connexion Firebase. Rechargez la page.', 'warn');
+  });
+
+  // Listen to ALL stocks in real time
+  unsubS = onSnapshot(collection(db,'stocks'), snap => {
+    if (!STATE.currentUser) return;
+    STATE.stocks = snap.docs.map(d => ({id:d.id, ...d.data()}));
+    renderDash();
+    if (currentTab==='stocks') renderStocks();
+  }, err => console.error('Firebase stocks error:', err));
+
+  STATE.fbReady = true;
+  document.getElementById('fb-banner').classList.add('show');
+  showToast('🔥 Firebase connecté — synchronisation en temps réel active.');
+  flushQueue();
+}
+window.addEventListener('fb-ready', () => {
+  // Start listeners only if user is already logged in
+  if (STATE.currentUser) startFB();
+});
+if (window._fbReady && STATE.currentUser) startFB();
+
+// ============================================================
+// CONNECTIVITY
+// ============================================================
+function updateConn() {
+  STATE.isOnline = navigator.onLine;
+  const dot = document.getElementById('sdot');
+  const lbl = document.getElementById('slbl');
+  const banner = document.getElementById('off-banner');
+  if (STATE.isOnline) { dot.className='sdot on'; lbl.textContent='En ligne'; banner.classList.remove('show'); flushQueue(); }
+  else { dot.className='sdot'; lbl.textContent='Hors ligne'; banner.classList.add('show'); document.getElementById('fb-banner').classList.remove('show'); }
+  updatePQ();
+}
+window.addEventListener('online', updateConn);
+window.addEventListener('offline', updateConn);
+setTimeout(updateConn, 500);
+
+function updatePQ() {
+  const c = STATE.pendingQueue.length;
+  const box = document.getElementById('pq-box');
+  if(c>0) box.classList.add('show'); else box.classList.remove('show');
+  const el = document.getElementById('pq-cnt'); if(el) el.textContent=c;
+  const el2 = document.getElementById('pc'); if(el2) el2.textContent=c;
+}
+
+async function flushQueue() {
+  if (!STATE.isOnline || !STATE.fbReady || !STATE.pendingQueue.length) return;
+  const {collection, addDoc} = window._fbFns;
+  const db = window._db;
+  const toFlush = [...STATE.pendingQueue];
+  STATE.pendingQueue = [];
+  saveLocal();
+  let cnt = 0;
+  for (const item of toFlush) {
+    try { const col = item.colTarget || 'transactions'; const d = {...item}; delete d.id; delete d.colTarget; await addDoc(collection(db,col),d); cnt++; }
+    catch(e) { STATE.pendingQueue.push(item); }
+  }
+  saveLocal(); updatePQ();
+  if (cnt>0) showToast(`✅ ${cnt} transaction(s) synchronisée(s).`);
+}
+
+// ============================================================
+// AUTH
+// ============================================================
+function doLogin() {
+  const u = document.getElementById('lu').value.trim();
+  const p = document.getElementById('lp').value;
+  const user = STATE.users.find(x => x.username===u && x.password===p);
+  if (!user) { document.getElementById('aerr').textContent='Identifiants incorrects.'; return; }
+  STATE.currentUser = user;
+  document.getElementById('auth-screen').style.display='none';
+  document.getElementById('app').style.display='flex';
+  document.getElementById('app').style.flexDirection='column';
+  document.getElementById('tun').textContent=user.username;
+  document.getElementById('tav').textContent=user.username[0].toUpperCase();
+  // Show tabs based on role
+  const isPriv = user.role==='admin' || user.role==='gestionnaire';
+  document.getElementById('tb-stocks').style.display = isPriv ? 'block' : 'none';
+  document.getElementById('tb-achat').style.display = isPriv ? 'block' : 'none';
+  document.getElementById('tb-autre').style.display = isPriv ? 'block' : 'none';
+  document.getElementById('tb-tableau').style.display = isPriv ? 'block' : 'none';
+  document.getElementById('tb-admin').style.display = isPriv ? 'block' : 'none';
+  document.getElementById('tb-compta').style.display = isPriv ? 'block' : 'none';
+  updateConn();
+  // Start Firebase real-time listeners after login
+  if (window._fbReady && window._db) {
+    startFB();
+  } else {
+    window.addEventListener('fb-ready', startFB);
+  }
+  renderAll();
+  renderStockDepart();
+  if (isPriv) { renderUsers(); renderAdminTrans(); }
+}
+function doLogout() {
+  if(unsubT) unsubT(); if(unsubS) unsubS();
+  hiddenVentesIds = [];
+  STATE.currentUser = null;
+  document.getElementById('auth-screen').style.display='flex';
+  document.getElementById('app').style.display='none';
+  document.getElementById('lu').value=''; document.getElementById('lp').value='';
+  document.getElementById('aerr').textContent='';
+  ['tb-stocks','tb-achat','tb-autre','tb-tableau','tb-admin','tb-compta'].forEach(id => document.getElementById(id).style.display='none');
+  document.getElementById('fb-banner').classList.remove('show');
+  switchTab('ventes');
+}
+document.getElementById('lp').addEventListener('keydown', e => { if(e.key==='Enter') doLogin(); });
+
+// ============================================================
+// TABS
+// ============================================================
+function switchTab(tab) {
+  currentTab = tab;
+  document.querySelectorAll('.tc').forEach(el => el.classList.remove('active'));
+  document.querySelectorAll('.tabs button').forEach(el => el.classList.remove('active'));
+  const tc = document.getElementById('tab-'+tab);
+  if (tc) tc.classList.add('active');
+  document.querySelectorAll('.tabs button').forEach(btn => {
+    if (btn.getAttribute('onclick') && btn.getAttribute('onclick').includes("'"+tab+"'")) btn.classList.add('active');
+  });
+  if (tab==='compta') refreshAcc();
+  if (tab==='admin') { renderAdminTrans(); renderUsers(); }
+  if (tab==='stocks') renderStocks();
+  if (tab==='tableau') renderDash();
+  if (tab==='achat') renderAchats();
+  if (tab==='autre') renderAutre();
+}
+function switchAcc(name, btn) {
+  document.querySelectorAll('.atab').forEach(el => el.classList.remove('active'));
+  document.querySelectorAll('.asheet').forEach(el => el.classList.remove('active'));
+  document.getElementById('acc-'+name).classList.add('active');
+  if(btn) btn.classList.add('active');
+  refreshAcc();
+}
+
+// ============================================================
+// HELPERS
+// ============================================================
+function todayStr() { 
+  const d = new Date();
+  return String(d.getDate()).padStart(2,'0')+'/'+String(d.getMonth()+1).padStart(2,'0')+'/'+d.getFullYear();
+}
+function isoDate() { 
+  const d = new Date();
+  return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
+}
+function nowStr() { return new Date().toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit',second:'2-digit'}); }
+function isSameDay(t) {
+  // Get today in local time (Haiti UTC-5)
+  const now = new Date();
+  const todayLocal = now.getFullYear()+'-'+String(now.getMonth()+1).padStart(2,'0')+'-'+String(now.getDate()).padStart(2,'0');
+
+  // Method 1: compare isoDate (stored as local date)
+  if (t.isoDate && t.isoDate === todayLocal) return true;
+
+  // Method 2: compare date field (dd/mm/yyyy)
+  const todayDMY = String(now.getDate()).padStart(2,'0')+'/'+String(now.getMonth()+1).padStart(2,'0')+'/'+now.getFullYear();
+  if (t.date && t.date === todayDMY) return true;
+
+  // Method 3: use createdAt UTC timestamp, convert to local
+  if (t.createdAt) {
+    const d = new Date(t.createdAt);
+    const localDate = d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
+    if (localDate === todayLocal) return true;
+  }
+  return false;
+}
+function fmtHTG(n) { if(isNaN(n)||n===undefined) return '0 HTG'; return n.toLocaleString('fr-FR',{minimumFractionDigits:2,maximumFractionDigits:2})+' HTG'; }
+function esc(s) { return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+function showToast(msg, type) {
+  const t = document.getElementById('toast');
+  t.textContent=msg; t.style.background=type==='warn'?'#b45309':'#1a3a8a';
+  t.classList.add('show'); setTimeout(()=>t.classList.remove('show'),3500);
+}
+function openModal(id) { document.getElementById(id).classList.add('show'); }
+function closeModal(id) { document.getElementById(id).classList.remove('show'); }
+
+// ============================================================
+// VENTES
+// ============================================================
+async function submitSale() {
+  const desc = document.getElementById('v-desc').value.trim();
+  const qty = parseFloat(document.getElementById('v-qty').value);
+  const unit = document.getElementById('v-unit').value.trim();
+  const amount = parseFloat(document.getElementById('v-amount').value);
+  const pay = document.querySelector('input[name="vpay"]:checked')?.value || 'cash';
+  if (!desc||isNaN(qty)||qty<=0||isNaN(amount)||amount<0) { showToast('⚠ Remplissez tous les champs.','warn'); return; }
+  const tx = {
+    type:'vente', date:todayStr(), isoDate:isoDate(), time:nowStr(),
+    seller:STATE.currentUser.username, description:desc, quantity:qty,
+    unit:unit, amount:amount, payment:pay, status:'sent',
+    createdAt: new Date().toISOString()
+  };
+  if (STATE.isOnline && STATE.fbReady) {
+    try {
+      const {collection, addDoc} = window._fbFns;
+      await addDoc(collection(window._db,'transactions'), tx);
+      showToast('✅ Vente transmise en temps réel sur Firebase.');
+    } catch(e) { tx.status='pending'; STATE.pendingQueue.push(tx); saveLocal(); showToast('⚠ Erreur — en file d\'attente.','warn'); }
+  } else { tx.status='pending'; STATE.pendingQueue.push(tx); saveLocal(); showToast('📤 Hors ligne — en file d\'attente.','warn'); }
+  updatePQ();
+  document.getElementById('v-desc').value=''; document.getElementById('v-qty').value='';
+  document.getElementById('v-unit').value=''; document.getElementById('v-amount').value='';
+  document.querySelector('input[name="vpay"][value="cash"]').checked=true;
+}
+
+function renderMySales() {
+  if (!STATE.currentUser) return;
+  const body = document.getElementById('my-sales-body');
+  const isPriv = STATE.currentUser.role==='admin' || STATE.currentUser.role==='gestionnaire';
+
+  // Show/hide admin buttons
+  const resetBtn = document.getElementById('btn-reset-ventes');
+  const actionsCol = document.getElementById('actions-col');
+  if (resetBtn) resetBtn.style.display = isPriv ? 'inline-flex' : 'none';
+  if (actionsCol) actionsCol.style.display = isPriv ? '' : 'none';
+
+  const todayTrans = [...STATE.transactions, ...STATE.pendingQueue]
+    .filter(t => {
+      const isToday = isSameDay(t);
+      const isVente = t.type==='vente';
+      const isHidden = t.id && hiddenVentesIds.includes(t.id);
+      if (isHidden) return false;
+      if (isPriv) return isToday && isVente;
+      return t.seller===STATE.currentUser.username && isToday && isVente;
+    })
+    .sort((a,b)=>(b.createdAt||b.time||'').localeCompare(a.createdAt||a.time||''));
+
+  if (!todayTrans.length) {
+    body.innerHTML=`<tr><td colspan="${isPriv?10:9}" style="text-align:center;color:var(--text3);padding:1.2rem;">Aucune vente aujourd'hui.</td></tr>`;
+    return;
+  }
+  body.innerHTML = todayTrans.map(t=>`<tr>
+    <td>${t.date}</td><td>${t.time}</td><td>${esc(t.seller)}</td><td>${esc(t.description)}</td>
+    <td>${t.quantity}</td><td>${esc(t.unit||'')}</td><td>${fmtHTG(Number(t.amount))}</td>
+    <td><span class="badge ${(!t.payment||t.payment==='cash')?'b-cash':'b-credit'}">${(!t.payment||t.payment==='cash')?'💵 Cash':'📋 Crédit'}</span></td>
+    <td><span class="badge ${t.status==='sent'?'b-sent':'b-pend'}">${t.status==='sent'?'✓ Envoyé':'⏳ Attente'}</span></td>
+    ${isPriv ? `<td style="white-space:nowrap;">
+      <button class="btn btn-outline" style="font-size:.72rem;padding:2px 8px;" onclick="openEdit('${t.id}')">✏</button>
+      <button class="btn" style="font-size:.72rem;padding:2px 8px;background:var(--danger-bg);color:var(--danger);border:1px solid #f5b7b1;margin-left:3px;" onclick="delTrans('${t.id}')">🗑</button>
+    </td>` : ''}
+  </tr>`).join('');
+}
+
+// IDs masquées localement (pas supprimées de Firebase)
+let hiddenVentesIds = [];
+
+function resetTodayVentes() {
+  if (!confirm('Masquer les ventes du jour dans cet onglet ?\n\nLes données resteront dans le tableau de bord et Firebase — elles ne seront pas supprimées.')) return;
+  // Get all today's ventes IDs and hide them locally
+  const todayVentes = [...STATE.transactions, ...STATE.pendingQueue]
+    .filter(t => t.type==='vente' && isSameDay(t));
+  todayVentes.forEach(t => { if (t.id && !hiddenVentesIds.includes(t.id)) hiddenVentesIds.push(t.id); });
+  // Clear the display only
+  const body = document.getElementById('my-sales-body');
+  body.innerHTML = '<tr><td colspan="10" style="text-align:center;color:var(--text3);padding:1.2rem;">Affichage remis à zéro — données conservées dans le tableau de bord.</td></tr>';
+  showToast('✅ Affichage remis à zéro. Les données du tableau de bord sont conservées.', 'warn');
+}
+
+function filterVentes() {
+  const d = document.getElementById('ventes-filter-date').value;
+  if (!d) { renderMySales(); return; }
+  const p = d.split('-');
+  const filterDate = p[2]+'/'+p[1]+'/'+p[0];
+  const filterISO = d;
+  const isPriv = STATE.currentUser.role==='admin' || STATE.currentUser.role==='gestionnaire';
+  const body = document.getElementById('my-sales-body');
+  const filtered = [...STATE.transactions, ...STATE.pendingQueue].filter(t => {
+    const matchDate = t.date===filterDate || t.isoDate===filterISO;
+    const isVente = t.type==='vente';
+    if (isPriv) return matchDate && isVente;
+    return t.seller===STATE.currentUser.username && matchDate && isVente;
+  }).sort((a,b)=>(b.createdAt||b.time||'').localeCompare(a.createdAt||a.time||''));
+  if (!filtered.length) {
+    body.innerHTML=`<tr><td colspan="9" style="text-align:center;color:var(--text3);padding:1.2rem;">Aucune vente pour cette date.</td></tr>`;
+    return;
+  }
+  body.innerHTML = filtered.map(t=>`<tr>
+    <td>${t.date}</td><td>${t.time}</td><td>${esc(t.seller)}</td><td>${esc(t.description)}</td>
+    <td>${t.quantity}</td><td>${esc(t.unit||'')}</td><td>${fmtHTG(Number(t.amount))}</td>
+    <td><span class="badge ${(!t.payment||t.payment==='cash')?'b-cash':'b-credit'}">${(!t.payment||t.payment==='cash')?'💵 Cash':'📋 Crédit'}</span></td>
+    <td><span class="badge ${t.status==='sent'?'b-sent':'b-pend'}">${t.status==='sent'?'✓ Envoyé':'⏳ Attente'}</span></td>
+  </tr>`).join('');
+}
+
+function clearVentesFilter() {
+  document.getElementById('ventes-filter-date').value = '';
+  renderMySales();
+}
+
+// ============================================================
+// STOCK DE DEPART
+// ============================================================
+function resetStockDepart() {
+  if (!confirm('Effacer toutes les lignes du stock de départ ?')) return;
+  localStorage.removeItem('bw_stock_depart');
+  const body = document.getElementById('stock-depart-body');
+  body.innerHTML = '';
+  addStockDepartRow();
+  updateSDTotal();
+  renderStocks();
+  showToast('🗑 Stock de départ effacé.','warn');
+}
+
+function loadStockDepart() {
+  try {
+    const saved = localStorage.getItem('bw_stock_depart');
+    return saved ? JSON.parse(saved) : [];
+  } catch(e) { return []; }
+}
+function saveStockDepart() {
+  const rows = document.querySelectorAll('#stock-depart-body tr');
+  const data = [];
+  rows.forEach(row => {
+    const inputs = row.querySelectorAll('input');
+    const desc = inputs[0].value.trim();
+    const unit = inputs[1].value.trim();
+    const qty = parseFloat(inputs[2].value) || 0;
+    const price = parseFloat(inputs[3].value) || 0;
+    if (desc) data.push({desc, unit, qty, price, value: qty*price});
+  });
+  localStorage.setItem('bw_stock_depart', JSON.stringify(data));
+  renderStockDepart();
+  renderStocks();
+  showToast('✅ Stock de départ sauvegardé.');
+}
+function addStockDepartRow(desc='', unit='', qty='', price='') {
+  const body = document.getElementById('stock-depart-body');
+  const tr = document.createElement('tr');
+  const value = (parseFloat(qty)||0) * (parseFloat(price)||0);
+  tr.innerHTML = `
+    <td><input type="text" value="${esc(desc)}" placeholder="Ex: Riz, Huile..." style="width:100%;padding:4px 6px;border:1px solid var(--border);border-radius:6px;font-size:.84rem;" oninput="updateSDRow(this)"/></td>
+    <td><input type="text" value="${esc(unit)}" placeholder="kg, sac..." style="width:80px;padding:4px 6px;border:1px solid var(--border);border-radius:6px;font-size:.84rem;"/></td>
+    <td><input type="number" value="${qty}" placeholder="0" min="0" style="width:90px;padding:4px 6px;border:1px solid var(--border);border-radius:6px;font-size:.84rem;" oninput="updateSDRow(this)"/></td>
+    <td><input type="number" value="${price}" placeholder="0.00" min="0" step="0.01" style="width:110px;padding:4px 6px;border:1px solid var(--border);border-radius:6px;font-size:.84rem;" oninput="updateSDRow(this)"/></td>
+    <td class="sd-val" style="font-weight:600;color:var(--success);">${value?fmtHTG(value):''}</td>
+    <td><button onclick="this.closest('tr').remove();updateSDTotal();" style="background:none;border:none;color:var(--danger);cursor:pointer;font-size:1rem;">🗑</button></td>`;
+  body.appendChild(tr);
+  updateSDTotal();
+}
+function updateSDRow(input) {
+  const row = input.closest('tr');
+  const inputs = row.querySelectorAll('input');
+  const qty = parseFloat(inputs[2].value) || 0;
+  const price = parseFloat(inputs[3].value) || 0;
+  row.querySelector('.sd-val').textContent = qty&&price ? fmtHTG(qty*price) : '';
+  updateSDTotal();
+}
+function updateSDTotal() {
+  const rows = document.querySelectorAll('#stock-depart-body tr');
+  let total = 0;
+  rows.forEach(row => {
+    const inputs = row.querySelectorAll('input');
+    const qty = parseFloat(inputs[2]?.value) || 0;
+    const price = parseFloat(inputs[3]?.value) || 0;
+    total += qty * price;
+  });
+  const el = document.getElementById('sd-total');
+  if (el) el.textContent = fmtHTG(total);
+}
+function renderStockDepart() {
+  const data = loadStockDepart();
+  const body = document.getElementById('stock-depart-body');
+  body.innerHTML = '';
+  if (data.length === 0) {
+    addStockDepartRow(); // Add one empty row by default
+  } else {
+    data.forEach(r => addStockDepartRow(r.desc, r.unit, r.qty, r.price));
+  }
+  updateSDTotal();
+}
+
+// ============================================================
+// STOCKS
+// ============================================================
+async function submitStock() {
+  const desc = document.getElementById('s-desc').value.trim();
+  const qty = parseFloat(document.getElementById('s-qty').value);
+  const unit = document.getElementById('s-unit').value.trim();
+  const price = parseFloat(document.getElementById('s-price').value);
+  const supplier = document.getElementById('s-supplier').value.trim();
+  if (!desc||isNaN(qty)||qty<=0||isNaN(price)||price<0) { showToast('⚠ Remplissez tous les champs.','warn'); return; }
+  const entry = {
+    type:'stock-in', date:todayStr(), isoDate:isoDate(), time:nowStr(),
+    seller:STATE.currentUser.username, description:desc, supplier:supplier,
+    quantity:qty, unit:unit, unitPrice:price, amount:qty*price,
+    createdAt: new Date().toISOString()
+  };
+  if (STATE.isOnline && STATE.fbReady) {
+    try {
+      const {collection, addDoc} = window._fbFns;
+      await addDoc(collection(window._db,'stocks'), entry);
+      // No longer add to transactions - stocks are separate
+      showToast('✅ Entrée de stock enregistrée.');
+    } catch(e) { showToast('⚠ Erreur Firebase.','warn'); }
+  }
+  document.getElementById('s-desc').value=''; document.getElementById('s-qty').value='';
+  document.getElementById('s-unit').value=''; document.getElementById('s-price').value='';
+  document.getElementById('s-supplier').value='';
+}
+
+function renderStocks() {
+  renderStockDepart();
+  const stockDepart = loadStockDepart();
+  const recap = {};
+  stockDepart.forEach(s => {
+    if (!s.desc) return;
+    const k = s.desc;
+    if (!recap[k]) recap[k] = {desc:k, unit:s.unit||'', depart:0, entrees:0, sorties:0};
+    recap[k].depart += Number(s.qty) || 0;
+    recap[k].unit = s.unit || recap[k].unit;
+  });
+  STATE.stocks.forEach(s => {
+    const k = s.description;
+    if (!recap[k]) recap[k] = {desc:k, unit:s.unit||'', depart:0, entrees:0, sorties:0};
+    recap[k].entrees += Number(s.quantity) || 0;
+    recap[k].unit = s.unit || recap[k].unit;
+  });
+  STATE.transactions.filter(t=>t.type==='vente').forEach(t => {
+    Object.keys(recap).forEach(k => {
+      if (t.description && t.description.toLowerCase().includes(k.toLowerCase())) {
+        recap[k].sorties += Number(t.quantity) || 0;
+      }
+    });
+  });
+  const recapBody = document.getElementById('stock-recap-body');
+  const recapRows = Object.values(recap);
+  if (!recapRows.length) {
+    recapBody.innerHTML='<tr><td colspan="6" style="text-align:center;color:var(--text3);padding:1.2rem;">Aucun produit.</td></tr>';
+  } else {
+    recapBody.innerHTML = recapRows.map(r => {
+      const actuel = r.depart + r.entrees - r.sorties;
+      return `<tr>
+        <td><strong>${esc(r.desc)}</strong></td>
+        <td style="color:var(--text2);">${r.depart}</td>
+        <td style="color:var(--success);font-weight:600;">${r.entrees}</td>
+        <td style="color:var(--danger);font-weight:600;">${r.sorties}</td>
+        <td style="font-weight:700;color:${actuel>=0?'var(--accent)':'var(--danger)'};">${actuel}</td>
+        <td>${esc(r.unit)}</td>
+      </tr>`;
+    }).join('');
+  }
+  const totalStockVal = STATE.stocks.reduce((a,s)=>a+Number(s.amount),0);
+  const totalDepartVal = stockDepart.reduce((a,s)=>a+(Number(s.qty)||0)*(Number(s.price)||0),0);
+  document.getElementById('stock-summary').innerHTML = `
+    <div class="ss-card"><div class="ss-lbl">Valeur stock départ</div><div class="ss-val" style="color:var(--text2);">${fmtHTG(totalDepartVal)}</div></div>
+    <div class="ss-card"><div class="ss-lbl">Valeur entrées</div><div class="ss-val" style="color:var(--accent);">${fmtHTG(totalStockVal)}</div></div>
+    <div class="ss-card"><div class="ss-lbl">Total stock</div><div class="ss-val" style="color:var(--success);">${fmtHTG(totalDepartVal+totalStockVal)}</div></div>
+    <div class="ss-card"><div class="ss-lbl">Produits</div><div class="ss-val">${recapRows.length}</div></div>
+  `;
+  const histBody = document.getElementById('stock-hist-body');
+  const allMvt = [
+    ...STATE.stocks.map(s => ({...s, mvtType:'entree'})),
+    ...STATE.transactions.filter(t=>t.type==='vente').map(t => ({...t, mvtType:'sortie'}))
+  ].sort((a,b)=>(b.isoDate||'').localeCompare(a.isoDate||'')||(b.time||'').localeCompare(a.time||''));
+  if (!allMvt.length) {
+    histBody.innerHTML='<tr><td colspan="7" style="text-align:center;color:var(--text3);padding:1.2rem;">Aucun mouvement.</td></tr>';
+  } else {
+    histBody.innerHTML = allMvt.map(m=>`<tr>
+      <td>${m.date}</td><td>${m.time}</td><td>${esc(m.description)}</td>
+      <td>${m.quantity}</td><td>${esc(m.unit||'')}</td>
+      <td><span class="badge ${m.mvtType==='entree'?'b-in':'b-out'}">${m.mvtType==='entree'?'📥 Entrée':'📤 Sortie'}</span></td>
+      <td>${fmtHTG(Number(m.amount))}</td>
+    </tr>`).join('');
+  }
+}
+
+// ============================================================
+// DASHBOARD
+// ============================================================
+function renderDash() {
+  if (!STATE.currentUser) return;
+  const now = new Date();
+  const curMonth = String(now.getMonth()+1).padStart(2,'0')+'/'+now.getFullYear();
+
+  function isThisMonth(t) {
+    const iso = t.isoDate||''; const d = t.date||'';
+    if (iso) { const p=iso.split('-'); if(p.length===3) return String(p[1]).padStart(2,'0')+'/'+p[0]===curMonth; }
+    if (d) { const p=d.split('/'); if(p.length===3) return String(p[1]).padStart(2,'0')+'/'+p[2]===curMonth; }
+    if (t.createdAt) {
+      const dt=new Date(t.createdAt);
+      return String(dt.getMonth()+1).padStart(2,'0')+'/'+dt.getFullYear()===curMonth;
+    }
+    return false;
+  }
+
+  // ---- VENTES ----
+  const sales = STATE.transactions.filter(t => t.type==='vente');
+  const todaySales = sales.filter(t => isSameDay(t));
+  const monthSales = sales.filter(t => isThisMonth(t));
+
+  // Treat missing payment as 'cash' by default
+  const cashDay = todaySales.filter(t => !t.payment || t.payment==='cash');
+  const creditDay = todaySales.filter(t => t.payment==='credit');
+  const cashMonth = monthSales.filter(t => !t.payment || t.payment==='cash');
+  const creditMonth = monthSales.filter(t => t.payment==='credit');
+  const set = (id,val) => { const el=document.getElementById(id); if(el) el.textContent=val; };
+  set('d-cash-day', fmtHTG(cashDay.reduce((a,t)=>a+Number(t.amount),0)));
+  set('d-cash-day-q', cashDay.length+' transaction(s)');
+  set('d-credit-day', fmtHTG(creditDay.reduce((a,t)=>a+Number(t.amount),0)));
+  set('d-credit-day-q', creditDay.length+' transaction(s)');
+  set('d-total-day', fmtHTG(todaySales.reduce((a,t)=>a+Number(t.amount),0)));
+  set('d-total-day-q', todaySales.length+' transaction(s)');
+  set('d-cash-month', fmtHTG(cashMonth.reduce((a,t)=>a+Number(t.amount),0)));
+  set('d-cash-month-q', cashMonth.length+' transaction(s)');
+  set('d-credit-month', fmtHTG(creditMonth.reduce((a,t)=>a+Number(t.amount),0)));
+  set('d-credit-month-q', creditMonth.length+' transaction(s)');
+  set('d-total-month', fmtHTG(monthSales.reduce((a,t)=>a+Number(t.amount),0)));
+  set('d-total-month-q', monthSales.length+' transaction(s)');
+
+  // ---- ACHATS ----
+  const achats = STATE.transactions.filter(t => t.type==='achat');
+  const achatDay = achats.filter(t => isSameDay(t));
+  const achatMonth = achats.filter(t => isThisMonth(t));
+  const achatCashDay = achatDay.filter(t => !t.payment || t.payment==='cash');
+  const achatCreditDay = achatDay.filter(t => t.payment==='credit');
+  const achatCashMonth = achatMonth.filter(t => !t.payment || t.payment==='cash');
+  const achatCreditMonth = achatMonth.filter(t => t.payment==='credit');
+  set('d-achat-cash-day', fmtHTG(achatCashDay.reduce((a,t)=>a+Number(t.amount),0)));
+  set('d-achat-cash-day-q', achatCashDay.length+' achat(s)');
+  set('d-achat-day', fmtHTG(achatCreditDay.reduce((a,t)=>a+Number(t.amount),0)));
+  set('d-achat-day-q', achatCreditDay.length+' achat(s)');
+  set('d-achat-total-day', fmtHTG(achatDay.reduce((a,t)=>a+Number(t.amount),0)));
+  set('d-achat-total-day-q', achatDay.length+' achat(s)');
+  set('d-achat-cash-month', fmtHTG(achatCashMonth.reduce((a,t)=>a+Number(t.amount),0)));
+  set('d-achat-cash-month-q', achatCashMonth.length+' achat(s)');
+  set('d-achat-month', fmtHTG(achatCreditMonth.reduce((a,t)=>a+Number(t.amount),0)));
+  set('d-achat-month-q', achatCreditMonth.length+' achat(s)');
+  set('d-achat-total-month', fmtHTG(achatMonth.reduce((a,t)=>a+Number(t.amount),0)));
+  set('d-achat-total-month-q', achatMonth.length+' achat(s)');
+
+  // ---- AUTRES ----
+  const payrollDay = STATE.transactions.filter(t=>t.type==='payroll'&&isSameDay(t));
+  const payrollMonth = STATE.transactions.filter(t=>t.type==='payroll'&&isThisMonth(t));
+  const depenseDay = STATE.transactions.filter(t=>t.type==='depense'&&isSameDay(t));
+  const depenseMonth = STATE.transactions.filter(t=>t.type==='depense'&&isThisMonth(t));
+  const autreDay = STATE.transactions.filter(t=>t.type==='autre'&&isSameDay(t));
+  const autreMonth = STATE.transactions.filter(t=>t.type==='autre'&&isThisMonth(t));
+  set('d-payroll-day', fmtHTG(payrollDay.reduce((a,t)=>a+Number(t.amount),0)));
+  set('d-payroll-day-q', payrollDay.length+' enreg.');
+  set('d-depense-day', fmtHTG(depenseDay.reduce((a,t)=>a+Number(t.amount),0)));
+  set('d-depense-day-q', depenseDay.length+' enreg.');
+  set('d-autre-day', fmtHTG(autreDay.reduce((a,t)=>a+Number(t.amount),0)));
+  set('d-autre-day-q', autreDay.length+' enreg.');
+  set('d-payroll-month', fmtHTG(payrollMonth.reduce((a,t)=>a+Number(t.amount),0)));
+  set('d-payroll-month-q', payrollMonth.length+' enreg.');
+  set('d-depense-month', fmtHTG(depenseMonth.reduce((a,t)=>a+Number(t.amount),0)));
+  set('d-depense-month-q', depenseMonth.length+' enreg.');
+  set('d-autre-month', fmtHTG(autreMonth.reduce((a,t)=>a+Number(t.amount),0)));
+  set('d-autre-month-q', autreMonth.length+' enreg.');
+
+  renderAllTrans(STATE.transactions);
+}
+
+
+function renderAllTrans(data) {
+  const body = document.getElementById('all-trans-body');
+  // Exclude stock-in from transactions display (stocks have their own tab)
+  const filtered = [...data].filter(t => t.type !== 'stock-in' && !t.description?.startsWith('[STOCK]'));
+  const sorted = filtered.sort((a,b) => {
+    const da = b.createdAt || b.isoDate || '';
+    const db2 = a.createdAt || a.isoDate || '';
+    return da.localeCompare(db2);
+  });
+  if (!sorted.length) { body.innerHTML='<tr><td colspan="10" style="text-align:center;color:var(--text3);padding:1.2rem;">Aucune transaction.</td></tr>'; return; }
+  body.innerHTML = sorted.map(t=>`<tr>
+    <td>${t.date}</td><td>${t.time}</td><td>${esc(t.seller)}</td><td>${esc(t.description)}</td>
+    <td>${t.quantity||''}</td><td>${esc(t.unit||'')}</td><td>${fmtHTG(Number(t.amount))}</td>
+    <td><span class="badge b-${t.type}">${typeLbl(t.type)}</span></td>
+    <td>${t.payment?`<span class="badge ${(!t.payment||t.payment==='cash')?'b-cash':'b-credit'}">${(!t.payment||t.payment==='cash')?'💵 Cash':'📋 Crédit'}</span>`:''}</td>
+    <td style="white-space:nowrap;">
+      <button class="btn btn-outline" style="font-size:.72rem;padding:2px 8px;" onclick="openEdit('${t.id}')">✏</button>
+      <button class="btn" style="font-size:.72rem;padding:2px 8px;background:var(--danger-bg);color:var(--danger);border:1px solid #f5b7b1;margin-left:3px;" onclick="delTrans('${t.id}')">🗑</button>
+    </td>
+  </tr>`).join('');
+}
+function typeLbl(t){return{vente:'📤 Vente','stock-in':'📥 Stock',achat:'🛒 Achat',payroll:'👷 Payroll',depense:'💸 Dépense',autre:'📌 Autre'}[t]||t;}
+function filterT() {
+  const d = document.getElementById('fdate').value;
+  if (!d) { renderAllTrans(STATE.transactions); return; }
+  const p=d.split('-');
+  const isoF = p[0]+'-'+p[1]+'-'+p[2];
+  const dmyF = p[2]+'/'+p[1]+'/'+p[0];
+  renderAllTrans(STATE.transactions.filter(t => t.date===dmyF || t.isoDate===isoF));
+}
+function clearF() { document.getElementById('fdate').value=''; renderAllTrans(STATE.transactions); }
+
+// ============================================================
+// ADMIN
+// ============================================================
+// ============================================================
+// ACHATS
+// ============================================================
+async function submitAchat() {
+  const desc = document.getElementById('a-desc').value.trim();
+  const qty = parseFloat(document.getElementById('a-qty').value) || 1;
+  const unit = document.getElementById('a-unit').value.trim();
+  const amount = parseFloat(document.getElementById('a-amount').value);
+  const benef = document.getElementById('a-benef').value.trim();
+  const pay = document.querySelector('input[name="apay"]:checked')?.value || 'cash';
+  if (!desc||isNaN(amount)||amount<0) { showToast('⚠ Remplissez tous les champs.','warn'); return; }
+  const tx = {
+    type:'achat', date:todayStr(), isoDate:isoDate(), time:nowStr(),
+    seller:STATE.currentUser.username, description:desc,
+    quantity:qty, unit:unit, amount:amount, payment:pay,
+    beneficiary:benef, status:'sent', createdAt:new Date().toISOString()
+  };
+  if (STATE.isOnline && STATE.fbReady) {
+    try {
+      const {collection, addDoc} = window._fbFns;
+      await addDoc(collection(window._db,'transactions'), tx);
+      showToast('✅ Achat enregistré.');
+    } catch(e) { showToast('⚠ Erreur Firebase.','warn'); }
+  }
+  document.getElementById('a-desc').value=''; document.getElementById('a-qty').value='';
+  document.getElementById('a-unit').value=''; document.getElementById('a-amount').value='';
+  document.getElementById('a-benef').value='';
+  document.querySelector('input[name="apay"][value="cash"]').checked=true;
+}
+
+function renderAchats(data) {
+  const body = document.getElementById('achat-body');
+  const all = (data || STATE.transactions).filter(t => t.type==='achat')
+    .sort((a,b)=>(b.createdAt||b.isoDate||'').localeCompare(a.createdAt||a.isoDate||''));
+  if (!all.length) {
+    body.innerHTML='<tr><td colspan="10" style="text-align:center;color:var(--text3);padding:1.2rem;">Aucun achat enregistré.</td></tr>';
+  } else {
+    body.innerHTML = all.map(t=>`<tr>
+      <td>${t.date}</td><td>${t.time}</td><td>${esc(t.seller)}</td><td>${esc(t.description)}</td>
+      <td>${t.quantity||''}</td><td>${esc(t.unit||'')}</td><td>${fmtHTG(Number(t.amount))}</td>
+      <td><span class="badge ${(!t.payment||t.payment==='cash')?'b-cash':'b-credit'}">${(!t.payment||t.payment==='cash')?'💵 Cash':'📋 Crédit'}</span></td>
+      <td>${esc(t.beneficiary||'')}</td>
+      <td style="white-space:nowrap;">
+        <button class="btn btn-outline" style="font-size:.72rem;padding:2px 8px;" onclick="openEdit('${t.id}')">✏</button>
+        <button class="btn" style="font-size:.72rem;padding:2px 8px;background:var(--danger-bg);color:var(--danger);border:1px solid #f5b7b1;margin-left:3px;" onclick="delTrans('${t.id}')">🗑</button>
+      </td>
+    </tr>`).join('');
+  }
+  const src = data || STATE.transactions.filter(t=>t.type==='achat');
+  const achats = (data ? data.filter(t=>t.type==='achat') : src);
+  const cash = achats.filter(t=>t.payment==='cash').reduce((a,t)=>a+Number(t.amount),0);
+  const credit = achats.filter(t=>t.payment==='credit').reduce((a,t)=>a+Number(t.amount),0);
+  const el1=document.getElementById('achat-cash-total'); if(el1) el1.textContent=fmtHTG(cash);
+  const el2=document.getElementById('achat-credit-total'); if(el2) el2.textContent=fmtHTG(credit);
+  const el3=document.getElementById('achat-total'); if(el3) el3.textContent=fmtHTG(cash+credit);
+}
+
+function filterAchats() {
+  const d = document.getElementById('achat-filter').value;
+  if (!d) { renderAchats(); return; }
+  const p=d.split('-'); const iso=p[0]+'-'+p[1]+'-'+p[2]; const dmy=p[2]+'/'+p[1]+'/'+p[0];
+  renderAchats(STATE.transactions.filter(t=>t.type==='achat'&&(t.date===dmy||t.isoDate===iso)));
+}
+function clearAchatFilter() { document.getElementById('achat-filter').value=''; renderAchats(); }
+
+// ============================================================
+// AUTRES TRANSACTIONS
+// ============================================================
+async function submitAutre() {
+  const type = document.getElementById('at-type').value;
+  const desc = document.getElementById('at-desc').value.trim();
+  const amount = parseFloat(document.getElementById('at-amount').value);
+  const benef = document.getElementById('at-benef').value.trim();
+  const pay = document.querySelector('input[name="atpay"]:checked')?.value || 'cash';
+  if (!desc||isNaN(amount)||amount<0) { showToast('⚠ Remplissez tous les champs.','warn'); return; }
+  const tx = {
+    type:type, date:todayStr(), isoDate:isoDate(), time:nowStr(),
+    seller:STATE.currentUser.username, description:desc,
+    quantity:1, unit:'', amount:amount, payment:pay,
+    beneficiary:benef, status:'sent', createdAt:new Date().toISOString()
+  };
+  if (STATE.isOnline && STATE.fbReady) {
+    try {
+      const {collection, addDoc} = window._fbFns;
+      await addDoc(collection(window._db,'transactions'), tx);
+      showToast('✅ Transaction enregistrée.');
+    } catch(e) { showToast('⚠ Erreur Firebase.','warn'); }
+  }
+  document.getElementById('at-desc').value=''; document.getElementById('at-amount').value='';
+  document.getElementById('at-benef').value='';
+}
+
+function renderAutre(data) {
+  const body = document.getElementById('autre-body');
+  const types = ['payroll','depense','autre'];
+  const all = (data || STATE.transactions).filter(t => types.includes(t.type))
+    .sort((a,b)=>(b.createdAt||b.isoDate||'').localeCompare(a.createdAt||a.isoDate||''));
+  if (!all.length) {
+    body.innerHTML='<tr><td colspan="9" style="text-align:center;color:var(--text3);padding:1.2rem;">Aucune transaction.</td></tr>';
+  } else {
+    body.innerHTML = all.map(t=>`<tr>
+      <td>${t.date}</td><td>${t.time}</td><td>${esc(t.seller)}</td>
+      <td><span class="badge b-${t.type}">${typeLbl(t.type)}</span></td>
+      <td>${esc(t.description)}</td><td>${fmtHTG(Number(t.amount))}</td>
+      <td><span class="badge ${(!t.payment||t.payment==='cash')?'b-cash':'b-credit'}">${(!t.payment||t.payment==='cash')?'💵 Cash':'📋 Crédit'}</span></td>
+      <td>${esc(t.beneficiary||'')}</td>
+      <td style="white-space:nowrap;">
+        <button class="btn btn-outline" style="font-size:.72rem;padding:2px 8px;" onclick="openEdit('${t.id}')">✏</button>
+        <button class="btn" style="font-size:.72rem;padding:2px 8px;background:var(--danger-bg);color:var(--danger);border:1px solid #f5b7b1;margin-left:3px;" onclick="delTrans('${t.id}')">🗑</button>
+      </td>
+    </tr>`).join('');
+  }
+  const src = data || STATE.transactions.filter(t=>types.includes(t.type));
+  const filtered = data ? data.filter(t=>types.includes(t.type)) : src;
+  const el1=document.getElementById('at-payroll-total'); if(el1) el1.textContent=fmtHTG(filtered.filter(t=>t.type==='payroll').reduce((a,t)=>a+Number(t.amount),0));
+  const el2=document.getElementById('at-depense-total'); if(el2) el2.textContent=fmtHTG(filtered.filter(t=>t.type==='depense').reduce((a,t)=>a+Number(t.amount),0));
+  const el3=document.getElementById('at-autre-total'); if(el3) el3.textContent=fmtHTG(filtered.filter(t=>t.type==='autre').reduce((a,t)=>a+Number(t.amount),0));
+}
+
+function filterAutre() {
+  const d = document.getElementById('autre-filter').value;
+  if (!d) { renderAutre(); return; }
+  const p=d.split('-'); const iso=p[0]+'-'+p[1]+'-'+p[2]; const dmy=p[2]+'/'+p[1]+'/'+p[0];
+  const types=['payroll','depense','autre'];
+  renderAutre(STATE.transactions.filter(t=>types.includes(t.type)&&(t.date===dmy||t.isoDate===iso)));
+}
+function clearAutreFilter() { document.getElementById('autre-filter').value=''; renderAutre(); }
+
+async function submitExtra() {
+  showToast('Utilisez les onglets Achats ou Autres transactions.','warn');
+}
+
+function renderAdminTrans() {
+  const body = document.getElementById('admin-trans-body');
+  const sorted = [...STATE.transactions].sort((a,b)=>(b.isoDate||'').localeCompare(a.isoDate||''));
+  if (!sorted.length) { body.innerHTML='<tr><td colspan="8" style="text-align:center;color:var(--text3);padding:1.2rem;">Aucune transaction.</td></tr>'; return; }
+  body.innerHTML = sorted.map(t=>`<tr>
+    <td>${t.date}</td><td>${t.time}</td><td>${esc(t.seller)}</td><td>${esc(t.description)}</td>
+    <td>${t.quantity||''}</td><td>${fmtHTG(t.amount)}</td>
+    <td><span class="badge b-${t.type}">${typeLbl(t.type)}</span></td>
+    <td style="white-space:nowrap;">
+      <button class="btn btn-outline" style="font-size:.72rem;padding:2px 8px;" onclick="openEdit('${t.id}')">✏</button>
+      <button class="btn" style="font-size:.72rem;padding:2px 8px;background:var(--danger-bg);color:var(--danger);border:1px solid #f5b7b1;margin-left:3px;" onclick="delTrans('${t.id}')">🗑</button>
+    </td>
+  </tr>`).join('');
+}
+
+function renderUsers() {
+  const c = document.getElementById('users-list');
+  if (!c) return;
+  c.innerHTML = STATE.users.map(u=>`
+    <div class="user-chip">
+      <div class="av">${u.username[0].toUpperCase()}</div>
+      <span>${esc(u.username)}</span>
+      <span class="rb">${u.role}</span>
+      ${u.username!=='admin'?`<button class="db" onclick="delUser('${u.username}')">×</button>`:''}
+    </div>`).join('');
+}
+
+function showAddUser() { openModal('user-modal'); }
+async function addUser() {
+  const u=document.getElementById('nu').value.trim();
+  const p=document.getElementById('np').value;
+  const r=document.getElementById('nr').value;
+  if (!u||!p) { document.getElementById('uerr').textContent='Champs requis.'; return; }
+  if (STATE.users.find(x=>x.username===u)) { document.getElementById('uerr').textContent='Nom déjà utilisé.'; return; }
+  const nu = {username:u, password:p, role:r};
+  if (STATE.isOnline && STATE.fbReady) {
+    try { const {collection, addDoc} = window._fbFns; await addDoc(collection(window._db,'users'), nu); } catch(e){}
+  }
+  STATE.users.push(nu); saveLocal(); renderUsers(); closeModal('user-modal');
+  document.getElementById('nu').value=''; document.getElementById('np').value=''; document.getElementById('uerr').textContent='';
+  showToast(`✅ Utilisateur "${u}" ajouté.`);
+}
+function delUser(username) {
+  if (!confirm(`Supprimer "${username}" ?`)) return;
+  STATE.users = STATE.users.filter(u=>u.username!==username); saveLocal(); renderUsers();
+  showToast(`Utilisateur "${username}" supprimé.`,'warn');
+}
+
+function openEdit(id) {
+  const tx = STATE.transactions.find(t=>t.id===id); if(!tx) return;
+  document.getElementById('edit-id').value=id;
+  document.getElementById('edit-desc').value=tx.description||'';
+  document.getElementById('edit-qty').value=tx.quantity||'';
+  document.getElementById('edit-unit').value=tx.unit||'';
+  document.getElementById('edit-amount').value=tx.amount||'';
+  document.getElementById('edit-payment').value=tx.payment||'cash';
+  openModal('edit-modal');
+}
+async function saveEdit() {
+  const id=document.getElementById('edit-id').value;
+  const desc=document.getElementById('edit-desc').value.trim();
+  const qty=parseFloat(document.getElementById('edit-qty').value);
+  const unit=document.getElementById('edit-unit').value.trim();
+  const amount=parseFloat(document.getElementById('edit-amount').value);
+  const payment=document.getElementById('edit-payment').value;
+  if (!desc||isNaN(amount)) { showToast('⚠ Remplissez les champs requis.','warn'); return; }
+  if (STATE.isOnline && STATE.fbReady) {
+    try {
+      const {doc, updateDoc} = window._fbFns;
+      await updateDoc(doc(window._db,'transactions',id), {
+        description:desc, quantity:qty, unit:unit, amount:amount, payment:payment,
+        editedBy:STATE.currentUser.username, editedAt:new Date().toISOString()
+      });
+      showToast('✅ Transaction modifiée.');
+    } catch(e) { showToast('⚠ Erreur: '+e.message,'warn'); }
+  }
+  closeModal('edit-modal');
+}
+async function delTrans(id) {
+  if (!confirm('Supprimer cette transaction ?')) return;
+  if (STATE.isOnline && STATE.fbReady) {
+    try {
+      const {doc, deleteDoc} = window._fbFns;
+      await deleteDoc(doc(window._db,'transactions',id));
+      showToast('🗑 Transaction supprimée.','warn');
+    } catch(e) { showToast('⚠ Erreur: '+e.message,'warn'); }
+  }
+}
+
+// ============================================================
+// PRINT & SAVE
+// ============================================================
+function handleLogout() {
+  const isPriv = STATE.currentUser && (STATE.currentUser.role==='admin' || STATE.currentUser.role==='gestionnaire');
+  if (isPriv) { openModal('save-modal'); } else { doLogout(); }
+}
+
+function printTodaySales() {
+  const isPriv = STATE.currentUser.role==='admin' || STATE.currentUser.role==='gestionnaire';
+  const todayTrans = STATE.transactions.filter(t => {
+    const isVente = t.type==='vente';
+    if (isPriv) return isSameDay(t) && isVente;
+    return t.seller===STATE.currentUser.username && isSameDay(t) && isVente;
+  }).sort((a,b)=>(b.createdAt||b.time||'').localeCompare(a.createdAt||a.time||''));
+
+  const totalCash = todayTrans.filter(t=>t.payment==='cash').reduce((a,t)=>a+Number(t.amount),0);
+  const totalCredit = todayTrans.filter(t=>t.payment==='credit').reduce((a,t)=>a+Number(t.amount),0);
+  const total = todayTrans.reduce((a,t)=>a+Number(t.amount),0);
+
+  const content = `
+    <div style="font-family:'Segoe UI',Arial,sans-serif;padding:1rem;">
+      <div style="text-align:center;border-bottom:2px solid #1a56db;padding-bottom:.8rem;margin-bottom:.8rem;">
+        <div style="font-size:1.2rem;font-weight:700;color:#1a56db;">BW Multiservice</div>
+        <div style="font-size:.82rem;color:#666;">Fiche de vente — ${todayStr()}</div>
+        <div style="font-size:.78rem;color:#666;">Vendeur: ${STATE.currentUser.username}</div>
+      </div>
+      <table style="width:100%;border-collapse:collapse;font-size:.82rem;">
+        <thead><tr style="background:#e8f0fd;">
+          <th style="padding:5px;text-align:left;border:1px solid #ddd;">Description</th>
+          <th style="padding:5px;text-align:center;border:1px solid #ddd;">Qté</th>
+          <th style="padding:5px;text-align:center;border:1px solid #ddd;">Unité</th>
+          <th style="padding:5px;text-align:right;border:1px solid #ddd;">Montant HTG</th>
+          <th style="padding:5px;text-align:center;border:1px solid #ddd;">Paiement</th>
+        </tr></thead>
+        <tbody>
+          ${todayTrans.map(t=>`<tr>
+            <td style="padding:5px;border:1px solid #ddd;">${t.description}</td>
+            <td style="padding:5px;text-align:center;border:1px solid #ddd;">${t.quantity}</td>
+            <td style="padding:5px;text-align:center;border:1px solid #ddd;">${t.unit||''}</td>
+            <td style="padding:5px;text-align:right;border:1px solid #ddd;">${fmtHTG(Number(t.amount))}</td>
+            <td style="padding:5px;text-align:center;border:1px solid #ddd;">${t.payment==='cash'?'Cash':'Crédit'}</td>
+          </tr>`).join('')}
+        </tbody>
+      </table>
+      <div style="margin-top:.8rem;border-top:1px solid #ddd;padding-top:.5rem;">
+        <div style="display:flex;justify-content:space-between;font-size:.85rem;margin-bottom:3px;">
+          <span>Total Cash:</span><strong>${fmtHTG(totalCash)}</strong>
+        </div>
+        <div style="display:flex;justify-content:space-between;font-size:.85rem;margin-bottom:3px;">
+          <span>Total Crédit:</span><strong>${fmtHTG(totalCredit)}</strong>
+        </div>
+        <div style="display:flex;justify-content:space-between;font-size:1rem;font-weight:700;color:#1a56db;border-top:1px solid #1a56db;padding-top:5px;margin-top:5px;">
+          <span>TOTAL GÉNÉRAL:</span><strong>${fmtHTG(total)}</strong>
+        </div>
+      </div>
+      <div style="text-align:center;font-size:.72rem;color:#999;margin-top:.8rem;">Imprimé le ${todayStr()} à ${nowStr()}</div>
+    </div>`;
+
+  document.getElementById('print-content').innerHTML = content;
+  openModal('print-modal');
+}
+
+function doPrint() {
+  const content = document.getElementById('print-content').innerHTML;
+  const win = window.open('', '_blank', 'width=600,height=700');
+  win.document.write(`<!DOCTYPE html><html><head><title>Fiche de vente — BW Multiservice</title>
+  <style>body{font-family:'Segoe UI',Arial,sans-serif;margin:1rem;}@media print{button{display:none;}}</style>
+  </head><body>${content}<br><button onclick="window.print()">🖨 Imprimer</button></body></html>`);
+  win.document.close();
+  win.focus();
+  setTimeout(()=>win.print(), 500);
+}
+
+function printAllTrans() {
+  const win = window.open('', '_blank', 'width=800,height:700');
+  const rows = STATE.transactions.sort((a,b)=>(b.isoDate||'').localeCompare(a.isoDate||'')).map(t=>
+    `<tr><td>${t.date}</td><td>${t.time}</td><td>${t.seller}</td><td>${t.description}</td><td>${t.quantity||''}</td><td>${fmtHTG(Number(t.amount))}</td><td>${t.type}</td><td>${t.payment||''}</td></tr>`
+  ).join('');
+  win.document.write(`<!DOCTYPE html><html><head><title>Rapport BW Multiservice</title>
+  <style>body{font-family:'Segoe UI',Arial,sans-serif;margin:1rem;}table{width:100%;border-collapse:collapse;font-size:.82rem;}th{background:#e8f0fd;padding:6px;text-align:left;border:1px solid #ddd;}td{padding:5px;border:1px solid #ddd;}@media print{button{display:none;}}</style>
+  </head><body>
+  <h2 style="color:#1a56db;">BW Multiservice — Rapport complet</h2>
+  <p>Imprimé le ${todayStr()} à ${nowStr()}</p>
+  <table><thead><tr><th>Date</th><th>Heure</th><th>Vendeur</th><th>Description</th><th>Qté</th><th>Montant HTG</th><th>Type</th><th>Paiement</th></tr></thead>
+  <tbody>${rows}</tbody></table>
+  <br><button onclick="window.print()">🖨 Imprimer</button>
+  </body></html>`);
+  win.document.close();
+}
+
+// ============================================================
+// ACCOUNTING
+// ============================================================
+function refreshAcc() {
+  buildTransSheet(); buildJournal(); buildGL(); buildBalance(); buildBilan(); buildAnalyse();
+}
+function buildTransSheet() {
+  const body=document.getElementById('sh-trans'); const tot=document.getElementById('sh-total');
+  const sales=STATE.transactions.filter(t=>t.type==='vente').sort((a,b)=>(a.isoDate||'').localeCompare(b.isoDate||'')||(a.time||'').localeCompare(b.time||''));
+  let cum=0;
+  body.innerHTML=sales.map((t,i)=>{cum+=t.amount;return`<tr><td>${i+1}</td><td>${t.date}</td><td>${t.time}</td><td>${esc(t.seller)}</td><td>${esc(t.description)}</td><td>${t.quantity}</td><td>${esc(t.unit||'')}</td><td>${fmtHTG(t.amount)}</td><td>Vente</td><td>${t.payment||''}</td><td>${fmtHTG(cum)}</td></tr>`;}).join('')||'<tr><td colspan="11" style="text-align:center;color:var(--text3);padding:1rem;">Aucune.</td></tr>';
+  tot.textContent=fmtHTG(sales.reduce((a,t)=>a+t.amount,0));
+}
+function buildJournal() {
+  const body=document.getElementById('sh-journal');
+  const dTot=document.getElementById('jd'); const cTot=document.getElementById('jc');
+  const txns=[...STATE.transactions].sort((a,b)=>(a.isoDate||'').localeCompare(b.isoDate||''));
+  let rows=[],dSum=0,cSum=0,pce=1;
+  txns.forEach(t=>{
+    let d='',c='';
+    if(t.type==='vente'){d='5100 – Caisse';c='7000 – Ventes';}
+    else if(t.type==='stock-in'||t.description?.startsWith('[STOCK]')){d='3100 – Stocks';c='4010 – Fournisseurs';}
+    else if(t.type==='achat'){d='6100 – Achats';c='5100 – Caisse';}
+    else if(t.type==='payroll'){d='6200 – Salaires';c='5100 – Caisse';}
+    else{d='6300 – Dépenses';c='5100 – Caisse';}
+    rows.push({date:t.date,pce:`PC-${String(pce).padStart(4,'0')}`,d,c,label:t.description,dAmt:t.amount,cAmt:t.amount});
+    dSum+=t.amount;cSum+=t.amount;pce++;
+  });
+  body.innerHTML=rows.map(r=>`<tr><td>${r.date}</td><td>${r.pce}</td><td>${r.d}</td><td>${r.c}</td><td>${esc(r.label)}</td><td>${fmtHTG(r.dAmt)}</td><td>${fmtHTG(r.cAmt)}</td></tr>`).join('')||'<tr><td colspan="7" style="text-align:center;color:var(--text3);">Aucune.</td></tr>';
+  dTot.textContent=fmtHTG(dSum); cTot.textContent=fmtHTG(cSum);
+}
+function buildGL() {
+  const cont=document.getElementById('gl-content');
+  const vt=STATE.transactions.filter(t=>t.type==='vente').reduce((a,t)=>a+t.amount,0);
+  const st=STATE.stocks.reduce((a,s)=>a+s.amount,0);
+  const achat=STATE.transactions.filter(t=>t.type==='achat').reduce((a,t)=>a+t.amount,0);
+  const payroll=STATE.transactions.filter(t=>t.type==='payroll').reduce((a,t)=>a+t.amount,0);
+  const dep=STATE.transactions.filter(t=>t.type==='depense'||t.type==='autre').reduce((a,t)=>a+t.amount,0);
+  const accs={'5100 – Caisse':{d:vt,c:st+achat+payroll+dep},'7000 – Ventes':{d:0,c:vt},'3100 – Stocks':{d:st,c:0},'4010 – Fournisseurs':{d:0,c:st},'6100 – Achats':{d:achat,c:0},'6200 – Salaires':{d:payroll,c:0},'6300 – Dépenses':{d:dep,c:0}};
+  cont.innerHTML=Object.entries(accs).map(([acc,v])=>`
+    <div style="margin-bottom:1.2rem;">
+      <div style="font-weight:600;font-size:.85rem;background:var(--accent-bg);color:var(--accent-text);padding:5px 9px;border-radius:7px 7px 0 0;border:1px solid var(--border);">${acc}</div>
+      <div class="tw"><table style="border:1px solid var(--border);border-top:none;">
+        <thead><tr><th>Débit</th><th>Crédit</th><th>Solde</th></tr></thead>
+        <tbody><tr><td>${fmtHTG(v.d)}</td><td>${fmtHTG(v.c)}</td><td>${fmtHTG(v.d-v.c)}</td></tr></tbody>
+      </table></div></div>`).join('');
+}
+function buildBalance() {
+  const body=document.getElementById('sh-balance');
+  const bd=document.getElementById('bd'); const bc=document.getElementById('bc');
+  const vt=STATE.transactions.filter(t=>t.type==='vente').reduce((a,t)=>a+t.amount,0);
+  const st=STATE.stocks.reduce((a,s)=>a+s.amount,0);
+  const achat=STATE.transactions.filter(t=>t.type==='achat').reduce((a,t)=>a+t.amount,0);
+  const payroll=STATE.transactions.filter(t=>t.type==='payroll').reduce((a,t)=>a+t.amount,0);
+  const dep=STATE.transactions.filter(t=>t.type==='depense'||t.type==='autre').reduce((a,t)=>a+t.amount,0);
+  const rows=[
+    {n:'3100',l:'Stocks',d:st,c:0},{n:'4010',l:'Fournisseurs',d:0,c:st},
+    {n:'5100',l:'Caisse',d:vt,c:st+achat+payroll+dep},{n:'6100',l:'Achats',d:achat,c:0},
+    {n:'6200',l:'Salaires',d:payroll,c:0},{n:'6300',l:'Dépenses',d:dep,c:0},
+    {n:'7000',l:'Ventes',d:0,c:vt}
+  ];
+  body.innerHTML=rows.map(r=>`<tr><td>${r.n}</td><td>${r.l}</td><td>${r.d?fmtHTG(r.d):''}</td><td>${r.c?fmtHTG(r.c):''}</td></tr>`).join('');
+  const td=rows.reduce((a,r)=>a+r.d,0), tc=rows.reduce((a,r)=>a+r.c,0);
+  bd.textContent=fmtHTG(td); bc.textContent=fmtHTG(tc);
+}
+function buildBilan() {
+  const c=document.getElementById('bilan-c');
+  const vt=STATE.transactions.filter(t=>t.type==='vente').reduce((a,t)=>a+t.amount,0);
+  const st=STATE.stocks.reduce((a,s)=>a+s.amount,0);
+  const dep=STATE.transactions.filter(t=>['achat','payroll','depense','autre'].includes(t.type)).reduce((a,t)=>a+t.amount,0);
+  const caisse=vt-dep;
+  c.innerHTML=`
+  <div>
+    <div style="font-weight:700;font-size:.85rem;background:var(--accent-bg);color:var(--accent-text);padding:7px 11px;border-radius:7px 7px 0 0;border:1px solid var(--border);">ACTIF</div>
+    <div style="border:1px solid var(--border);border-top:none;border-radius:0 0 7px 7px;overflow:hidden;"><table style="width:100%;"><tbody>
+      <tr><td style="padding:6px 11px;">Stocks</td><td style="padding:6px 11px;text-align:right;font-weight:500;">${fmtHTG(st)}</td></tr>
+      <tr><td style="padding:6px 11px;">Caisse</td><td style="padding:6px 11px;text-align:right;font-weight:500;">${fmtHTG(caisse)}</td></tr>
+      <tr style="background:var(--surface2);font-weight:700;"><td style="padding:6px 11px;">Total Actif</td><td style="padding:6px 11px;text-align:right;">${fmtHTG(st+caisse)}</td></tr>
+    </tbody></table></div></div>
+  <div>
+    <div style="font-weight:700;font-size:.85rem;background:var(--success-bg);color:var(--success);padding:7px 11px;border-radius:7px 7px 0 0;border:1px solid var(--border);">PASSIF & CAPITAUX</div>
+    <div style="border:1px solid var(--border);border-top:none;border-radius:0 0 7px 7px;overflow:hidden;"><table style="width:100%;"><tbody>
+      <tr><td style="padding:6px 11px;">Fournisseurs</td><td style="padding:6px 11px;text-align:right;font-weight:500;">${fmtHTG(st)}</td></tr>
+      <tr><td style="padding:6px 11px;">Résultat net</td><td style="padding:6px 11px;text-align:right;font-weight:500;">${fmtHTG(vt-dep)}</td></tr>
+      <tr style="background:var(--surface2);font-weight:700;"><td style="padding:6px 11px;">Total Passif</td><td style="padding:6px 11px;text-align:right;">${fmtHTG(st+(vt-dep))}</td></tr>
+    </tbody></table></div></div>`;
+}
+function buildAnalyse() {
+  const c = document.getElementById('ana-c');
+  if (!c) return;
+
+  // Ventes
+  const ventes = STATE.transactions.filter(t => t.type==='vente');
+  const vt = ventes.reduce((a,t) => a+Number(t.amount), 0);
+  const nbV = ventes.length;
+  const avg = nbV ? vt/nbV : 0;
+  const todayV = ventes.filter(t => isSameDay(t)).reduce((a,t) => a+Number(t.amount), 0);
+
+  // Achats (coût des marchandises)
+  const achats = STATE.transactions.filter(t => t.type==='achat');
+  const achatTotal = achats.reduce((a,t) => a+Number(t.amount), 0);
+
+  // Autres dépenses (payroll, depense, autre)
+  const autresDep = STATE.transactions.filter(t => ['payroll','depense','autre'].includes(t.type));
+  const autresTotal = autresDep.reduce((a,t) => a+Number(t.amount), 0);
+
+  // Stock
+  const st = STATE.stocks.reduce((a,s) => a+Number(s.amount), 0);
+
+  // Calculs
+  const totalDep = achatTotal + autresTotal;
+  const benefBrut = vt - achatTotal; // Ventes - Achats
+  const resultatNet = vt - totalDep; // Ventes - tous les coûts
+  const margeBrute = achatTotal > 0 ? (benefBrut / achatTotal * 100) : (vt > 0 ? 100 : 0);
+
+  c.innerHTML = `
+  <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:10px;margin-bottom:1rem;">
+    <div class="mcard ac"><div class="lbl">Chiffre d'affaires total</div><div class="val">${fmtHTG(vt)}</div></div>
+    <div class="mcard ac"><div class="lbl">Ventes du jour</div><div class="val">${fmtHTG(todayV)}</div></div>
+    <div class="mcard"><div class="lbl">Panier moyen</div><div class="val">${fmtHTG(avg)}</div></div>
+    <div class="mcard"><div class="lbl">Nombre de ventes</div><div class="val">${nbV}</div></div>
+    <div class="mcard sc"><div class="lbl">Valeur du stock</div><div class="val">${fmtHTG(st)}</div></div>
+    <div class="mcard" style="border-color:#f7c948;background:#fef3e2;"><div class="lbl">Total achats</div><div class="val" style="color:#b45309;">${fmtHTG(achatTotal)}</div></div>
+    <div class="mcard" style="border-color:#c4b5fd;background:#f3e8ff;"><div class="lbl">Total autres dépenses</div><div class="val" style="color:#7c3aed;">${fmtHTG(autresTotal)}</div></div>
+    <div class="mcard"><div class="lbl">Total coûts</div><div class="val" style="color:var(--danger);">${fmtHTG(totalDep)}</div></div>
+    <div class="mcard ${benefBrut>=0?'sc':''}"><div class="lbl">Bénéfice brut</div><div class="val">${fmtHTG(benefBrut)}</div><div class="sub">(Ventes - Achats)</div></div>
+    <div class="mcard ${resultatNet>=0?'sc':''}"><div class="lbl">Résultat net</div><div class="val">${fmtHTG(resultatNet)}</div><div class="sub">(Ventes - Tous coûts)</div></div>
+    <div class="mcard"><div class="lbl">Marge brute</div><div class="val">${margeBrute.toFixed(1)}%</div><div class="sub">(Bénéfice / Achats)</div></div>
+  </div>
+  <div class="card" style="background:var(--surface2);margin-top:0;">
+    <div style="font-size:.85rem;color:var(--text2);">
+      <strong>Résumé :</strong> CA = <strong>${fmtHTG(vt)}</strong> | 
+      Achats = <strong>${fmtHTG(achatTotal)}</strong> | 
+      Autres dépenses = <strong>${fmtHTG(autresTotal)}</strong> | 
+      Bénéfice brut = <strong>${fmtHTG(benefBrut)}</strong> | 
+      Résultat net = <strong>${fmtHTG(resultatNet)}</strong>
+    </div>
+  </div>`;
+}
+}
+
+// ============================================================
+// EXCEL EXPORT
+// ============================================================
+function exportTransCSV() {
+  if (!STATE.transactions.length) { showToast('⚠ Aucune transaction à exporter.','warn'); return; }
+  const headers = ['Date','Heure','Vendeur','Description','Quantité','Unité','Montant HTG','Type','Paiement'];
+  const rows = STATE.transactions.map(t => [
+    t.date, t.time, t.seller, t.description,
+    t.quantity, t.unit||'', t.amount, t.type, t.payment||''
+  ]);
+  const csv = [headers, ...rows].map(r => r.map(v => `"${String(v||'').replace(/"/g,'""')}"`).join(',')).join('\n');
+  const blob = new Blob(['\ufeff'+csv], {type:'text/csv;charset=utf-8;'});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = `BW_Transactions_${isoDate()}.csv`;
+  a.click(); URL.revokeObjectURL(url);
+  showToast('📄 CSV téléchargé.');
+}
+
+async function resetAllData() {
+  const confirm1 = confirm('⚠ ATTENTION — Remettre à zéro va supprimer TOUTES les transactions de Firebase.\n\nÊtes-vous sûr de vouloir continuer ?');
+  if (!confirm1) return;
+  const confirm2 = confirm('⚠ DERNIÈRE CONFIRMATION — Cette action est irréversible.\n\nTaper OK pour confirmer la remise à zéro.');
+  if (!confirm2) return;
+  if (STATE.isOnline && STATE.fbReady) {
+    try {
+      const {collection, deleteDoc, doc} = window._fbFns;
+      const db = window._db;
+      // Delete all transactions
+      const toDelete = [...STATE.transactions];
+      for (const t of toDelete) {
+        try { await deleteDoc(doc(db,'transactions',t.id)); } catch(e){}
+      }
+      // Delete all stocks
+      const toDeleteS = [...STATE.stocks];
+      for (const s of toDeleteS) {
+        try { await deleteDoc(doc(db,'stocks',s.id)); } catch(e){}
+      }
+      STATE.transactions = [];
+      STATE.stocks = [];
+      renderAll();
+      renderStocks();
+      showToast('✅ Toutes les données ont été remises à zéro.','warn');
+    } catch(e) { showToast('⚠ Erreur lors de la remise à zéro: '+e.message,'warn'); }
+  } else {
+    showToast('⚠ Vous devez être en ligne pour remettre à zéro.','warn');
+  }
+}
+
+function exportExcel() {
+  if (typeof XLSX==='undefined') { showToast('⚠ XLSX non disponible.','warn'); return; }
+  const wb=XLSX.utils.book_new();
+  const vt=STATE.transactions.filter(t=>t.type==='vente').reduce((a,t)=>a+t.amount,0);
+  const st=STATE.stocks.reduce((a,s)=>a+s.amount,0);
+  let cum=0;
+  const sales=STATE.transactions.filter(t=>t.type==='vente').sort((a,b)=>(a.isoDate||'').localeCompare(b.isoDate||''));
+  XLSX.utils.book_append_sheet(wb,XLSX.utils.aoa_to_sheet([['#','Date','Heure','Vendeur','Description','Qté','Unité','Montant HTG','Paiement','Cumul'],...sales.map((t,i)=>{cum+=t.amount;return[i+1,t.date,t.time,t.seller,t.description,t.quantity,t.unit||'',t.amount,t.payment||'',cum];})]),'Transactions');
+  let pce=1;
+  const jr=[['Date','N° Pièce','Débiteur','Créditeur','Libellé','Débit HTG','Crédit HTG']];
+  STATE.transactions.forEach(t=>{
+    let d='',c='';
+    if(t.type==='vente'){d='5100 – Caisse';c='7000 – Ventes';}
+    else if(t.description?.startsWith('[STOCK]')){d='3100 – Stocks';c='4010 – Fournisseurs';}
+    else if(t.type==='achat'){d='6100 – Achats';c='5100 – Caisse';}
+    else if(t.type==='payroll'){d='6200 – Salaires';c='5100 – Caisse';}
+    else{d='6300 – Dépenses';c='5100 – Caisse';}
+    jr.push([t.date,`PC-${String(pce).padStart(4,'0')}`,d,c,t.description,t.amount,t.amount]);pce++;
+  });
+  XLSX.utils.book_append_sheet(wb,XLSX.utils.aoa_to_sheet(jr),'Journal général');
+  XLSX.utils.book_append_sheet(wb,XLSX.utils.aoa_to_sheet([['N° Compte','Intitulé','Débit HTG','Crédit HTG'],['3100','Stocks',st,0],['4010','Fournisseurs',0,st],['5100','Caisse',vt,st],['7000','Ventes',0,vt]]),'Balance');
+  XLSX.utils.book_append_sheet(wb,XLSX.utils.aoa_to_sheet([['ACTIF','HTG','PASSIF','HTG'],['Stocks',st,'Fournisseurs',st],['Caisse',vt-0,'Résultat',vt-0],['Total',st+vt,'Total',st+vt]]),'Bilan');
+  XLSX.writeFile(wb,`BW_Multiservice_${isoDate()}.xlsx`);
+  showToast('📥 Excel téléchargé.');
+}
+
+function renderAll() {
+  if (!STATE.currentUser) return;
+  renderMySales();
+  renderDash();
+  renderAllTrans(STATE.transactions);
+  if (currentTab==='stocks') renderStocks();
+  if (currentTab==='admin') renderAdminTrans();
+}
+</script>
+</body>
 </html>
