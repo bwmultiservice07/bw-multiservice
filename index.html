@@ -238,8 +238,28 @@ tr:hover td{background:#f7f9ff;}
             </select>
           </div>
           <div class="form-group">
-            <label>Montant (Gourdes HTG)</label>
-            <input type="number" id="v-amount" min="0" step="0.01" placeholder="Ex: 500.00"/>
+            <label>Montant total (Gourdes HTG)</label>
+            <input type="number" id="v-amount" min="0" step="0.01" placeholder="Ex: 500.00" oninput="calcBalance()"/>
+          </div>
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label>Paiement cash (Gourdes HTG)</label>
+            <input type="number" id="v-cash" min="0" step="0.01" placeholder="Ex: 300.00" oninput="calcBalance()"/>
+          </div>
+          <div class="form-group">
+            <label>Crédit par client (Gourdes HTG)</label>
+            <input type="number" id="v-credit" min="0" step="0.01" placeholder="Ex: 200.00" readonly style="background:#f0f2f7;"/>
+          </div>
+          <div class="form-group">
+            <label>Balance (HTG)</label>
+            <input type="number" id="v-balance" min="0" step="0.01" placeholder="0.00" readonly style="background:#f0f2f7;font-weight:700;color:#c0392b;"/>
+          </div>
+        </div>
+        <div class="form-row">
+          <div class="form-group" style="flex:2;min-width:200px;">
+            <label>Nom du client</label>
+            <input type="text" id="v-client" placeholder="Ex: Jean Pierre"/>
           </div>
         </div>
         <button class="send-btn" onclick="submitSale()">Envoyer ➤</button>
@@ -248,8 +268,8 @@ tr:hover td{background:#f7f9ff;}
         <div class="card-title">📋 Mes transactions du jour</div>
         <div class="table-wrap">
           <table>
-            <thead><tr><th>Heure</th><th>Description</th><th>Qté</th><th>Montant (HTG)</th><th>Statut</th></tr></thead>
-            <tbody id="my-sales-body"><tr><td colspan="5" style="text-align:center;color:var(--text3);padding:1.5rem;">Aucune vente aujourd'hui.</td></tr></tbody>
+            <thead><tr><th>Heure</th><th>Description</th><th>Qté</th><th>Montant (HTG)</th><th>Cash (HTG)</th><th>Balance (HTG)</th><th>Client</th><th>Statut</th></tr></thead>
+            <tbody id="my-sales-body"><tr><td colspan="8" style="text-align:center;color:var(--text3);padding:1.5rem;">Aucune vente aujourd'hui.</td></tr></tbody>
           </table>
         </div>
       </div>
@@ -336,8 +356,8 @@ tr:hover td{background:#f7f9ff;}
         </div>
         <div class="table-wrap">
           <table>
-            <thead><tr><th>Date</th><th>Heure</th><th>Vendeur</th><th>Description</th><th>Qté</th><th>Montant (HTG)</th><th>Type</th></tr></thead>
-            <tbody id="all-trans-body"><tr><td colspan="7" style="text-align:center;color:var(--text3);padding:1.5rem;">Aucune transaction.</td></tr></tbody>
+            <thead><tr><th>Date</th><th>Heure</th><th>Vendeur</th><th>Description</th><th>Qté</th><th>Montant (HTG)</th><th>Cash (HTG)</th><th>Balance (HTG)</th><th>Client</th><th>Type</th></tr></thead>
+            <tbody id="all-trans-body"><tr><td colspan="10" style="text-align:center;color:var(--text3);padding:1.5rem;">Aucune transaction.</td></tr></tbody>
           </table>
         </div>
       </div>
@@ -720,18 +740,30 @@ function showToast(msg, type) {
 // ============================================================
 // SALES
 // ============================================================
+function calcBalance() {
+  const amount = parseFloat(document.getElementById('v-amount').value) || 0;
+  const cash = parseFloat(document.getElementById('v-cash').value) || 0;
+  const balance = amount - cash;
+  document.getElementById('v-balance').value = balance >= 0 ? balance.toFixed(2) : 0;
+  document.getElementById('v-credit').value = balance >= 0 ? balance.toFixed(2) : 0;
+}
+
 async function submitSale() {
   const desc = document.getElementById('v-desc').value.trim();
   const qty = parseFloat(document.getElementById('v-qty').value);
   const unit = document.getElementById('v-unit').value;
   const amount = parseFloat(document.getElementById('v-amount').value);
+  const cash = parseFloat(document.getElementById('v-cash').value) || 0;
+  const balance = parseFloat(document.getElementById('v-balance').value) || 0;
+  const client = document.getElementById('v-client').value.trim();
   if (!desc||isNaN(qty)||qty<=0||isNaN(amount)||amount<0) {
     showToast('⚠ Veuillez remplir tous les champs.','warn'); return;
   }
   const tx = {
     type:'vente', date:todayStr(), isoDate:isoDate(), time:nowStr(),
     seller:STATE.currentUser.username, description:desc, unit:unit||'unité',
-    quantity:qty, amount:amount, status:'sent', createdAt: new Date().toISOString()
+    quantity:qty, amount:amount, cash:cash, credit:balance, balance:balance,
+    client:client||'', status:'sent', createdAt: new Date().toISOString()
   };
   if (STATE.isOnline && STATE.fbReady) {
     try {
@@ -754,6 +786,10 @@ async function submitSale() {
   document.getElementById('v-qty').value='';
   document.getElementById('v-unit').value='unité';
   document.getElementById('v-amount').value='';
+  document.getElementById('v-cash').value='';
+  document.getElementById('v-credit').value='';
+  document.getElementById('v-balance').value='';
+  document.getElementById('v-client').value='';
 }
 
 function renderMySales() {
@@ -768,8 +804,9 @@ function renderMySales() {
     return;
   }
   body.innerHTML = mine.map(t=>`<tr>
-    <td>${t.time}</td><td>${esc(t.description)}</td><td>${t.quantity}</td>
-    <td>${fmtHTG(t.amount)}</td>
+    <td>${t.time}</td><td>${esc(t.description)}</td><td>${t.quantity} ${esc(t.unit||'')}</td>
+    <td>${fmtHTG(t.amount)}</td><td>${fmtHTG(t.cash||0)}</td>
+    <td>${fmtHTG(t.balance||0)}</td><td>${esc(t.client||'')}</td>
     <td><span class="badge ${t.status==='sent'?'badge-sent':'badge-pending'}">${t.status==='sent'?'✓ Envoyé':'⏳ En attente'}</span></td>
   </tr>`).join('');
 }
@@ -861,7 +898,8 @@ function renderAllTrans(data) {
   }
   body.innerHTML=sorted.map(t=>`<tr>
     <td>${t.date}</td><td>${t.time}</td><td>${esc(t.seller)}</td><td>${esc(t.description)}</td>
-    <td>${t.quantity}</td><td>${fmtHTG(t.amount)}</td>
+    <td>${t.quantity} ${esc(t.unit||'')}</td><td>${fmtHTG(t.amount)}</td>
+    <td>${fmtHTG(t.cash||0)}</td><td>${fmtHTG(t.balance||0)}</td><td>${esc(t.client||'')}</td>
     <td><span class="badge ${t.type==='vente'?'badge-out':'badge-in'}">${t.type==='vente'?'📤 Vente':'📥 Stock'}</span></td>
   </tr>`).join('');
 }
