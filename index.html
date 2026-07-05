@@ -181,6 +181,7 @@ tr:hover td{background:#f7f9ff;}
 
   <div class="tabs">
     <button class="active" onclick="switchTab('ventes')">🧾 Ventes</button>
+    <button id="tab-credit-btn" onclick="switchTab('credit')">💳 Crédit Client</button>
     <button id="tab-stocks-btn" onclick="switchTab('stocks')" style="display:none;">📦 Stocks</button>
     <button id="tab-tableau-btn" onclick="switchTab('tableau')" style="display:none;">📊 Tableau de bord</button>
     <button id="tab-admin-btn" onclick="switchTab('admin')" style="display:none;">⚙ Administration</button>
@@ -268,8 +269,45 @@ tr:hover td{background:#f7f9ff;}
         <div class="card-title">📋 Mes transactions du jour</div>
         <div class="table-wrap">
           <table>
-            <thead><tr><th>Heure</th><th>Description</th><th>Qté</th><th>Montant (HTG)</th><th>Cash (HTG)</th><th>Balance (HTG)</th><th>Client</th><th>Statut</th></tr></thead>
-            <tbody id="my-sales-body"><tr><td colspan="8" style="text-align:center;color:var(--text3);padding:1.5rem;">Aucune vente aujourd'hui.</td></tr></tbody>
+            <thead><tr><th>Date</th><th>Heure</th><th>Description</th><th>Qté</th><th>Montant (HTG)</th><th>Cash (HTG)</th><th>Crédit (HTG)</th><th>Balance (HTG)</th><th>Client</th><th>Statut</th></tr></thead>
+            <tbody id="my-sales-body"><tr><td colspan="10" style="text-align:center;color:var(--text3);padding:1.5rem;">Aucune vente aujourd'hui.</td></tr></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- CREDIT CLIENT -->
+    <div class="tab-content" id="tab-credit">
+      <div class="card">
+        <div class="card-title">💳 Paiement Client — Remboursement de crédit</div>
+        <div class="form-row">
+          <div class="form-group" style="flex:2;min-width:200px;">
+            <label>Nom du client</label>
+            <input type="text" id="cr-client" placeholder="Ex: Jean Pierre" oninput="loadClientBalance()"/>
+          </div>
+          <div class="form-group">
+            <label>Balance dette du client (HTG)</label>
+            <input type="number" id="cr-balance-due" placeholder="0.00" readonly style="background:#fdecea;font-weight:700;color:#c0392b;"/>
+          </div>
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label>Montant remboursé (HTG)</label>
+            <input type="number" id="cr-paid" min="0" step="0.01" placeholder="Ex: 500.00" oninput="calcCreditBalance()"/>
+          </div>
+          <div class="form-group">
+            <label>Balance finale (HTG)</label>
+            <input type="number" id="cr-final" placeholder="0.00" readonly style="background:#f0f2f7;font-weight:700;color:#0f7b4f;"/>
+          </div>
+        </div>
+        <button class="send-btn" onclick="submitCredit()">Enregistrer paiement ➤</button>
+      </div>
+      <div class="card">
+        <div class="card-title">📋 Historique des crédits clients</div>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Date</th><th>Heure</th><th>Client</th><th>Balance dette</th><th>Montant remboursé</th><th>Balance finale</th><th>Statut</th></tr></thead>
+            <tbody id="credit-table-body"><tr><td colspan="7" style="text-align:center;color:var(--text3);padding:1.5rem;">Aucun paiement enregistré.</td></tr></tbody>
           </table>
         </div>
       </div>
@@ -356,8 +394,8 @@ tr:hover td{background:#f7f9ff;}
         </div>
         <div class="table-wrap">
           <table>
-            <thead><tr><th>Date</th><th>Heure</th><th>Vendeur</th><th>Description</th><th>Qté</th><th>Montant (HTG)</th><th>Cash (HTG)</th><th>Balance (HTG)</th><th>Client</th><th>Type</th></tr></thead>
-            <tbody id="all-trans-body"><tr><td colspan="10" style="text-align:center;color:var(--text3);padding:1.5rem;">Aucune transaction.</td></tr></tbody>
+            <thead><tr><th>Date</th><th>Heure</th><th>Vendeur</th><th>Description</th><th>Qté</th><th>Montant (HTG)</th><th>Cash (HTG)</th><th>Crédit (HTG)</th><th>Balance (HTG)</th><th>Client</th><th>Type</th></tr></thead>
+            <tbody id="all-trans-body"><tr><td colspan="11" style="text-align:center;color:var(--text3);padding:1.5rem;">Aucune transaction.</td></tr></tbody>
           </table>
         </div>
       </div>
@@ -702,12 +740,13 @@ function switchTab(tab) {
   document.querySelectorAll('.tab-content').forEach(el => el.classList.remove('active'));
   document.querySelectorAll('.tabs button').forEach(el => el.classList.remove('active'));
   document.getElementById('tab-'+tab).classList.add('active');
-  const names = ['ventes','stocks','tableau','admin','compta'];
+  const names = ['ventes','credit','stocks','tableau','admin','compta'];
   document.querySelectorAll('.tabs button').forEach((b,i) => { if(names[i]===tab) b.classList.add('active'); });
   if (tab==='compta') refreshAccounting();
   if (tab==='admin') { renderAdminTrans(); renderUsers(); }
   if (tab==='tableau') renderDashboard();
   if (tab==='stocks') renderStocks();
+  if (tab==='credit') renderCredits();
 }
 function switchAccTab(name, btn) {
   currentAccTab = name;
@@ -744,8 +783,9 @@ function calcBalance() {
   const amount = parseFloat(document.getElementById('v-amount').value) || 0;
   const cash = parseFloat(document.getElementById('v-cash').value) || 0;
   const balance = amount - cash;
-  document.getElementById('v-balance').value = balance >= 0 ? balance.toFixed(2) : 0;
-  document.getElementById('v-credit').value = balance >= 0 ? balance.toFixed(2) : 0;
+  const bal = balance >= 0 ? balance.toFixed(2) : '0.00';
+  document.getElementById('v-balance').value = bal;
+  document.getElementById('v-credit').value = bal;
 }
 
 async function submitSale() {
@@ -804,9 +844,9 @@ function renderMySales() {
     return;
   }
   body.innerHTML = mine.map(t=>`<tr>
-    <td>${t.time}</td><td>${esc(t.description)}</td><td>${t.quantity} ${esc(t.unit||'')}</td>
+    <td>${t.date}</td><td>${t.time}</td><td>${esc(t.description)}</td><td>${t.quantity} ${esc(t.unit||'')}</td>
     <td>${fmtHTG(t.amount)}</td><td>${fmtHTG(t.cash||0)}</td>
-    <td>${fmtHTG(t.balance||0)}</td><td>${esc(t.client||'')}</td>
+    <td>${fmtHTG(t.credit||0)}</td><td>${fmtHTG(t.balance||0)}</td><td>${esc(t.client||'')}</td>
     <td><span class="badge ${t.status==='sent'?'badge-sent':'badge-pending'}">${t.status==='sent'?'✓ Envoyé':'⏳ En attente'}</span></td>
   </tr>`).join('');
 }
@@ -899,7 +939,7 @@ function renderAllTrans(data) {
   body.innerHTML=sorted.map(t=>`<tr>
     <td>${t.date}</td><td>${t.time}</td><td>${esc(t.seller)}</td><td>${esc(t.description)}</td>
     <td>${t.quantity} ${esc(t.unit||'')}</td><td>${fmtHTG(t.amount)}</td>
-    <td>${fmtHTG(t.cash||0)}</td><td>${fmtHTG(t.balance||0)}</td><td>${esc(t.client||'')}</td>
+    <td>${fmtHTG(t.cash||0)}</td><td>${fmtHTG(t.credit||0)}</td><td>${fmtHTG(t.balance||0)}</td><td>${esc(t.client||'')}</td>
     <td><span class="badge ${t.type==='vente'?'badge-out':'badge-in'}">${t.type==='vente'?'📤 Vente':'📥 Stock'}</span></td>
   </tr>`).join('');
 }
@@ -1227,11 +1267,120 @@ function exportAllToExcel() {
   showToast('📥 Fichier Excel téléchargé.');
 }
 
+function loadClientBalance() {
+  const client = document.getElementById('cr-client').value.trim().toLowerCase();
+  if (!client) { document.getElementById('cr-balance-due').value = ''; return; }
+  // Chercher la dernière balance du client dans les transactions
+  const sales = STATE.transactions.filter(t => t.type === 'vente' && (t.client||'').toLowerCase() === client);
+  // Chercher les paiements déjà effectués
+  const payments = STATE.credits ? STATE.credits.filter(c => (c.client||'').toLowerCase() === client) : [];
+  let totalDue = sales.reduce((a,t) => a + (t.balance||0), 0);
+  let totalPaid = payments.reduce((a,p) => a + (p.paid||0), 0);
+  const remaining = Math.max(0, totalDue - totalPaid);
+  document.getElementById('cr-balance-due').value = remaining.toFixed(2);
+  calcCreditBalance();
+}
+
+function calcCreditBalance() {
+  const due = parseFloat(document.getElementById('cr-balance-due').value) || 0;
+  const paid = parseFloat(document.getElementById('cr-paid').value) || 0;
+  const final = Math.max(0, due - paid);
+  document.getElementById('cr-final').value = final.toFixed(2);
+}
+
+async function submitCredit() {
+  const client = document.getElementById('cr-client').value.trim();
+  const due = parseFloat(document.getElementById('cr-balance-due').value) || 0;
+  const paid = parseFloat(document.getElementById('cr-paid').value) || 0;
+  const final = parseFloat(document.getElementById('cr-final').value) || 0;
+  if (!client || paid <= 0) { showToast('⚠ Veuillez remplir tous les champs.','warn'); return; }
+  const cr = {
+    type:'credit', date:todayStr(), isoDate:isoDate(), time:nowStr(),
+    seller:STATE.currentUser.username, client:client, due:due, paid:paid, finalBalance:final,
+    status: final === 0 ? 'soldé' : 'partiel', createdAt: new Date().toISOString()
+  };
+  if (!STATE.credits) STATE.credits = [];
+  if (STATE.isOnline && STATE.fbReady) {
+    try {
+      const {collection, addDoc} = window._fbFns;
+      await addDoc(collection(window._db,'credits'), cr);
+      showToast('✅ Paiement enregistré sur Firebase.');
+    } catch(e) {
+      STATE.credits.push(cr);
+      showToast('⚠ Erreur Firebase — paiement en attente.','warn');
+    }
+  } else {
+    STATE.credits.push(cr);
+    showToast('📤 Hors ligne — paiement en file d'attente.','warn');
+  }
+  // Si balance finale > 0, reporter automatiquement
+  if (final > 0) {
+    showToast(`⚠ Balance restante de ${fmtHTG(final)} reportée pour ${client}.`,'warn');
+  }
+  renderCredits();
+  document.getElementById('cr-client').value = '';
+  document.getElementById('cr-balance-due').value = '';
+  document.getElementById('cr-paid').value = '';
+  document.getElementById('cr-final').value = '';
+}
+
+function renderCredits() {
+  if (!STATE.credits) STATE.credits = [];
+  const body = document.getElementById('credit-table-body');
+  if (!body) return;
+  const sorted = [...STATE.credits].sort((a,b) => (b.isoDate||'').localeCompare(a.isoDate||''));
+  if (!sorted.length) {
+    body.innerHTML = '<tr><td colspan="7" style="text-align:center;color:var(--text3);padding:1.5rem;">Aucun paiement enregistré.</td></tr>';
+    return;
+  }
+  let rows = [];
+  sorted.forEach(c => {
+    rows.push(`<tr>
+      <td>${c.date}</td><td>${c.time}</td><td>${esc(c.client)}</td>
+      <td>${fmtHTG(c.due)}</td><td>${fmtHTG(c.paid)}</td>
+      <td style="color:${c.finalBalance>0?'#c0392b':'#0f7b4f'};font-weight:700;">${fmtHTG(c.finalBalance)}</td>
+      <td><span class="badge ${c.finalBalance===0?'badge-sent':'badge-pending'}">${c.finalBalance===0?'✅ Soldé':'⏳ Partiel'}</span></td>
+    </tr>`);
+    // Reporter la balance si non soldée
+    if (c.finalBalance > 0) {
+      rows.push(`<tr style="background:#fef3e2;">
+        <td colspan="2" style="color:#b45309;font-style:italic;">↩ Report</td>
+        <td>${esc(c.client)}</td>
+        <td colspan="2" style="color:#b45309;font-style:italic;">Balance reportée</td>
+        <td style="color:#c0392b;font-weight:700;">${fmtHTG(c.finalBalance)}</td>
+        <td><span class="badge badge-pending">⚠ À payer</span></td>
+      </tr>`);
+    }
+  });
+  body.innerHTML = rows.join('');
+}
+
+// Firebase listener pour credits
+function startCreditListener() {
+  if (!window._fbReady || !window._db) return;
+  const {collection, onSnapshot, query, orderBy} = window._fbFns;
+  const db = window._db;
+  onSnapshot(
+    query(collection(db, 'credits'), orderBy('isoDate','desc')),
+    snap => {
+      STATE.credits = snap.docs.map(d => ({id: d.id, ...d.data()}));
+      renderCredits();
+    },
+    err => console.error('Credits listener:', err)
+  );
+}
+
+window.addEventListener('fb-ready', () => {
+  startCreditListener();
+});
+if (window._fbReady) startCreditListener();
+
 function renderAll() {
   if (!STATE.currentUser) return;
   renderMySales();
   renderStocks();
   renderDashboard();
+  renderCredits();
 }
 </script>
 </body>
