@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+A<!DOCTYPE html>
 <html lang="fr">
 <head>
 <meta charset="UTF-8">
@@ -208,12 +208,17 @@ tr:hover td{background:#f7f9ff;}
             <input type="number" id="v-qty" min="1" placeholder="Ex: 10"/>
           </div>
           <div class="form-group">
-            <label>Montant (Gourdes HTG)</label>
-            <input type="number" id="v-amount" min="0" step="0.01" placeholder="Ex: 500.00"/>
+            <label>Unité</label>
+            <select id="v-unit">
+              <option value="unité">Unité</option>
+              <option value="caisse">Caisse</option>
+              <option value="bout">Bout</option>
+              <option value="caisse 1/2">Caisse 1/2</option>
+            </select>
           </div>
           <div class="form-group">
-            <label>Produit / Catégorie</label>
-            <input type="text" id="v-product" placeholder="Ex: Alimentaire"/>
+            <label>Montant (Gourdes HTG)</label>
+            <input type="number" id="v-amount" min="0" step="0.01" placeholder="Ex: 500.00"/>
           </div>
         </div>
         <button class="send-btn" onclick="submitSale()">Envoyer ➤</button>
@@ -697,14 +702,14 @@ function showToast(msg, type) {
 async function submitSale() {
   const desc = document.getElementById('v-desc').value.trim();
   const qty = parseFloat(document.getElementById('v-qty').value);
+  const unit = document.getElementById('v-unit').value;
   const amount = parseFloat(document.getElementById('v-amount').value);
-  const product = document.getElementById('v-product').value.trim();
   if (!desc||isNaN(qty)||qty<=0||isNaN(amount)||amount<0) {
     showToast('⚠ Veuillez remplir tous les champs.','warn'); return;
   }
   const tx = {
     type:'vente', date:todayStr(), isoDate:isoDate(), time:nowStr(),
-    seller:STATE.currentUser.username, description:desc, product:product||'',
+    seller:STATE.currentUser.username, description:desc, unit:unit||'unité',
     quantity:qty, amount:amount, status:'sent', createdAt: new Date().toISOString()
   };
   if (STATE.isOnline && STATE.fbReady) {
@@ -726,8 +731,8 @@ async function submitSale() {
   updatePendingUI();
   document.getElementById('v-desc').value='';
   document.getElementById('v-qty').value='';
+  document.getElementById('v-unit').value='unité';
   document.getElementById('v-amount').value='';
-  document.getElementById('v-product').value='';
 }
 
 function renderMySales() {
