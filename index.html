@@ -283,7 +283,8 @@ tr:hover td{background:#f7f9ff;}
         <div class="form-row">
           <div class="form-group" style="flex:2;min-width:200px;">
             <label>Nom du client</label>
-            <input type="text" id="cr-client" placeholder="Ex: Jean Pierre" oninput="loadClientBalance()"/>
+            <input type="text" id="cr-client" placeholder="Ex: Jean Pierre" oninput="loadClientBalance();updateClientList()" autocomplete="off" list="client-list"/>
+            <datalist id="client-list"></datalist>
           </div>
           <div class="form-group">
             <label>Balance dette du client (HTG)</label>
@@ -703,12 +704,14 @@ function doLogin() {
     document.getElementById('tab-compta-btn').style.display = 'block';
     document.getElementById('tab-stocks-btn').style.display = 'block';
     document.getElementById('tab-tableau-btn').style.display = 'block';
+    document.getElementById('tab-credit-btn').style.display = 'block';
   } else {
-    // Vendeur : uniquement l'onglet Ventes
+    // Vendeur : onglet Ventes et Crédit Client
     document.getElementById('tab-stocks-btn').style.display = 'none';
     document.getElementById('tab-tableau-btn').style.display = 'none';
     document.getElementById('tab-admin-btn').style.display = 'none';
     document.getElementById('tab-compta-btn').style.display = 'none';
+    document.getElementById('tab-credit-btn').style.display = 'block';
   }
   updateConnStatus();
   renderAll();
@@ -843,7 +846,15 @@ function renderMySales() {
     body.innerHTML='<tr><td colspan="5" style="text-align:center;color:var(--text3);padding:1.5rem;">Aucune vente aujourd\'hui.</td></tr>';
     return;
   }
-  body.innerHTML = mine.map(t=>`<tr>
+  // Ajouter les paiements credit du jour
+  const todayCredits = (STATE.credits||[]).filter(c => c.date===today && (STATE.currentUser.role==='vendeur' ? c.seller===STATE.currentUser.username : true));
+  const allRows = [...mine, ...todayCredits.map(c => ({...c, _isCredit:true}))].sort((a,b)=>(b.time||'').localeCompare(a.time||''));
+  body.innerHTML = allRows.map(t=> t._isCredit ? `<tr style="background:#e6f6ef;">
+    <td>${t.date}</td><td>${t.time}</td><td>💳 Paiement client</td><td>—</td>
+    <td>—</td><td>${fmtHTG(t.paid||0)}</td>
+    <td>—</td><td>${fmtHTG(t.finalBalance||0)}</td><td>${esc(t.client||'')}</td>
+    <td><span class="badge badge-sent">💳 Crédit</span></td>
+  </tr>` : `<tr>
     <td>${t.date}</td><td>${t.time}</td><td>${esc(t.description)}</td><td>${t.quantity} ${esc(t.unit||'')}</td>
     <td>${fmtHTG(t.amount)}</td><td>${fmtHTG(t.cash||0)}</td>
     <td>${fmtHTG(t.credit||0)}</td><td>${fmtHTG(t.balance||0)}</td><td>${esc(t.client||'')}</td>
@@ -936,7 +947,14 @@ function renderAllTrans(data) {
     body.innerHTML='<tr><td colspan="7" style="text-align:center;color:var(--text3);padding:1.5rem;">Aucune transaction.</td></tr>';
     return;
   }
-  body.innerHTML=sorted.map(t=>`<tr>
+  // Ajouter les credits dans la liste
+  const allWithCredits = [...sorted, ...(STATE.credits||[]).map(c=>({...c, _isCredit:true}))].sort((a,b)=>(b.isoDate||'').localeCompare(a.isoDate||'')||(b.time||'').localeCompare(a.time||''));
+  body.innerHTML=allWithCredits.map(t=> t._isCredit ? `<tr style="background:#e6f6ef;">
+    <td>${t.date}</td><td>${t.time}</td><td>${esc(t.seller||'')}</td><td>💳 Paiement client</td>
+    <td>—</td><td>—</td>
+    <td>${fmtHTG(t.paid||0)}</td><td>—</td><td>${fmtHTG(t.finalBalance||0)}</td><td>${esc(t.client||'')}</td>
+    <td><span class="badge badge-sent">💳 Crédit</span></td>
+  </tr>` : `<tr>
     <td>${t.date}</td><td>${t.time}</td><td>${esc(t.seller)}</td><td>${esc(t.description)}</td>
     <td>${t.quantity} ${esc(t.unit||'')}</td><td>${fmtHTG(t.amount)}</td>
     <td>${fmtHTG(t.cash||0)}</td><td>${fmtHTG(t.credit||0)}</td><td>${fmtHTG(t.balance||0)}</td><td>${esc(t.client||'')}</td>
@@ -1265,6 +1283,19 @@ function exportAllToExcel() {
 
   XLSX.writeFile(wb,`BW_Multiservice_${isoDate()}.xlsx`);
   showToast('📥 Fichier Excel téléchargé.');
+}
+
+function updateClientList() {
+  const input = document.getElementById('cr-client').value.trim().toLowerCase();
+  const datalist = document.getElementById('client-list');
+  if (!datalist) return;
+  // Collecter tous les noms de clients uniques des ventes et credits
+  const clients = new Set();
+  (STATE.transactions||[]).forEach(t => { if(t.client) clients.add(t.client); });
+  (STATE.credits||[]).forEach(c => { if(c.client) clients.add(c.client); });
+  datalist.innerHTML = [...clients]
+    .filter(c => c.toLowerCase().includes(input))
+    .map(c => `<option value="${esc(c)}">`).join('');
 }
 
 function loadClientBalance() {
