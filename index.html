@@ -1311,7 +1311,7 @@ async function submitCredit() {
     }
   } else {
     STATE.credits.push(cr);
-    showToast('📤 Hors ligne — paiement en file d'attente.','warn');
+    showToast("📤 Hors ligne — paiement en file d'attente.","warn");
   }
   // Si balance finale > 0, reporter automatiquement
   if (final > 0) {
