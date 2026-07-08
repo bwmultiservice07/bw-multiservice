@@ -765,6 +765,7 @@ function switchTab(tab) {
   if (tab==='tableau') renderDashboard();
   if (tab==='stocks') renderStocks();
   if (tab==='credit') renderCredits();
+  if (tab==='ventes') renderMySales();
 }
 function switchAccTab(name, btn) {
   currentAccTab = name;
@@ -898,6 +899,9 @@ async function submitSale() {
   if (!desc||isNaN(qty)||qty<=0||prix<=0||isNaN(amount)||amount<=0) {
     showToast('⚠ Veuillez remplir tous les champs obligatoires (produit, quantité, prix, montant).','warn'); return;
   }
+  if (balance > 0 && !client) {
+    showToast('⚠ Le nom du client est obligatoire pour une vente à crédit.','warn'); return;
+  }
   const tx = {
     type:'vente', date:todayStr(), isoDate:isoDate(), time:nowStr(),
     seller:STATE.currentUser.username, description:desc, unit:unit||'unité',
@@ -955,19 +959,24 @@ function renderMySales() {
   const body = document.getElementById('my-sales-body');
   const today = todayStr();
   const todayIso = isoDate();
-  // Filtrer par isoDate ET date pour s'assurer de la compatibilité
+  
+  // Pour admin/gestionnaire: afficher toutes les ventes du jour de tous les vendeurs
+  // Pour vendeur: afficher seulement ses propres ventes
+  const isAdminOrGest = STATE.currentUser.role === 'admin' || STATE.currentUser.role === 'gestionnaire';
+  
   const mine = [...STATE.transactions, ...STATE.pendingQueue]
     .filter(t => {
-      const matchSeller = t.seller === STATE.currentUser.username;
+      const matchSeller = isAdminOrGest ? true : t.seller === STATE.currentUser.username;
       const matchType = t.type === 'vente';
       const matchDate = t.isoDate === todayIso || t.date === today;
       return matchSeller && matchType && matchDate;
     })
     .sort((a,b)=>(b.time||'').localeCompare(a.time||''));
+    
   // Ajouter les paiements credit du jour
   const todayCredits = (STATE.credits||[]).filter(c => {
     const matchDate = c.isoDate === todayIso || c.date === today;
-    const matchSeller = c.seller === STATE.currentUser.username;
+    const matchSeller = isAdminOrGest ? true : c.seller === STATE.currentUser.username;
     return matchDate && matchSeller && c.source !== 'vente';
   });
   const allRows = [...mine, ...todayCredits.map(c => ({...c, _isCredit:true}))].sort((a,b)=>(b.time||'').localeCompare(a.time||''));
@@ -1507,7 +1516,11 @@ function renderCredits() {
   if (!STATE.credits) STATE.credits = [];
   const body = document.getElementById('credit-table-body');
   if (!body) return;
-  const sorted = [...STATE.credits].sort((a,b) => (b.isoDate||'').localeCompare(a.isoDate||''));
+  const sorted = [...STATE.credits].sort((a,b) => {
+    const dateComp = (b.isoDate||'').localeCompare(a.isoDate||'');
+    if (dateComp !== 0) return dateComp;
+    return (b.time||'').localeCompare(a.time||'');
+  });
   if (!sorted.length) {
     body.innerHTML = '<tr><td colspan="9" style="text-align:center;color:var(--text3);padding:1.5rem;">Aucun paiement enregistré.</td></tr>';
     return;
@@ -1598,6 +1611,11 @@ function renderAll() {
   renderDashboard();
   renderCredits();
 }
+
+// Appel automatique de renderMySales toutes les 30 secondes pour s'assurer de la synchronisation
+setInterval(() => {
+  if (STATE.currentUser && currentTab === 'ventes') renderMySales();
+}, 30000);
 </script>
 </body>
 </html>
