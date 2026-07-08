@@ -1539,13 +1539,7 @@ function renderCredits() {
       <td>${fmtHTG(c.due)}</td><td>${fmtHTG(c.paid||0)}</td>
       <td style="${clientColor}">${fmtHTG(c.finalBalance||0)}</td>
       <td><span class="badge ${hasDebt?'badge-pending':'badge-sent'}">${hasDebt?'⏳ Partiel':'✅ Soldé'}</span></td>
-      <td style="white-space:nowrap;">${(()=>{
-        if(STATE.currentUser && (STATE.currentUser.role==='admin' || STATE.currentUser.role==='gestionnaire')){
-          return '<button class="btn btn-outline" style="font-size:.75rem;padding:3px 10px;" onclick="openEditCredit('' + (c.id||'') + '','' + esc(c.client) + '',' + (c.due||0) + ',' + (c.paid||0) + ',' + (c.finalBalance||0) + ')">✏</button>' +
-          '<button class="btn" style="font-size:.75rem;padding:3px 10px;background:var(--danger-bg);color:var(--danger);border:1px solid #f5b7b1;margin-left:4px;" onclick="deleteCredit('' + (c.id||'') + '')">🗑</button>';
-        }
-        return '—';
-      })()}</td>
+      <td style="white-space:nowrap;">${STATE.currentUser&&(STATE.currentUser.role==='admin'||STATE.currentUser.role==='gestionnaire')?`<button class="btn btn-outline" style="font-size:.75rem;padding:3px 10px;" onclick="openEditCredit('${c.id||''}','${esc(c.client)}',${c.due||0},${c.paid||0},${c.finalBalance||0})">✏</button><button class="btn" style="font-size:.75rem;padding:3px 10px;background:var(--danger-bg);color:var(--danger);border:1px solid #f5b7b1;margin-left:4px;" onclick="deleteCredit('${c.id||''}')">🗑</button>`:'—'}</td>
     </tr>`);
     if (hasDebt) {
       rows.push(`<tr style="background:#fef3e2;">
