@@ -801,7 +801,7 @@ function showToast(msg, type) {
 function calcPrixUnitaire() {
   const prixCaisse = parseFloat(document.getElementById('v-prix-caisse').value) || 0;
   const produit = document.getElementById('v-desc').value;
-  const isBeller = produit.toLowerCase().includes('beller');
+  const isBeller = (produit||'').toLowerCase().includes('beller');
   const casseSize = isBeller ? 48 : 24;
   // Prix unitaire = prix caisse / nombre d'unités dans une caisse
   const prixUnit = prixCaisse > 0 ? prixCaisse / casseSize : 0;
@@ -809,32 +809,53 @@ function calcPrixUnitaire() {
   calcMontant();
 }
 
-function getUnitFacteur(unit, produit) {
-  // Pour Beller: 1 caisse = 48 unités, pour autres: 1 caisse = 24 unités
+function calcMontant() {
+  const qty = parseFloat(document.getElementById('v-qty').value) || 0;
+  const prixCaisse = parseFloat(document.getElementById('v-prix-caisse').value) || 0;
+  const prixUnit = parseFloat(document.getElementById('v-prix').value) || 0;
+  const unit = document.getElementById('v-unit').value;
+  const produit = document.getElementById('v-desc').value;
   const isBeller = (produit||'').toLowerCase().includes('beller');
   const casseSize = isBeller ? 48 : 24;
   const boutSize = casseSize / 2;
-  switch(unit) {
-    case 'unité': return 1;
-    case 'caisse': return casseSize;
-    case 'bout': return boutSize;
-    case 'caisse 1/2': return boutSize;
-    case 'caisse+3': return casseSize + 3;
-    case 'caisse+6': return casseSize + 6;
-    case 'bout+3': return boutSize + 3;
-    case 'bout+6': return boutSize + 6;
-    default: return 1;
-  }
-}
 
-function calcMontant() {
-  const qty = parseFloat(document.getElementById('v-qty').value) || 0;
-  const prix = parseFloat(document.getElementById('v-prix').value) || 0;
-  const unit = document.getElementById('v-unit').value;
-  const produit = document.getElementById('v-desc').value;
-  // Prix unitaire × nombre total d'unités
-  const totalUnites = qty * getUnitFacteur(unit, produit);
-  const montant = totalUnites * prix;
+  let montant = 0;
+
+  // Règles de calcul:
+  // - caisse ou bout : quantite × prix caisse HTG
+  // - caisse+X ou bout+X : (quantite × prix caisse) + (X unites × prix unitaire)
+  // - unité seule : quantite × prix unitaire
+
+  switch(unit) {
+    case 'caisse':
+      // Quantité × Prix caisse
+      montant = qty * prixCaisse;
+      break;
+    case 'bout':
+    case 'caisse 1/2':
+      // Quantité × Prix bout (= prix caisse / 2)
+      montant = qty * (prixCaisse / 2);
+      break;
+    case 'caisse+3':
+      // (Quantité × Prix caisse) + (3 × Prix unitaire)
+      montant = (qty * prixCaisse) + (3 * prixUnit);
+      break;
+    case 'caisse+6':
+      montant = (qty * prixCaisse) + (6 * prixUnit);
+      break;
+    case 'bout+3':
+      montant = (qty * (prixCaisse / 2)) + (3 * prixUnit);
+      break;
+    case 'bout+6':
+      montant = (qty * (prixCaisse / 2)) + (6 * prixUnit);
+      break;
+    case 'unité':
+    default:
+      // Quantité × Prix unitaire
+      montant = qty * prixUnit;
+      break;
+  }
+
   document.getElementById('v-amount').value = montant.toFixed(2);
   calcBalance();
 }
