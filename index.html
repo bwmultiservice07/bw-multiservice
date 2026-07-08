@@ -957,27 +957,31 @@ async function submitSale() {
 function renderMySales() {
   if (!STATE.currentUser) return;
   const body = document.getElementById('my-sales-body');
-  const today = todayStr();
-  const todayIso = isoDate();
   
-  // Pour admin/gestionnaire: afficher toutes les ventes du jour de tous les vendeurs
-  // Pour vendeur: afficher seulement ses propres ventes
+  // Obtenir la date d'aujourd'hui dans TOUS les formats possibles
+  const now = new Date();
+  const todayIso = now.toISOString().split('T')[0]; // 2026-07-07
+  const todayFR = now.toLocaleDateString('fr-FR');   // 07/07/2026
+  const todayEN = now.toLocaleDateString('en-US');   // 7/7/2026
+  
   const isAdminOrGest = STATE.currentUser.role === 'admin' || STATE.currentUser.role === 'gestionnaire';
+  
+  function isToday(t) {
+    const d = t.isoDate || '';
+    const d2 = t.date || '';
+    return d === todayIso || d2 === todayFR || d2 === todayEN || d2 === todayIso;
+  }
   
   const mine = [...STATE.transactions, ...STATE.pendingQueue]
     .filter(t => {
       const matchSeller = isAdminOrGest ? true : t.seller === STATE.currentUser.username;
-      const matchType = t.type === 'vente';
-      const matchDate = t.isoDate === todayIso || t.date === today;
-      return matchSeller && matchType && matchDate;
+      return matchSeller && t.type === 'vente' && isToday(t);
     })
     .sort((a,b)=>(b.time||'').localeCompare(a.time||''));
     
-  // Ajouter les paiements credit du jour
   const todayCredits = (STATE.credits||[]).filter(c => {
-    const matchDate = c.isoDate === todayIso || c.date === today;
     const matchSeller = isAdminOrGest ? true : c.seller === STATE.currentUser.username;
-    return matchDate && matchSeller && c.source !== 'vente';
+    return matchSeller && isToday(c) && c.source !== 'vente';
   });
   const allRows = [...mine, ...todayCredits.map(c => ({...c, _isCredit:true}))].sort((a,b)=>(b.time||'').localeCompare(a.time||''));
   if (!allRows.length) {
@@ -1535,12 +1539,13 @@ function renderCredits() {
       <td>${fmtHTG(c.due)}</td><td>${fmtHTG(c.paid||0)}</td>
       <td style="${clientColor}">${fmtHTG(c.finalBalance||0)}</td>
       <td><span class="badge ${hasDebt?'badge-pending':'badge-sent'}">${hasDebt?'⏳ Partiel':'✅ Soldé'}</span></td>
-      <td style="white-space:nowrap;">
-        ${STATE.currentUser && (STATE.currentUser.role==='admin' || STATE.currentUser.role==='gestionnaire') ? `
-        <button class="btn btn-outline" style="font-size:.75rem;padding:3px 10px;" onclick="openEditCredit('${c.id||''}','${esc(c.client)}',${c.due||0},${c.paid||0},${c.finalBalance||0})">✏</button>
-        <button class="btn" style="font-size:.75rem;padding:3px 10px;background:var(--danger-bg);color:var(--danger);border:1px solid #f5b7b1;margin-left:4px;" onclick="deleteCredit('${c.id||''}')">🗑</button>
-        ` : '—'}
-      </td>
+      <td style="white-space:nowrap;">${(()=>{
+        if(STATE.currentUser && (STATE.currentUser.role==='admin' || STATE.currentUser.role==='gestionnaire')){
+          return '<button class="btn btn-outline" style="font-size:.75rem;padding:3px 10px;" onclick="openEditCredit('' + (c.id||'') + '','' + esc(c.client) + '',' + (c.due||0) + ',' + (c.paid||0) + ',' + (c.finalBalance||0) + ')">✏</button>' +
+          '<button class="btn" style="font-size:.75rem;padding:3px 10px;background:var(--danger-bg);color:var(--danger);border:1px solid #f5b7b1;margin-left:4px;" onclick="deleteCredit('' + (c.id||'') + '')">🗑</button>';
+        }
+        return '—';
+      })()}</td>
     </tr>`);
     if (hasDebt) {
       rows.push(`<tr style="background:#fef3e2;">
@@ -1594,6 +1599,7 @@ function startCreditListener() {
       STATE.credits = snap.docs.map(d => ({id: d.id, ...d.data()}));
       renderCredits();
       renderMySales();
+      if (currentTab === 'ventes') renderMySales();
     },
     err => console.error('Credits listener:', err)
   );
