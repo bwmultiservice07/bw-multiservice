@@ -894,23 +894,24 @@ function renderMySales() {
   const mine = [...STATE.transactions, ...STATE.pendingQueue]
     .filter(t=>t.seller===STATE.currentUser.username && t.date===today && t.type==='vente')
     .sort((a,b)=>(b.time||'').localeCompare(a.time||''));
-  if (!mine.length) {
-    body.innerHTML='<tr><td colspan="5" style="text-align:center;color:var(--text3);padding:1.5rem;">Aucune vente aujourd\'hui.</td></tr>';
+  // Ajouter les paiements credit du jour
+  const todayCredits = (STATE.credits||[]).filter(c => c.date===today && c.seller===STATE.currentUser.username && c.source!=='vente');
+  const allRows = [...mine, ...todayCredits.map(c => ({...c, _isCredit:true}))].sort((a,b)=>(b.time||'').localeCompare(a.time||''));
+  if (!allRows.length) {
+    body.innerHTML='<tr><td colspan="12" style="text-align:center;color:var(--text3);padding:1.5rem;">Aucune transaction aujourd'hui.</td></tr>';
     return;
   }
-  // Ajouter les paiements credit du jour
-  const todayCredits = (STATE.credits||[]).filter(c => c.date===today && (STATE.currentUser.role==='vendeur' ? c.seller===STATE.currentUser.username : true));
-  const allRows = [...mine, ...todayCredits.map(c => ({...c, _isCredit:true}))].sort((a,b)=>(b.time||'').localeCompare(a.time||''));
   body.innerHTML = allRows.map(t=> t._isCredit ? `<tr style="background:#e6f6ef;">
     <td>${t.date}</td><td>${t.time}</td><td>💳 Paiement client</td><td>—</td><td>—</td><td>—</td>
     <td>—</td><td>${fmtHTG(t.paid||0)}</td>
-    <td>—</td><td>${fmtHTG(t.finalBalance||0)}</td><td>${esc(t.client||'')}</td>
+    <td>—</td><td>${fmtHTG(t.finalBalance||0)}</td><td style="color:#0f7b4f;font-weight:600;">${esc(t.client||'')}</td>
     <td><span class="badge badge-sent">💳 Crédit</span></td>
   </tr>` : `<tr>
     <td>${t.date}</td><td>${t.time}</td><td>${esc(t.description)}</td><td>${t.quantity}</td>
     <td>${esc(t.unit||'')}</td><td>${fmtHTG(t.unitPrice||0)}</td>
     <td>${fmtHTG(t.amount)}</td><td>${fmtHTG(t.cash||0)}</td>
-    <td>${fmtHTG(t.credit||0)}</td><td>${fmtHTG(t.balance||0)}</td><td>${esc(t.client||'')}</td>
+    <td>${fmtHTG(t.credit||0)}</td><td>${fmtHTG(t.balance||0)}</td>
+    <td style="color:${(t.balance||0)>0?'#c0392b':'#0f7b4f'};font-weight:600;">${esc(t.client||'')}</td>
     <td><span class="badge ${t.status==='sent'?'badge-sent':'badge-pending'}">${t.status==='sent'?'✓ Envoyé':'⏳ En attente'}</span></td>
   </tr>`).join('');
 }
@@ -1434,8 +1435,10 @@ function renderCredits() {
       <td style="${clientColor}">${fmtHTG(c.finalBalance||0)}</td>
       <td><span class="badge ${hasDebt?'badge-pending':'badge-sent'}">${hasDebt?'⏳ Partiel':'✅ Soldé'}</span></td>
       <td style="white-space:nowrap;">
+        ${STATE.currentUser && (STATE.currentUser.role==='admin' || STATE.currentUser.role==='gestionnaire') ? `
         <button class="btn btn-outline" style="font-size:.75rem;padding:3px 10px;" onclick="openEditCredit('${c.id||''}','${esc(c.client)}',${c.due||0},${c.paid||0},${c.finalBalance||0})">✏</button>
         <button class="btn" style="font-size:.75rem;padding:3px 10px;background:var(--danger-bg);color:var(--danger);border:1px solid #f5b7b1;margin-left:4px;" onclick="deleteCredit('${c.id||''}')">🗑</button>
+        ` : '—'}
       </td>
     </tr>`);
     if (hasDebt) {
