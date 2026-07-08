@@ -312,8 +312,8 @@ tr:hover td{background:#f7f9ff;}
         <div class="card-title">📋 Historique des crédits clients</div>
         <div class="table-wrap">
           <table>
-            <thead><tr><th>Date</th><th>Heure</th><th>Client</th><th>Balance dette</th><th>Montant remboursé</th><th>Balance finale</th><th>Statut</th></tr></thead>
-            <tbody id="credit-table-body"><tr><td colspan="7" style="text-align:center;color:var(--text3);padding:1.5rem;">Aucun paiement enregistré.</td></tr></tbody>
+            <thead><tr><th>Date</th><th>Heure</th><th>Client</th><th>Balance dette</th><th>Montant remboursé</th><th>Balance finale</th><th>Statut</th><th>Actions</th></tr></thead>
+            <tbody id="credit-table-body"><tr><td colspan="9" style="text-align:center;color:var(--text3);padding:1.5rem;">Aucun paiement enregistré.</td></tr></tbody>
           </table>
         </div>
       </div>
@@ -587,6 +587,7 @@ function startFirebaseListeners() {
     snap => {
       STATE.transactions = snap.docs.map(d => ({id: d.id, ...d.data()}));
       renderAll();
+      renderMySales();
       if (currentTab === 'compta') refreshAccounting();
       if (currentTab === 'admin') renderAdminTrans();
     },
@@ -1351,15 +1352,9 @@ function updateClientList() {
 }
 
 function loadClientBalance() {
-  const client = document.getElementById('cr-client').value.trim().toLowerCase();
-  if (!client) { document.getElementById('cr-balance-due').value = ''; return; }
-  // Chercher la dernière balance du client dans les transactions
-  const sales = STATE.transactions.filter(t => t.type === 'vente' && (t.client||'').toLowerCase() === client);
-  // Chercher les paiements déjà effectués
-  const payments = STATE.credits ? STATE.credits.filter(c => (c.client||'').toLowerCase() === client) : [];
-  let totalDue = sales.reduce((a,t) => a + (t.balance||0), 0);
-  let totalPaid = payments.reduce((a,p) => a + (p.paid||0), 0);
-  const remaining = Math.max(0, totalDue - totalPaid);
+  const clientInput = document.getElementById('cr-client').value.trim();
+  if (!clientInput) { document.getElementById('cr-balance-due').value = ''; return; }
+  const remaining = getClientDebt(clientInput);
   document.getElementById('cr-balance-due').value = remaining.toFixed(2);
   calcCreditBalance();
 }
@@ -1407,35 +1402,81 @@ async function submitCredit() {
   document.getElementById('cr-final').value = '';
 }
 
+function getClientDebt(clientName) {
+  // Calculer la dette totale d'un client: somme des balances de ventes - somme des paiements
+  const name = (clientName||'').toLowerCase();
+  const salesBalance = (STATE.transactions||[])
+    .filter(t => t.type==='vente' && (t.client||'').toLowerCase()===name)
+    .reduce((a,t) => a + (t.balance||0), 0);
+  const paymentsDone = (STATE.credits||[])
+    .filter(c => (c.client||'').toLowerCase()===name && c.source!=='vente')
+    .reduce((a,c) => a + (c.paid||0), 0);
+  return Math.max(0, salesBalance - paymentsDone);
+}
+
 function renderCredits() {
   if (!STATE.credits) STATE.credits = [];
   const body = document.getElementById('credit-table-body');
   if (!body) return;
   const sorted = [...STATE.credits].sort((a,b) => (b.isoDate||'').localeCompare(a.isoDate||''));
   if (!sorted.length) {
-    body.innerHTML = '<tr><td colspan="7" style="text-align:center;color:var(--text3);padding:1.5rem;">Aucun paiement enregistré.</td></tr>';
+    body.innerHTML = '<tr><td colspan="9" style="text-align:center;color:var(--text3);padding:1.5rem;">Aucun paiement enregistré.</td></tr>';
     return;
   }
   let rows = [];
   sorted.forEach(c => {
+    const hasDebt = c.finalBalance > 0;
+    const clientColor = hasDebt ? 'color:#c0392b;font-weight:700;' : 'color:#0f7b4f;font-weight:700;';
     rows.push(`<tr>
-      <td>${c.date}</td><td>${c.time}</td><td>${esc(c.client)}</td>
-      <td>${fmtHTG(c.due)}</td><td>${fmtHTG(c.paid)}</td>
-      <td style="color:${c.finalBalance>0?'#c0392b':'#0f7b4f'};font-weight:700;">${fmtHTG(c.finalBalance)}</td>
-      <td><span class="badge ${c.finalBalance===0?'badge-sent':'badge-pending'}">${c.finalBalance===0?'✅ Soldé':'⏳ Partiel'}</span></td>
+      <td>${c.date}</td><td>${c.time}</td>
+      <td style="${clientColor}">${esc(c.client)}</td>
+      <td>${fmtHTG(c.due)}</td><td>${fmtHTG(c.paid||0)}</td>
+      <td style="${clientColor}">${fmtHTG(c.finalBalance||0)}</td>
+      <td><span class="badge ${hasDebt?'badge-pending':'badge-sent'}">${hasDebt?'⏳ Partiel':'✅ Soldé'}</span></td>
+      <td style="white-space:nowrap;">
+        <button class="btn btn-outline" style="font-size:.75rem;padding:3px 10px;" onclick="openEditCredit('${c.id||''}','${esc(c.client)}',${c.due||0},${c.paid||0},${c.finalBalance||0})">✏</button>
+        <button class="btn" style="font-size:.75rem;padding:3px 10px;background:var(--danger-bg);color:var(--danger);border:1px solid #f5b7b1;margin-left:4px;" onclick="deleteCredit('${c.id||''}')">🗑</button>
+      </td>
     </tr>`);
-    // Reporter la balance si non soldée
-    if (c.finalBalance > 0) {
+    if (hasDebt) {
       rows.push(`<tr style="background:#fef3e2;">
         <td colspan="2" style="color:#b45309;font-style:italic;">↩ Report</td>
-        <td>${esc(c.client)}</td>
+        <td style="color:#c0392b;font-weight:700;">${esc(c.client)}</td>
         <td colspan="2" style="color:#b45309;font-style:italic;">Balance reportée</td>
         <td style="color:#c0392b;font-weight:700;">${fmtHTG(c.finalBalance)}</td>
         <td><span class="badge badge-pending">⚠ À payer</span></td>
+        <td></td>
       </tr>`);
     }
   });
   body.innerHTML = rows.join('');
+}
+
+function openEditCredit(id, client, due, paid, finalBalance) {
+  const newPaid = prompt(`Modifier le montant remboursé pour ${client} (actuel: ${paid} HTG):`, paid);
+  if (newPaid === null) return;
+  const paidNum = parseFloat(newPaid) || 0;
+  const newFinal = Math.max(0, due - paidNum);
+  if (STATE.isOnline && STATE.fbReady && id) {
+    const {doc, updateDoc} = window._fbFns;
+    updateDoc(doc(window._db,'credits',id), {paid:paidNum, finalBalance:newFinal, status:newFinal===0?'soldé':'partiel'})
+      .then(() => showToast('✅ Paiement modifié.'))
+      .catch(e => showToast('⚠ Erreur: '+e.message,'warn'));
+  }
+}
+
+async function deleteCredit(id) {
+  if (!confirm('Supprimer ce paiement de crédit ?')) return;
+  if (STATE.isOnline && STATE.fbReady && id) {
+    try {
+      const {doc, deleteDoc} = window._fbFns;
+      await deleteDoc(doc(window._db,'credits',id));
+      showToast('🗑 Paiement supprimé.','warn');
+    } catch(e) { showToast('⚠ Erreur: '+e.message,'warn'); }
+  } else {
+    STATE.credits = (STATE.credits||[]).filter(c => c.id !== id);
+    renderCredits();
+  }
 }
 
 // Firebase listener pour credits
@@ -1448,6 +1489,7 @@ function startCreditListener() {
     snap => {
       STATE.credits = snap.docs.map(d => ({id: d.id, ...d.data()}));
       renderCredits();
+      renderMySales();
     },
     err => console.error('Credits listener:', err)
   );
