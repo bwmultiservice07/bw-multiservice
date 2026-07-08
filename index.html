@@ -898,7 +898,7 @@ function renderMySales() {
   const todayCredits = (STATE.credits||[]).filter(c => c.date===today && c.seller===STATE.currentUser.username && c.source!=='vente');
   const allRows = [...mine, ...todayCredits.map(c => ({...c, _isCredit:true}))].sort((a,b)=>(b.time||'').localeCompare(a.time||''));
   if (!allRows.length) {
-    body.innerHTML='<tr><td colspan="12" style="text-align:center;color:var(--text3);padding:1.5rem;">Aucune transaction aujourd'hui.</td></tr>';
+    body.innerHTML='<tr><td colspan="12" style="text-align:center;color:var(--text3);padding:1.5rem;">Aucune transaction aujourd\'hui.</td></tr>';
     return;
   }
   body.innerHTML = allRows.map(t=> t._isCredit ? `<tr style="background:#e6f6ef;">
