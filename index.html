@@ -975,15 +975,31 @@ async function submitSale() {
   document.getElementById('v-client').value='';
 }
 
+function getIsoFromTx(t) {
+  // Retourne isoDate (YYYY-MM-DD) depuis une transaction
+  if (t.isoDate && t.isoDate.match(/^\d{4}-\d{2}-\d{2}$/)) return t.isoDate;
+  if (t.date && t.date.match(/^\d{2}\/\d{2}\/\d{4}$/)) {
+    const [d,m,y] = t.date.split('/');
+    return `${y}-${m}-${d}`;
+  }
+  return t.isoDate || t.date || '';
+}
+
+function formatGroupLabel(isoDate) {
+  if (!isoDate) return 'Date inconnue';
+  const [y, m, d] = isoDate.split('-');
+  const months = ['Janvier','Février','Mars','Avril','Mai','Juin','Juillet','Août','Septembre','Octobre','Novembre','Décembre'];
+  return `📅 ${d} ${months[parseInt(m)-1]} ${y}`;
+}
+
 function renderMySales() {
   if (!STATE.currentUser) return;
   const body = document.getElementById('my-sales-body');
   
-  // Obtenir la date d'aujourd'hui dans TOUS les formats possibles
   const now = new Date();
-  const todayIso = now.toISOString().split('T')[0]; // 2026-07-07
-  const todayFR = now.toLocaleDateString('fr-FR');   // 07/07/2026
-  const todayEN = now.toLocaleDateString('en-US');   // 7/7/2026
+  const todayIso = now.toISOString().split('T')[0];
+  const todayFR = now.toLocaleDateString('fr-FR');
+  const todayEN = now.toLocaleDateString('en-US');
   
   const isAdminOrGest = STATE.currentUser.role === 'admin' || STATE.currentUser.role === 'gestionnaire';
   
@@ -993,49 +1009,106 @@ function renderMySales() {
     return d === todayIso || d2 === todayFR || d2 === todayEN || d2 === todayIso;
   }
   
+  // Toutes les ventes du vendeur (pas seulement aujourd'hui)
   const mine = [...STATE.transactions, ...STATE.pendingQueue]
     .filter(t => {
       const matchSeller = isAdminOrGest ? true : t.seller === STATE.currentUser.username;
-      return matchSeller && t.type === 'vente' && isToday(t);
+      return matchSeller && t.type === 'vente';
     })
-    .sort((a,b)=>(b.time||'').localeCompare(a.time||''));
+    .sort((a,b) => {
+      const da = getIsoFromTx(a), db = getIsoFromTx(b);
+      if (db !== da) return db.localeCompare(da); // plus récent en haut
+      return (b.time||'').localeCompare(a.time||'');
+    });
     
-  const todayCredits = (STATE.credits||[]).filter(c => {
+  const allCredits = (STATE.credits||[]).filter(c => {
     const matchSeller = isAdminOrGest ? true : c.seller === STATE.currentUser.username;
-    return matchSeller && isToday(c) && c.source !== 'vente';
+    return matchSeller && c.source !== 'vente';
   });
-  const allRows = [...mine, ...todayCredits.map(c => ({...c, _isCredit:true}))].sort((a,b)=>(b.time||'').localeCompare(a.time||''));
+
+  // Combiner ventes et crédits
+  const allRows = [
+    ...mine,
+    ...allCredits.map(c => ({...c, _isCredit:true}))
+  ].sort((a,b) => {
+    const da = getIsoFromTx(a), db = getIsoFromTx(b);
+    if (db !== da) return db.localeCompare(da);
+    return (b.time||'').localeCompare(a.time||'');
+  });
+
   if (!allRows.length) {
-    body.innerHTML='<tr><td colspan="12" style="text-align:center;color:var(--text3);padding:1.5rem;">Aucune transaction aujourd\'hui.</td></tr>';
+    body.innerHTML='<tr><td colspan="12" style="text-align:center;color:var(--text3);padding:1.5rem;">Aucune transaction.</td></tr>';
     return;
   }
-  // Calculer les totaux
-  const totalMontant = mine.reduce((a,t) => a+(t.amount||0), 0);
-  const totalCash = mine.reduce((a,t) => a+(t.cash||0), 0);
-  const totalCredit = mine.reduce((a,t) => a+(t.credit||0), 0);
-  const totalBalance = mine.reduce((a,t) => a+(t.balance||0), 0);
-  const totalPaiements = todayCredits.reduce((a,c) => a+(c.paid||0), 0);
 
-  body.innerHTML = allRows.map(t=> t._isCredit ? `<tr style="background:#e6f6ef;">
-    <td>${t.date}</td><td>${t.time}</td><td>💳 Paiement client</td><td>—</td><td>—</td><td>—</td>
-    <td>—</td><td>${fmtHTG(t.paid||0)}</td>
-    <td>—</td><td>${fmtHTG(t.finalBalance||0)}</td><td style="color:#0f7b4f;font-weight:600;">${esc(t.client||'')}</td>
-    <td><span class="badge badge-sent">💳 Crédit</span></td>
-  </tr>` : `<tr>
-    <td>${t.date}</td><td>${t.time}</td><td>${esc(t.description)}</td><td>${t.quantity}</td>
-    <td>${esc(t.unit||'')}</td><td>${fmtHTG(t.unitPrice||0)}</td>
-    <td>${fmtHTG(t.amount)}</td><td>${fmtHTG(t.cash||0)}</td>
-    <td>${fmtHTG(t.credit||0)}</td><td>${fmtHTG(t.balance||0)}</td>
-    <td style="color:${(t.balance||0)>0?'#c0392b':'#0f7b4f'};font-weight:600;">${esc(t.client||'')}</td>
-    <td><span class="badge ${t.status==='sent'?'badge-sent':'badge-pending'}">${t.status==='sent'?'✓ Envoyé':'⏳ En attente'}</span></td>
-  </tr>`).join('') + `<tr style="background:var(--surface2);font-weight:700;border-top:2px solid var(--border);">
-    <td colspan="6">📊 TOTAUX DU JOUR</td>
-    <td>${fmtHTG(totalMontant)}</td>
-    <td>${fmtHTG(totalCash + totalPaiements)}</td>
-    <td>${fmtHTG(totalCredit)}</td>
-    <td>${fmtHTG(totalBalance)}</td>
-    <td colspan="2">${mine.length} vente(s) | ${todayCredits.length} paiement(s)</td>
-  </tr>`;
+  // Grouper par jour
+  const groups = {};
+  allRows.forEach(t => {
+    const iso = getIsoFromTx(t);
+    if (!groups[iso]) groups[iso] = [];
+    groups[iso].push(t);
+  });
+
+  // Trier les groupes du plus récent au plus ancien
+  const sortedDates = Object.keys(groups).sort((a,b) => b.localeCompare(a));
+
+  let html = '';
+  sortedDates.forEach(iso => {
+    const rows = groups[iso];
+    const ventes = rows.filter(t => !t._isCredit);
+    const credits = rows.filter(t => t._isCredit);
+    
+    // Totaux du groupe
+    const totMontant = ventes.reduce((a,t) => a+(t.amount||0), 0);
+    const totCash = ventes.reduce((a,t) => a+(t.cash||0), 0);
+    const totCredit = ventes.reduce((a,t) => a+(t.credit||0), 0);
+    const totBalance = ventes.reduce((a,t) => a+(t.balance||0), 0);
+    const totPaiements = credits.reduce((a,c) => a+(c.paid||0), 0);
+    
+    // Ligne de séparation par jour
+    const isCurrentDay = iso === todayIso;
+    const label = isCurrentDay ? `📅 AUJOURD'HUI — ${formatGroupLabel(iso)}` : formatGroupLabel(iso);
+    
+    html += `<tr style="background:${isCurrentDay?'#1a56db':'#5a6282'};color:#fff;font-weight:700;">
+      <td colspan="12" style="padding:8px 10px;font-size:.9rem;">
+        ${label} &nbsp;|&nbsp; ${ventes.length} vente(s) &nbsp;|&nbsp; ${credits.length} paiement(s) crédit
+      </td>
+    </tr>`;
+    
+    // Lignes des transactions du groupe
+    rows.forEach(t => {
+      if (t._isCredit) {
+        html += `<tr style="background:#e6f6ef;">
+          <td>${t.date}</td><td>${t.time}</td><td>💳 Paiement client</td><td>—</td><td>—</td><td>—</td>
+          <td>—</td><td>${fmtHTG(t.paid||0)}</td>
+          <td>—</td><td>${fmtHTG(t.finalBalance||0)}</td>
+          <td style="color:#0f7b4f;font-weight:600;">${esc(t.client||'')}</td>
+          <td><span class="badge badge-sent">💳 Crédit</span></td>
+        </tr>`;
+      } else {
+        html += `<tr>
+          <td>${t.date}</td><td>${t.time}</td><td>${esc(t.description)}</td><td>${t.quantity}</td>
+          <td>${esc(t.unit||'')}</td><td>${fmtHTG(t.unitPrice||0)}</td>
+          <td>${fmtHTG(t.amount)}</td><td>${fmtHTG(t.cash||0)}</td>
+          <td>${fmtHTG(t.credit||0)}</td><td>${fmtHTG(t.balance||0)}</td>
+          <td style="color:${(t.balance||0)>0?'#c0392b':'#0f7b4f'};font-weight:600;">${esc(t.client||'')}</td>
+          <td><span class="badge ${t.status==='sent'?'badge-sent':'badge-pending'}">${t.status==='sent'?'✓ Envoyé':'⏳ En attente'}</span></td>
+        </tr>`;
+      }
+    });
+    
+    // Totaux du jour
+    html += `<tr style="background:var(--surface2);font-weight:700;border-top:2px solid var(--border);">
+      <td colspan="6">📊 Totaux — ${formatGroupLabel(iso)}</td>
+      <td>${fmtHTG(totMontant)}</td>
+      <td>${fmtHTG(totCash + totPaiements)}</td>
+      <td>${fmtHTG(totCredit)}</td>
+      <td>${fmtHTG(totBalance)}</td>
+      <td colspan="2">${ventes.length} vente(s) | ${credits.length} crédit(s)</td>
+    </tr>`;
+  });
+
+  body.innerHTML = html;
 }
 
 // ============================================================
@@ -1542,8 +1615,9 @@ function renderCredits() {
   const body = document.getElementById('credit-table-body');
   if (!body) return;
   const sorted = [...STATE.credits].sort((a,b) => {
-    const dateComp = (b.isoDate||'').localeCompare(a.isoDate||'');
-    if (dateComp !== 0) return dateComp;
+    const da = getIsoFromTx ? getIsoFromTx(a) : (a.isoDate||a.date||'');
+    const db = getIsoFromTx ? getIsoFromTx(b) : (b.isoDate||b.date||'');
+    if (db !== da) return db.localeCompare(da);
     return (b.time||'').localeCompare(a.time||'');
   });
   if (!sorted.length) {
