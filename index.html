@@ -233,9 +233,13 @@ tr:hover td{background:#f7f9ff;}
             <label>Unité</label>
             <select id="v-unit" onchange="calcMontant()">
               <option value="unité">Unité</option>
-              <option value="caisse">Caisse</option>
-              <option value="bout">Bout</option>
-              <option value="caisse 1/2">Caisse 1/2</option>
+              <option value="caisse">Caisse (24 unités)</option>
+              <option value="bout">Bout (12 unités)</option>
+              <option value="caisse 1/2">Caisse 1/2 (12 unités)</option>
+              <option value="caisse+3">1 Caisse et 3 unités</option>
+              <option value="caisse+6">1 Caisse et 6 unités</option>
+              <option value="bout+3">1 Bout et 3 unités</option>
+              <option value="bout+6">1 Bout et 6 unités</option>
             </select>
           </div>
           <div class="form-group">
@@ -269,6 +273,7 @@ tr:hover td{background:#f7f9ff;}
           </div>
         </div>
         <button class="send-btn" onclick="submitSale()">Envoyer ➤</button>
+        <button class="btn btn-outline" style="margin-top:8px;font-size:.85rem;" onclick="corrigerDerniereVente()">✏️ Corriger dernière vente</button>
       </div>
       <div class="card">
         <div class="card-title">📋 Mes transactions du jour</div>
@@ -788,19 +793,60 @@ function showToast(msg, type) {
 // ============================================================
 // SALES
 // ============================================================
+function getUnitFacteur(unit, produit) {
+  // Pour Beller: 1 caisse = 48 unités, pour autres: 1 caisse = 24 unités
+  const isBeller = (produit||'').toLowerCase().includes('beller');
+  const casseSize = isBeller ? 48 : 24;
+  const boutSize = casseSize / 2;
+  switch(unit) {
+    case 'unité': return 1;
+    case 'caisse': return casseSize;
+    case 'bout': return boutSize;
+    case 'caisse 1/2': return boutSize;
+    case 'caisse+3': return casseSize + 3;
+    case 'caisse+6': return casseSize + 6;
+    case 'bout+3': return boutSize + 3;
+    case 'bout+6': return boutSize + 6;
+    default: return 1;
+  }
+}
+
 function calcMontant() {
   const qty = parseFloat(document.getElementById('v-qty').value) || 0;
   const prix = parseFloat(document.getElementById('v-prix').value) || 0;
   const unit = document.getElementById('v-unit').value;
-  // Facteur selon l'unité
-  let facteur = 1;
-  if (unit === 'caisse') facteur = 1;
-  else if (unit === 'caisse 1/2') facteur = 0.5;
-  else if (unit === 'bout') facteur = 1;
-  else facteur = 1;
-  const montant = qty * prix * facteur;
+  const produit = document.getElementById('v-desc').value;
+  // Prix unitaire × nombre total d'unités
+  const totalUnites = qty * getUnitFacteur(unit, produit);
+  const montant = totalUnites * prix;
   document.getElementById('v-amount').value = montant.toFixed(2);
   calcBalance();
+}
+
+async function corrigerDerniereVente() {
+  // Trouver la dernière vente du vendeur connecté
+  const myVentes = STATE.transactions.filter(t => t.type==='vente' && t.seller===STATE.currentUser.username)
+    .sort((a,b) => (b.isoDate||'').localeCompare(a.isoDate||'')||(b.time||'').localeCompare(a.time||''));
+  if (!myVentes.length) { showToast('⚠ Aucune vente à corriger.','warn'); return; }
+  const last = myVentes[0];
+  // Pré-remplir le formulaire avec la dernière vente
+  document.getElementById('v-desc').value = last.description || '';
+  document.getElementById('v-qty').value = last.quantity || '';
+  document.getElementById('v-unit').value = last.unit || 'unité';
+  document.getElementById('v-prix').value = last.unitPrice || '';
+  document.getElementById('v-amount').value = last.amount || '';
+  document.getElementById('v-cash').value = last.cash || '';
+  document.getElementById('v-credit').value = last.credit || '';
+  document.getElementById('v-balance').value = last.balance || '';
+  document.getElementById('v-client').value = last.client || '';
+  // Supprimer la dernière vente pour la remplacer
+  if (STATE.isOnline && STATE.fbReady && last.id) {
+    try {
+      const {doc, deleteDoc} = window._fbFns;
+      await deleteDoc(doc(window._db,'transactions',last.id));
+      showToast('✏️ Dernière vente chargée — corrigez et renvoyez.');
+    } catch(e) { showToast('⚠ Erreur: '+e.message,'warn'); }
+  }
 }
 
 function calcBalance() {
@@ -832,10 +878,11 @@ async function submitSale() {
   const cash = parseFloat(document.getElementById('v-cash').value) || 0;
   const balance = parseFloat(document.getElementById('v-balance').value) || 0;
   const client = document.getElementById('v-client').value.trim();
-  if (!desc||isNaN(qty)||qty<=0||isNaN(amount)||amount<0) {
-    showToast('⚠ Veuillez remplir tous les champs.','warn'); return;
-  }
   const prix = parseFloat(document.getElementById('v-prix').value) || 0;
+  const clientCheck = document.getElementById('v-client').value.trim();
+  if (!desc||isNaN(qty)||qty<=0||prix<=0||isNaN(amount)||amount<=0) {
+    showToast('⚠ Veuillez remplir tous les champs obligatoires (produit, quantité, prix, montant).','warn'); return;
+  }
   const tx = {
     type:'vente', date:todayStr(), isoDate:isoDate(), time:nowStr(),
     seller:STATE.currentUser.username, description:desc, unit:unit||'unité',
@@ -901,6 +948,13 @@ function renderMySales() {
     body.innerHTML='<tr><td colspan="12" style="text-align:center;color:var(--text3);padding:1.5rem;">Aucune transaction aujourd\'hui.</td></tr>';
     return;
   }
+  // Calculer les totaux
+  const totalMontant = mine.reduce((a,t) => a+(t.amount||0), 0);
+  const totalCash = mine.reduce((a,t) => a+(t.cash||0), 0);
+  const totalCredit = mine.reduce((a,t) => a+(t.credit||0), 0);
+  const totalBalance = mine.reduce((a,t) => a+(t.balance||0), 0);
+  const totalPaiements = todayCredits.reduce((a,c) => a+(c.paid||0), 0);
+
   body.innerHTML = allRows.map(t=> t._isCredit ? `<tr style="background:#e6f6ef;">
     <td>${t.date}</td><td>${t.time}</td><td>💳 Paiement client</td><td>—</td><td>—</td><td>—</td>
     <td>—</td><td>${fmtHTG(t.paid||0)}</td>
@@ -913,7 +967,14 @@ function renderMySales() {
     <td>${fmtHTG(t.credit||0)}</td><td>${fmtHTG(t.balance||0)}</td>
     <td style="color:${(t.balance||0)>0?'#c0392b':'#0f7b4f'};font-weight:600;">${esc(t.client||'')}</td>
     <td><span class="badge ${t.status==='sent'?'badge-sent':'badge-pending'}">${t.status==='sent'?'✓ Envoyé':'⏳ En attente'}</span></td>
-  </tr>`).join('');
+  </tr>`).join('') + `<tr style="background:var(--surface2);font-weight:700;border-top:2px solid var(--border);">
+    <td colspan="6">📊 TOTAUX DU JOUR</td>
+    <td>${fmtHTG(totalMontant)}</td>
+    <td>${fmtHTG(totalCash + totalPaiements)}</td>
+    <td>${fmtHTG(totalCredit)}</td>
+    <td>${fmtHTG(totalBalance)}</td>
+    <td colspan="2">${mine.length} vente(s) | ${todayCredits.length} paiement(s)</td>
+  </tr>`;
 }
 
 // ============================================================
