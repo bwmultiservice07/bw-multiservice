@@ -182,6 +182,7 @@ tr:hover td{background:#f7f9ff;}
   <div class="tabs">
     <button class="active" onclick="switchTab('ventes')">🧾 Ventes</button>
     <button id="tab-credit-btn" onclick="switchTab('credit')">💳 Crédit Client</button>
+    <button id="tab-dettes-btn" onclick="switchTab('dettes')">📋 Liste des Dettes</button>
     <button id="tab-stocks-btn" onclick="switchTab('stocks')" style="display:none;">📦 Stocks</button>
     <button id="tab-tableau-btn" onclick="switchTab('tableau')" style="display:none;">📊 Tableau de bord</button>
     <button id="tab-admin-btn" onclick="switchTab('admin')" style="display:none;">⚙ Administration</button>
@@ -323,6 +324,19 @@ tr:hover td{background:#f7f9ff;}
           <table>
             <thead><tr><th>Date</th><th>Heure</th><th>Client</th><th>Balance dette</th><th>Montant remboursé</th><th>Balance finale</th><th>Statut</th><th>Actions</th></tr></thead>
             <tbody id="credit-table-body"><tr><td colspan="9" style="text-align:center;color:var(--text3);padding:1.5rem;">Aucun paiement enregistré.</td></tr></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- LISTE DES DETTES -->
+    <div class="tab-content" id="tab-dettes">
+      <div class="card">
+        <div class="card-title">📋 Liste des clients avec balance de dettes</div>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Client</th><th>Total Dû (HTG)</th><th>Total Payé (HTG)</th><th>Balance Restante (HTG)</th><th>Statut</th></tr></thead>
+            <tbody id="dettes-table-body"><tr><td colspan="5" style="text-align:center;color:var(--text3);padding:1.5rem;">Aucune dette enregistrée.</td></tr></tbody>
           </table>
         </div>
       </div>
@@ -596,6 +610,7 @@ function startFirebaseListeners() {
     snap => {
       STATE.transactions = snap.docs.map(d => ({id: d.id, ...d.data()}));
       renderAll();
+      renderDettes();
       renderMySales();
       if (currentTab === 'compta') refreshAccounting();
       if (currentTab === 'admin') renderAdminTrans();
@@ -720,13 +735,15 @@ function doLogin() {
     document.getElementById('tab-stocks-btn').style.display = 'block';
     document.getElementById('tab-tableau-btn').style.display = 'block';
     document.getElementById('tab-credit-btn').style.display = 'block';
+    document.getElementById('tab-dettes-btn').style.display = 'block';
   } else {
-    // Vendeur : onglet Ventes et Crédit Client
+    // Vendeur : onglet Ventes, Crédit Client et Liste des Dettes
     document.getElementById('tab-stocks-btn').style.display = 'none';
     document.getElementById('tab-tableau-btn').style.display = 'none';
     document.getElementById('tab-admin-btn').style.display = 'none';
     document.getElementById('tab-compta-btn').style.display = 'none';
     document.getElementById('tab-credit-btn').style.display = 'block';
+    document.getElementById('tab-dettes-btn').style.display = 'block';
   }
   updateConnStatus();
   renderAll();
@@ -765,6 +782,7 @@ function switchTab(tab) {
   if (tab==='tableau') renderDashboard();
   if (tab==='stocks') renderStocks();
   if (tab==='credit') renderCredits();
+  if (tab==='dettes') renderDettes();
   if (tab==='ventes') renderMySales();
 }
 function switchAccTab(name, btn) {
@@ -1687,6 +1705,7 @@ function startCreditListener() {
     snap => {
       STATE.credits = snap.docs.map(d => ({id: d.id, ...d.data()}));
       renderCredits();
+      renderDettes();
       renderMySales();
       if (currentTab === 'ventes') renderMySales();
     },
@@ -1699,12 +1718,64 @@ window.addEventListener('fb-ready', () => {
 });
 if (window._fbReady) startCreditListener();
 
+function renderDettes() {
+  const body = document.getElementById('dettes-table-body');
+  if (!body) return;
+  
+  // Collecter tous les clients uniques
+  const clients = new Set();
+  (STATE.transactions||[]).forEach(t => { if(t.client && t.type==='vente') clients.add(t.client); });
+  (STATE.credits||[]).forEach(c => { if(c.client) clients.add(c.client); });
+  
+  if (!clients.size) {
+    body.innerHTML = '<tr><td colspan="5" style="text-align:center;color:var(--text3);padding:1.5rem;">Aucune dette enregistrée.</td></tr>';
+    return;
+  }
+  
+  const isAdminOrGest = STATE.currentUser && (STATE.currentUser.role==='admin' || STATE.currentUser.role==='gestionnaire');
+  
+  // Calculer la dette de chaque client
+  const clientData = [];
+  clients.forEach(client => {
+    const name = client.toLowerCase();
+    // Total dû = somme des balances de ventes à crédit
+    const totalDu = (STATE.transactions||[])
+      .filter(t => t.type==='vente' && (t.client||'').toLowerCase()===name && (t.balance||0) > 0)
+      .reduce((a,t) => a+(t.balance||0), 0);
+    // Total payé = somme des paiements effectués (hors source vente)
+    const totalPaye = (STATE.credits||[])
+      .filter(c => (c.client||'').toLowerCase()===name && c.source!=='vente')
+      .reduce((a,c) => a+(c.paid||0), 0);
+    const balanceRestante = Math.max(0, totalDu - totalPaye);
+    if (totalDu > 0 || totalPaye > 0) {
+      clientData.push({ client, totalDu, totalPaye, balanceRestante });
+    }
+  });
+  
+  // Trier par balance restante décroissante (plus grosse dette en haut)
+  clientData.sort((a,b) => b.balanceRestante - a.balanceRestante);
+  
+  if (!clientData.length) {
+    body.innerHTML = '<tr><td colspan="5" style="text-align:center;color:var(--text3);padding:1.5rem;">Aucune dette enregistrée.</td></tr>';
+    return;
+  }
+  
+  body.innerHTML = clientData.map(d => `<tr>
+    <td style="font-weight:600;color:${d.balanceRestante>0?'#c0392b':'#0f7b4f'};">${esc(d.client)}</td>
+    <td>${fmtHTG(d.totalDu)}</td>
+    <td>${fmtHTG(d.totalPaye)}</td>
+    <td style="font-weight:700;color:${d.balanceRestante>0?'#c0392b':'#0f7b4f'};">${fmtHTG(d.balanceRestante)}</td>
+    <td><span class="badge ${d.balanceRestante===0?'badge-sent':'badge-pending'}">${d.balanceRestante===0?'✅ Soldé':'⚠ En cours'}</span></td>
+  </tr>`).join('');
+}
+
 function renderAll() {
   if (!STATE.currentUser) return;
   renderMySales();
   renderStocks();
   renderDashboard();
   renderCredits();
+  renderDettes();
 }
 
 // Appel automatique de renderMySales toutes les 30 secondes pour s'assurer de la synchronisation
