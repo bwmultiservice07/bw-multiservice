@@ -243,8 +243,12 @@ tr:hover td{background:#f7f9ff;}
             </select>
           </div>
           <div class="form-group">
-            <label>Prix unitaire (HTG)</label>
-            <input type="number" id="v-prix" min="0" step="0.01" placeholder="Ex: 50.00" oninput="calcMontant()"/>
+            <label>Prix / Caisse (HTG)</label>
+            <input type="number" id="v-prix-caisse" min="0" step="0.01" placeholder="Ex: 1200.00" oninput="calcPrixUnitaire()"/>
+          </div>
+          <div class="form-group">
+            <label>Prix unitaire (HTG) — auto</label>
+            <input type="number" id="v-prix" min="0" step="0.01" placeholder="Ex: 50.00" oninput="calcMontant()" readonly style="background:#f0f2f7;"/>
           </div>
           <div class="form-group">
             <label>Montant total (HTG) — automatique</label>
@@ -793,6 +797,17 @@ function showToast(msg, type) {
 // ============================================================
 // SALES
 // ============================================================
+function calcPrixUnitaire() {
+  const prixCaisse = parseFloat(document.getElementById('v-prix-caisse').value) || 0;
+  const produit = document.getElementById('v-desc').value;
+  const isBeller = produit.toLowerCase().includes('beller');
+  const casseSize = isBeller ? 48 : 24;
+  // Prix unitaire = prix caisse / nombre d'unités dans une caisse
+  const prixUnit = prixCaisse > 0 ? prixCaisse / casseSize : 0;
+  document.getElementById('v-prix').value = prixUnit.toFixed(2);
+  calcMontant();
+}
+
 function getUnitFacteur(unit, produit) {
   // Pour Beller: 1 caisse = 48 unités, pour autres: 1 caisse = 24 unités
   const isBeller = (produit||'').toLowerCase().includes('beller');
@@ -886,7 +901,7 @@ async function submitSale() {
   const tx = {
     type:'vente', date:todayStr(), isoDate:isoDate(), time:nowStr(),
     seller:STATE.currentUser.username, description:desc, unit:unit||'unité',
-    quantity:qty, unitPrice:prix, amount:amount, cash:cash, credit:balance, balance:balance,
+    quantity:qty, unitPrice:prix, prixCaisse:parseFloat(document.getElementById('v-prix-caisse').value)||0, amount:amount, cash:cash, credit:balance, balance:balance,
     client:client||'', status:'sent', createdAt: new Date().toISOString()
   };
   // Si vente à crédit (balance > 0), auto-créer une entrée dans credits
@@ -926,6 +941,7 @@ async function submitSale() {
   document.getElementById('v-desc').value='';
   document.getElementById('v-qty').value='';
   document.getElementById('v-unit').value='unité';
+  document.getElementById('v-prix-caisse').value='';
   document.getElementById('v-prix').value='';
   document.getElementById('v-amount').value='';
   document.getElementById('v-cash').value='';
@@ -938,11 +954,22 @@ function renderMySales() {
   if (!STATE.currentUser) return;
   const body = document.getElementById('my-sales-body');
   const today = todayStr();
+  const todayIso = isoDate();
+  // Filtrer par isoDate ET date pour s'assurer de la compatibilité
   const mine = [...STATE.transactions, ...STATE.pendingQueue]
-    .filter(t=>t.seller===STATE.currentUser.username && t.date===today && t.type==='vente')
+    .filter(t => {
+      const matchSeller = t.seller === STATE.currentUser.username;
+      const matchType = t.type === 'vente';
+      const matchDate = t.isoDate === todayIso || t.date === today;
+      return matchSeller && matchType && matchDate;
+    })
     .sort((a,b)=>(b.time||'').localeCompare(a.time||''));
   // Ajouter les paiements credit du jour
-  const todayCredits = (STATE.credits||[]).filter(c => c.date===today && c.seller===STATE.currentUser.username && c.source!=='vente');
+  const todayCredits = (STATE.credits||[]).filter(c => {
+    const matchDate = c.isoDate === todayIso || c.date === today;
+    const matchSeller = c.seller === STATE.currentUser.username;
+    return matchDate && matchSeller && c.source !== 'vente';
+  });
   const allRows = [...mine, ...todayCredits.map(c => ({...c, _isCredit:true}))].sort((a,b)=>(b.time||'').localeCompare(a.time||''));
   if (!allRows.length) {
     body.innerHTML='<tr><td colspan="12" style="text-align:center;color:var(--text3);padding:1.5rem;">Aucune transaction aujourd\'hui.</td></tr>';
