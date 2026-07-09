@@ -283,7 +283,7 @@ tr:hover td{background:#f7f9ff;}
         <button class="btn btn-outline" style="margin-top:8px;font-size:.85rem;" onclick="corrigerDerniereVente()">✏️ Corriger dernière vente</button>
       </div>
       <div class="card">
-        <div class="card-title">📋 Mes transactions du jour</div>
+        <div class="card-title" id="my-sales-title">📋 Mes transactions du jour</div>
         <div class="table-wrap">
           <table>
             <thead><tr><th>Date</th><th>Heure</th><th>Description</th><th>Qté</th><th>Unité</th><th>Prix unit.</th><th>Montant (HTG)</th><th>Cash (HTG)</th><th>Crédit (HTG)</th><th>Balance (HTG)</th><th>Client</th><th>Statut</th></tr></thead>
@@ -895,6 +895,15 @@ function doLogin() {
   updateConnStatus();
   renderAll();
   renderUsers();
+  // Mettre à jour le titre des transactions selon le rôle
+  const titleEl = document.getElementById('my-sales-title');
+  if (titleEl) {
+    if (user.role === 'admin' || user.role === 'gestionnaire') {
+      titleEl.textContent = '📋 Toutes les transactions (tous vendeurs)';
+    } else {
+      titleEl.textContent = '📋 Mes transactions du jour';
+    }
+  }
 }
 function doLogout() {
   if (unsubTrans) unsubTrans();
@@ -934,7 +943,7 @@ function switchTab(tab) {
   if (tab==='dettes') renderDettes();
   if (tab==='stock-depart') renderStockDepart();
   if (tab==='stock-actuel') renderStockActuel();
-  if (tab==='ventes') renderMySales();
+  if (tab==='ventes') { renderMySales(); }
 }
 function switchAccTab(name, btn) {
   currentAccTab = name;
@@ -2138,6 +2147,8 @@ function renderAll() {
   renderDashboard();
   renderCredits();
   renderDettes();
+  if (currentTab === 'stock-actuel') renderStockActuel();
+  if (currentTab === 'stock-depart') renderStockDepart();
 }
 
 // Appel automatique de renderMySales toutes les 30 secondes pour s'assurer de la synchronisation
