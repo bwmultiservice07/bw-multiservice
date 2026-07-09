@@ -183,7 +183,9 @@ tr:hover td{background:#f7f9ff;}
     <button class="active" onclick="switchTab('ventes')">🧾 Ventes</button>
     <button id="tab-credit-btn" onclick="switchTab('credit')">💳 Crédit Client</button>
     <button id="tab-dettes-btn" onclick="switchTab('dettes')">📋 Liste des Dettes</button>
-    <button id="tab-stocks-btn" onclick="switchTab('stocks')" style="display:none;">📦 Stocks</button>
+    <button id="tab-stock-depart-btn" onclick="switchTab('stock-depart')" style="display:none;">🏁 Stock de départ</button>
+    <button id="tab-stocks-btn" onclick="switchTab('stocks')" style="display:none;">📦 Mouvements de Stocks</button>
+    <button id="tab-stock-actuel-btn" onclick="switchTab('stock-actuel')" style="display:none;">📊 Stock Actuel</button>
     <button id="tab-tableau-btn" onclick="switchTab('tableau')" style="display:none;">📊 Tableau de bord</button>
     <button id="tab-admin-btn" onclick="switchTab('admin')" style="display:none;">⚙ Administration</button>
     <button id="tab-compta-btn" onclick="switchTab('compta')" style="display:none;">📒 Comptabilité</button>
@@ -342,7 +344,65 @@ tr:hover td{background:#f7f9ff;}
       </div>
     </div>
 
-    <!-- STOCKS -->
+    <!-- STOCK DE DEPART -->
+    <div class="tab-content" id="tab-stock-depart">
+      <div class="card">
+        <div class="card-title">🏁 Enregistrer le stock de départ</div>
+        <div class="form-row">
+          <div class="form-group" style="flex:2;min-width:200px;">
+            <label>Produit</label>
+            <select id="sd-desc">
+              <option value="">-- Choisir un produit --</option>
+              <option value="7up">7up</option>
+              <option value="Beller">Beller</option>
+              <option value="Couronne">Couronne</option>
+              <option value="Culligan">Culligan</option>
+              <option value="Dassani">Dassani</option>
+              <option value="Frooty">Frooty</option>
+              <option value="Generade">Generade</option>
+              <option value="Gros Frutop">Gros Frutop</option>
+              <option value="Gros Valle">Gros Valle</option>
+              <option value="Heineken">Heineken</option>
+              <option value="Kinanm">Kinanm</option>
+              <option value="Koka">Koka</option>
+              <option value="Kola Real">Kola Real</option>
+              <option value="Prestige">Prestige</option>
+              <option value="Prorade">Prorade</option>
+              <option value="Sprite">Sprite</option>
+              <option value="Tampico">Tampico</option>
+              <option value="Ti Frutop">Ti Frutop</option>
+              <option value="Ti Valle">Ti Valle</option>
+            </select>
+          </div>
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label>Quantité (caisses)</label>
+            <input type="number" id="sd-qty" min="0" placeholder="Ex: 10"/>
+          </div>
+          <div class="form-group">
+            <label>Prix / Caisse (HTG)</label>
+            <input type="number" id="sd-prix" min="0" step="0.01" placeholder="Ex: 1200.00"/>
+          </div>
+          <div class="form-group">
+            <label>Date</label>
+            <input type="date" id="sd-date"/>
+          </div>
+        </div>
+        <button class="send-btn" onclick="submitStockDepart()">Enregistrer ➤</button>
+      </div>
+      <div class="card">
+        <div class="card-title">📋 Historique du stock de départ</div>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Date</th><th>Produit</th><th>Qté (caisses)</th><th>Prix/Caisse</th><th>Valeur totale</th></tr></thead>
+            <tbody id="stock-depart-body"><tr><td colspan="5" style="text-align:center;color:var(--text3);padding:1.5rem;">Aucun stock de départ enregistré.</td></tr></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- STOCKS (Mouvements) -->
     <div class="tab-content" id="tab-stocks">
       <div class="card">
         <div class="card-title">📥 Entrée de stock</div>
@@ -386,6 +446,19 @@ tr:hover td{background:#f7f9ff;}
           <table>
             <thead><tr><th>Date</th><th>Description</th><th>Qté</th><th>Prix unit.</th><th>Valeur</th><th>Fournisseur</th></tr></thead>
             <tbody id="stock-table-body"><tr><td colspan="6" style="text-align:center;color:var(--text3);padding:1.5rem;">Aucun mouvement.</td></tr></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- STOCK ACTUEL -->
+    <div class="tab-content" id="tab-stock-actuel">
+      <div class="card">
+        <div class="card-title">📊 Stock Actuel par Produit</div>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Produit</th><th>Stock départ (caisses)</th><th>Ventes (caisses)</th><th>Stock actuel (caisses)</th><th>Valeur estimée (HTG)</th></tr></thead>
+            <tbody id="stock-actuel-body"><tr><td colspan="5" style="text-align:center;color:var(--text3);padding:1.5rem;">Aucune donnée disponible.</td></tr></tbody>
           </table>
         </div>
       </div>
@@ -732,13 +805,19 @@ function doLogin() {
   if (user.role === 'admin' || user.role === 'gestionnaire') {
     document.getElementById('tab-admin-btn').style.display = 'block';
     document.getElementById('tab-compta-btn').style.display = 'block';
+    document.getElementById('tab-stock-depart-btn').style.display = 'block';
     document.getElementById('tab-stocks-btn').style.display = 'block';
+    document.getElementById('tab-stock-actuel-btn').style.display = 'block';
     document.getElementById('tab-tableau-btn').style.display = 'block';
     document.getElementById('tab-credit-btn').style.display = 'block';
     document.getElementById('tab-dettes-btn').style.display = 'block';
   } else {
     // Vendeur : onglet Ventes, Crédit Client et Liste des Dettes
-    document.getElementById('tab-stocks-btn').style.display = 'none';
+    document.getElementById('tab-stock-depart-btn').style.display = 'none';
+    document.getElementById('tab-stock-depart-btn').style.display = 'none';
+  document.getElementById('tab-stocks-btn').style.display = 'none';
+  document.getElementById('tab-stock-actuel-btn').style.display = 'none';
+    document.getElementById('tab-stock-actuel-btn').style.display = 'none';
     document.getElementById('tab-tableau-btn').style.display = 'none';
     document.getElementById('tab-admin-btn').style.display = 'none';
     document.getElementById('tab-compta-btn').style.display = 'none';
@@ -783,6 +862,8 @@ function switchTab(tab) {
   if (tab==='stocks') renderStocks();
   if (tab==='credit') renderCredits();
   if (tab==='dettes') renderDettes();
+  if (tab==='stock-depart') renderStockDepart();
+  if (tab==='stock-actuel') renderStockActuel();
   if (tab==='ventes') renderMySales();
 }
 function switchAccTab(name, btn) {
@@ -1760,14 +1841,145 @@ function renderDettes() {
     return;
   }
   
-  body.innerHTML = clientData.map(d => `<tr>
-    <td style="font-weight:600;color:${d.balanceRestante>0?'#c0392b':'#0f7b4f'};">${esc(d.client)}</td>
+  // Filtrer seulement les clients avec balance > 0
+  const debtors = clientData.filter(d => d.balanceRestante > 0);
+  
+  if (!debtors.length) {
+    body.innerHTML = '<tr><td colspan="5" style="text-align:center;color:#0f7b4f;padding:1.5rem;">✅ Aucune dette en cours — tous les clients sont à jour !</td></tr>';
+    return;
+  }
+  
+  body.innerHTML = debtors.map(d => `<tr>
+    <td style="font-weight:700;color:#c0392b;">${esc(d.client)}</td>
     <td>${fmtHTG(d.totalDu)}</td>
     <td>${fmtHTG(d.totalPaye)}</td>
-    <td style="font-weight:700;color:${d.balanceRestante>0?'#c0392b':'#0f7b4f'};">${fmtHTG(d.balanceRestante)}</td>
-    <td><span class="badge ${d.balanceRestante===0?'badge-sent':'badge-pending'}">${d.balanceRestante===0?'✅ Soldé':'⚠ En cours'}</span></td>
+    <td style="font-weight:700;color:#c0392b;">${fmtHTG(d.balanceRestante)}</td>
+    <td><span class="badge badge-pending">⚠ En cours</span></td>
+  </tr>`).join('') + `<tr style="background:var(--surface2);font-weight:700;border-top:2px solid var(--border);">
+    <td>📊 TOTAL (${debtors.length} client(s))</td>
+    <td>${fmtHTG(debtors.reduce((a,d)=>a+d.totalDu,0))}</td>
+    <td>${fmtHTG(debtors.reduce((a,d)=>a+d.totalPaye,0))}</td>
+    <td style="color:#c0392b;">${fmtHTG(debtors.reduce((a,d)=>a+d.balanceRestante,0))}</td>
+    <td></td>
+  </tr>`;
+}
+
+async function submitStockDepart() {
+  const desc = document.getElementById('sd-desc').value;
+  const qty = parseFloat(document.getElementById('sd-qty').value) || 0;
+  const prix = parseFloat(document.getElementById('sd-prix').value) || 0;
+  const date = document.getElementById('sd-date').value || isoDate();
+  if (!desc || qty <= 0 || prix <= 0) {
+    showToast('⚠ Veuillez remplir tous les champs.','warn'); return;
+  }
+  const entry = {
+    type:'stock-depart', description:desc, quantity:qty, prixCaisse:prix,
+    valeur:qty*prix, isoDate:date, date:date, createdAt:new Date().toISOString(),
+    seller:STATE.currentUser.username
+  };
+  if (STATE.isOnline && STATE.fbReady) {
+    try {
+      const {collection, addDoc} = window._fbFns;
+      await addDoc(collection(window._db,'stock_depart'), entry);
+      showToast('✅ Stock de départ enregistré.');
+    } catch(e) { showToast('⚠ Erreur: '+e.message,'warn'); }
+  }
+  document.getElementById('sd-desc').value='';
+  document.getElementById('sd-qty').value='';
+  document.getElementById('sd-prix').value='';
+  document.getElementById('sd-date').value='';
+}
+
+function renderStockDepart() {
+  const body = document.getElementById('stock-depart-body');
+  if (!body) return;
+  const items = (STATE.stockDepart||[]).sort((a,b)=>(b.isoDate||'').localeCompare(a.isoDate||''));
+  if (!items.length) {
+    body.innerHTML='<tr><td colspan="5" style="text-align:center;color:var(--text3);padding:1.5rem;">Aucun stock de départ enregistré.</td></tr>';
+    return;
+  }
+  body.innerHTML = items.map(s=>`<tr>
+    <td>${s.date}</td><td>${esc(s.description)}</td><td>${s.quantity}</td>
+    <td>${fmtHTG(s.prixCaisse)}</td><td>${fmtHTG(s.valeur)}</td>
   </tr>`).join('');
 }
+
+function renderStockActuel() {
+  const body = document.getElementById('stock-actuel-body');
+  if (!body) return;
+  
+  // Grouper stock de départ par produit
+  const stockMap = {};
+  (STATE.stockDepart||[]).forEach(s => {
+    const key = s.description;
+    if (!stockMap[key]) stockMap[key] = {qty:0, prix:0};
+    stockMap[key].qty += s.quantity;
+    stockMap[key].prix = s.prixCaisse; // dernier prix
+  });
+  
+  // Grouper ventes par produit (en caisses)
+  const ventesMap = {};
+  (STATE.transactions||[]).filter(t=>t.type==='vente').forEach(t => {
+    const key = t.description;
+    if (!ventesMap[key]) ventesMap[key] = 0;
+    const isBeller = key.toLowerCase().includes('beller');
+    const casseSize = isBeller ? 48 : 24;
+    let qtyCaisses = 0;
+    switch(t.unit) {
+      case 'caisse': qtyCaisses = t.quantity; break;
+      case 'bout': case 'caisse 1/2': qtyCaisses = t.quantity * 0.5; break;
+      case 'caisse+3': qtyCaisses = t.quantity + 3/casseSize; break;
+      case 'caisse+6': qtyCaisses = t.quantity + 6/casseSize; break;
+      case 'bout+3': qtyCaisses = t.quantity*0.5 + 3/casseSize; break;
+      case 'bout+6': qtyCaisses = t.quantity*0.5 + 6/casseSize; break;
+      default: qtyCaisses = t.quantity/casseSize; break;
+    }
+    ventesMap[key] += qtyCaisses;
+  });
+  
+  const allProducts = new Set([...Object.keys(stockMap), ...Object.keys(ventesMap)]);
+  if (!allProducts.size) {
+    body.innerHTML='<tr><td colspan="5" style="text-align:center;color:var(--text3);padding:1.5rem;">Aucune donnée disponible.</td></tr>';
+    return;
+  }
+  
+  const rows = [...allProducts].map(p => {
+    const depart = stockMap[p]?.qty || 0;
+    const vendu = ventesMap[p] || 0;
+    const actuel = Math.max(0, depart - vendu);
+    const prix = stockMap[p]?.prix || 0;
+    const valeur = actuel * prix;
+    return { p, depart, vendu, actuel, valeur };
+  }).sort((a,b) => a.p.localeCompare(b.p));
+  
+  body.innerHTML = rows.map(r=>`<tr>
+    <td style="font-weight:600;">${esc(r.p)}</td>
+    <td>${r.depart.toFixed(1)}</td>
+    <td style="color:#c0392b;">${r.vendu.toFixed(1)}</td>
+    <td style="font-weight:700;color:${r.actuel>0?'#0f7b4f':'#c0392b'};">${r.actuel.toFixed(1)}</td>
+    <td>${fmtHTG(r.valeur)}</td>
+  </tr>`).join('') + `<tr style="background:var(--surface2);font-weight:700;border-top:2px solid var(--border);">
+    <td>TOTAL</td><td></td><td></td><td></td>
+    <td>${fmtHTG(rows.reduce((a,r)=>a+r.valeur,0))}</td>
+  </tr>`;
+}
+
+// Firebase listener pour stock départ
+function startStockDepartListener() {
+  if (!window._fbReady || !window._db) return;
+  const {collection, onSnapshot, query, orderBy} = window._fbFns;
+  onSnapshot(
+    query(collection(window._db,'stock_depart'), orderBy('isoDate','desc')),
+    snap => {
+      STATE.stockDepart = snap.docs.map(d=>({id:d.id,...d.data()}));
+      if (currentTab==='stock-depart') renderStockDepart();
+      if (currentTab==='stock-actuel') renderStockActuel();
+    },
+    err => console.error('StockDepart listener:', err)
+  );
+}
+window.addEventListener('fb-ready', () => { startStockDepartListener(); });
+if (window._fbReady) startStockDepartListener();
 
 function renderAll() {
   if (!STATE.currentUser) return;
