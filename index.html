@@ -174,6 +174,8 @@ tr:hover td{background:#f7f9ff;}
       <div class="avatar" id="top-avatar">?</div>
       <span id="top-username">—</span>
     </div>
+    <span id="unsaved-indicator" style="display:none;background:#fef3e2;color:#b45309;font-size:.75rem;padding:3px 10px;border-radius:12px;font-weight:600;">⚠ Non sauvegardé</span>
+    <button class="btn btn-success" style="padding:4px 12px;font-size:.8rem;" onclick="saveAllData()">💾 Sauvegarder</button>
     <button class="btn btn-outline" style="padding:4px 12px;font-size:.8rem;" onclick="doLogout()">Déconnexion</button>
   </div>
   <div class="offline-banner" id="offline-banner">⚠ Hors ligne — les transactions seront envoyées dès le retour d'internet (<span id="pending-count">0</span> en attente)</div>
@@ -666,6 +668,30 @@ tr:hover td{background:#f7f9ff;}
 // ============================================================
 // STATE (localStorage + Firebase)
 // ============================================================
+let _hasUnsavedChanges = false;
+
+function markUnsaved() {
+  _hasUnsavedChanges = true;
+  // Afficher indicateur visuel
+  const indicator = document.getElementById('unsaved-indicator');
+  if (indicator) indicator.style.display = 'inline-block';
+}
+
+function markSaved() {
+  _hasUnsavedChanges = false;
+  const indicator = document.getElementById('unsaved-indicator');
+  if (indicator) indicator.style.display = 'none';
+}
+
+// Bloquer la fermeture/navigation si modifications non sauvegardées
+window.addEventListener('beforeunload', function(e) {
+  if (_hasUnsavedChanges) {
+    e.preventDefault();
+    e.returnValue = 'Vous avez des modifications non sauvegardées. Voulez-vous vraiment quitter ?';
+    return e.returnValue;
+  }
+});
+
 let STATE = {
   users: [
     {username:'admin', password:'bwadmin2024', role:'admin'},
@@ -788,6 +814,7 @@ function startFirebaseListeners() {
   STATE.fbReady = true;
   document.getElementById('fb-banner').classList.add('show');
   showToast('🔥 Firebase connecté — synchronisation globale activée sur tous les appareils.');
+  markSaved();
 
   // Flush pending queue
   flushPendingQueue();
@@ -905,7 +932,33 @@ function doLogin() {
     }
   }
 }
+async function saveAllData() {
+  if (!STATE.isOnline || !STATE.fbReady) {
+    showToast('⚠ Hors ligne — impossible de sauvegarder maintenant.','warn');
+    return;
+  }
+  // Envoyer la file d'attente si elle existe
+  if (STATE.pendingQueue.length > 0) {
+    await flushPendingQueue();
+  }
+  markSaved();
+  showToast('✅ Toutes les données sont sauvegardées sur Firebase.');
+}
+
 function doLogout() {
+  if (_hasUnsavedChanges) {
+    const confirm = window.confirm('⚠ Vous avez des modifications non sauvegardées. Voulez-vous sauvegarder avant de quitter ?');
+    if (confirm) {
+      saveAllData().then(() => {
+        performLogout();
+      });
+      return;
+    }
+  }
+  performLogout();
+}
+
+function performLogout() {
   if (unsubTrans) unsubTrans();
   if (unsubStocks) unsubStocks();
   if (unsubUsers) unsubUsers();
@@ -1141,6 +1194,7 @@ async function submitSale() {
     showToast('📤 Hors ligne — transaction en file d\'attente.','warn');
   }
   updatePendingUI();
+  markUnsaved();
   document.getElementById('v-desc').value='';
   document.getElementById('v-qty').value='';
   document.getElementById('v-unit').value='unité';
