@@ -190,6 +190,7 @@ tr:hover td{background:#f7f9ff;}
     <button id="tab-stock-actuel-btn" onclick="switchTab('stock-actuel')" style="display:none;">📊 Stock Actuel</button>
     <button id="tab-tableau-btn" onclick="switchTab('tableau')" style="display:none;">📊 Tableau de bord</button>
     <button id="tab-admin-btn" onclick="switchTab('admin')" style="display:none;">⚙ Administration</button>
+    <button id="tab-notif-btn" onclick="switchTab('notif')" style="display:none;">🔔 Notifications <span id="notif-badge" style="display:none;background:#c0392b;color:#fff;border-radius:10px;padding:1px 7px;font-size:.7rem;margin-left:4px;">0</span></button>
     <button id="tab-compta-btn" onclick="switchTab('compta')" style="display:none;">📒 Comptabilité</button>
   </div>
 
@@ -539,6 +540,22 @@ tr:hover td{background:#f7f9ff;}
           <table>
             <thead><tr><th>Date</th><th>Heure</th><th>Vendeur</th><th>Description</th><th>Qté</th><th>Montant (HTG)</th><th>Cash (HTG)</th><th>Crédit (HTG)</th><th>Balance (HTG)</th><th>Client</th><th>Type</th></tr></thead>
             <tbody id="all-trans-body"><tr><td colspan="11" style="text-align:center;color:var(--text3);padding:1.5rem;">Aucune transaction.</td></tr></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- NOTIFICATIONS -->
+    <div class="tab-content" id="tab-notif">
+      <div class="card">
+        <div class="card-title">🔔 Notifications — Actions du Gestionnaire</div>
+        <div style="display:flex;gap:8px;margin-bottom:.8rem;">
+          <button class="btn btn-outline" style="font-size:.82rem;padding:5px 12px;" onclick="clearNotifications()">🗑 Effacer tout</button>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Date</th><th>Heure</th><th>Utilisateur</th><th>Action</th><th>Détails</th><th>Statut</th></tr></thead>
+            <tbody id="notif-table-body"><tr><td colspan="6" style="text-align:center;color:var(--text3);padding:1.5rem;">Aucune notification.</td></tr></tbody>
           </table>
         </div>
       </div>
@@ -915,6 +932,8 @@ function doLogin() {
     document.getElementById('tab-stock-actuel-btn').style.display = 'none';
     document.getElementById('tab-tableau-btn').style.display = 'none';
     document.getElementById('tab-admin-btn').style.display = 'none';
+  document.getElementById('tab-notif-btn').style.display = 'none';
+    document.getElementById('tab-notif-btn').style.display = 'none';
     document.getElementById('tab-compta-btn').style.display = 'none';
     document.getElementById('tab-credit-btn').style.display = 'block';
     document.getElementById('tab-dettes-btn').style.display = 'block';
@@ -996,6 +1015,7 @@ function switchTab(tab) {
   if (tab==='dettes') renderDettes();
   if (tab==='stock-depart') renderStockDepart();
   if (tab==='stock-actuel') renderStockActuel();
+  if (tab==='notif') renderNotifications();
   if (tab==='ventes') { renderMySales(); }
 }
 function switchAccTab(name, btn) {
@@ -1607,6 +1627,24 @@ function openEditModal(id) {
 }
 function closeEditModal() { document.getElementById('edit-modal-bg').classList.remove('show'); }
 
+async function logNotification(action, details) {
+  if (!STATE.isOnline || !STATE.fbReady) return;
+  try {
+    const {collection, addDoc} = window._fbFns;
+    await addDoc(collection(window._db, 'notifications'), {
+      date: todayStr(),
+      isoDate: isoDate(),
+      time: nowStr(),
+      user: STATE.currentUser.username,
+      role: STATE.currentUser.role,
+      action: action,
+      details: details,
+      createdAt: new Date().toISOString(),
+      read: false
+    });
+  } catch(e) { console.error('Notification error:', e); }
+}
+
 async function saveEdit() {
   const id = document.getElementById('edit-id').value;
   const desc = document.getElementById('edit-desc').value.trim();
@@ -1615,11 +1653,17 @@ async function saveEdit() {
   if (STATE.isOnline && STATE.fbReady) {
     try {
       const {doc, updateDoc} = window._fbFns;
+      // Obtenir l'ancienne transaction pour le log
+      const oldTx = STATE.transactions.find(t=>t.id===id);
       await updateDoc(doc(window._db,'transactions',id), {
         description:desc, quantity:qty, amount:amount,
         editedBy:STATE.currentUser.username, editedAt:new Date().toISOString()
       });
+      // Logger la notification
+      await logNotification('✏️ Modification transaction', 
+        `Vendeur: ${oldTx?.seller||'?'} | Produit: ${desc} | Qté: ${qty} | Montant: ${fmtHTG(amount)} | Date orig: ${oldTx?.date||'?'}`);
       showToast('✅ Transaction modifiée sur Firebase.');
+      markUnsaved();
     } catch(e) { showToast('⚠ Erreur: '+e.message,'warn'); }
   }
   closeEditModal();
@@ -1630,8 +1674,13 @@ async function deleteTransaction(id) {
   if (STATE.isOnline && STATE.fbReady) {
     try {
       const {doc, deleteDoc} = window._fbFns;
+      const oldTx = STATE.transactions.find(t=>t.id===id);
       await deleteDoc(doc(window._db,'transactions',id));
+      // Logger la notification
+      await logNotification('🗑 Suppression transaction',
+        `Vendeur: ${oldTx?.seller||'?'} | Produit: ${oldTx?.description||'?'} | Montant: ${fmtHTG(oldTx?.amount||0)} | Date: ${oldTx?.date||'?'}`);
       showToast('🗑 Transaction supprimée de Firebase.','warn');
+      markUnsaved();
     } catch(e) { showToast('⚠ Erreur: '+e.message,'warn'); }
   }
 }
@@ -1960,7 +2009,11 @@ function openEditCredit(id, client, due, paid, finalBalance) {
   if (STATE.isOnline && STATE.fbReady && id) {
     const {doc, updateDoc} = window._fbFns;
     updateDoc(doc(window._db,'credits',id), {paid:paidNum, finalBalance:newFinal, status:newFinal===0?'soldé':'partiel'})
-      .then(() => showToast('✅ Paiement modifié.'))
+      .then(() => {
+        logNotification('✏️ Modification crédit', `Client: ${client} | Ancien paiement: ${fmtHTG(paid)} | Nouveau: ${fmtHTG(paidNum)} | Balance finale: ${fmtHTG(newFinal)}`);
+        showToast('✅ Paiement modifié.');
+        markUnsaved();
+      })
       .catch(e => showToast('⚠ Erreur: '+e.message,'warn'));
   }
 }
@@ -1970,8 +2023,11 @@ async function deleteCredit(id) {
   if (STATE.isOnline && STATE.fbReady && id) {
     try {
       const {doc, deleteDoc} = window._fbFns;
+      const oldCredit = (STATE.credits||[]).find(c=>c.id===id);
       await deleteDoc(doc(window._db,'credits',id));
+      await logNotification('🗑 Suppression crédit', `Client: ${oldCredit?.client||'?'} | Montant: ${fmtHTG(oldCredit?.paid||0)} | Date: ${oldCredit?.date||'?'}`);
       showToast('🗑 Paiement supprimé.','warn');
+      markUnsaved();
     } catch(e) { showToast('⚠ Erreur: '+e.message,'warn'); }
   } else {
     STATE.credits = (STATE.credits||[]).filter(c => c.id !== id);
@@ -2193,6 +2249,74 @@ function renderStockActuel() {
 }
 
 // StockDepart listener intégré dans startFirebaseListeners
+
+function renderNotifications() {
+  const body = document.getElementById('notif-table-body');
+  if (!body) return;
+  const notifs = (STATE.notifications||[]).sort((a,b) => {
+    if (b.isoDate !== a.isoDate) return (b.isoDate||'').localeCompare(a.isoDate||'');
+    return (b.time||'').localeCompare(a.time||'');
+  });
+  if (!notifs.length) {
+    body.innerHTML='<tr><td colspan="6" style="text-align:center;color:var(--text3);padding:1.5rem;">Aucune notification.</td></tr>';
+    return;
+  }
+  body.innerHTML = notifs.map(n => `<tr style="background:${n.read?'':'#fef3e2'};">
+    <td>${n.date}</td>
+    <td>${n.time}</td>
+    <td style="font-weight:600;color:#1a56db;">${esc(n.user)} (${n.role})</td>
+    <td>${n.action}</td>
+    <td style="font-size:.82rem;">${esc(n.details)}</td>
+    <td><span class="badge ${n.read?'badge-sent':'badge-pending'}">${n.read?'✓ Lu':'🔔 Nouveau'}</span></td>
+  </tr>`).join('');
+  // Mettre à jour le badge
+  const unread = notifs.filter(n=>!n.read).length;
+  const badge = document.getElementById('notif-badge');
+  if (badge) {
+    badge.textContent = unread;
+    badge.style.display = unread > 0 ? 'inline-block' : 'none';
+  }
+}
+
+async function clearNotifications() {
+  if (!confirm('Effacer toutes les notifications ?')) return;
+  if (STATE.isOnline && STATE.fbReady) {
+    try {
+      const {collection, getDocs, deleteDoc, doc} = window._fbFns;
+      // Supprimer toutes les notifications
+      const snap = await getDocs(collection(window._db, 'notifications'));
+      for (const d of snap.docs) {
+        await deleteDoc(doc(window._db, 'notifications', d.id));
+      }
+      STATE.notifications = [];
+      renderNotifications();
+      showToast('🗑 Notifications effacées.','warn');
+    } catch(e) { showToast('⚠ Erreur: '+e.message,'warn'); }
+  }
+}
+
+// Firebase listener pour notifications
+function startNotifListener() {
+  if (!window._fbReady || !window._db) return;
+  const {collection, onSnapshot, query, orderBy, getDocs} = window._fbFns;
+  onSnapshot(
+    query(collection(window._db,'notifications'), orderBy('isoDate','desc')),
+    snap => {
+      STATE.notifications = snap.docs.map(d=>({id:d.id,...d.data()}));
+      // Badge notification pour admin
+      const unread = STATE.notifications.filter(n=>!n.read).length;
+      const badge = document.getElementById('notif-badge');
+      if (badge) {
+        badge.textContent = unread;
+        badge.style.display = unread > 0 ? 'inline-block' : 'none';
+      }
+      if (currentTab === 'notif') renderNotifications();
+    },
+    err => console.error('Notif listener:', err)
+  );
+}
+window.addEventListener('fb-ready', () => { startNotifListener(); });
+if (window._fbReady) startNotifListener();
 
 function renderAll() {
   if (!STATE.currentUser) return;
