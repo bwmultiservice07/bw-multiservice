@@ -710,27 +710,31 @@ loadLocal();
 // ============================================================
 // FIREBASE LISTENERS
 // ============================================================
+let unsubCredits = null, unsubStockDepart = null;
+
 function startFirebaseListeners() {
   if (!window._fbReady || !window._db) return;
   const {collection, onSnapshot, query, orderBy} = window._fbFns;
   const db = window._db;
 
-  // Transactions
+  // TRANSACTIONS - Synchronisation globale (tous appareils, tous utilisateurs)
   if (unsubTrans) unsubTrans();
   unsubTrans = onSnapshot(
     query(collection(db, 'transactions'), orderBy('isoDate','desc'), orderBy('time','desc')),
     snap => {
       STATE.transactions = snap.docs.map(d => ({id: d.id, ...d.data()}));
-      renderAll();
-      renderDettes();
+      // Mettre à jour TOUS les affichages
       renderMySales();
+      renderDashboard();
+      renderStocks();
+      renderStockActuel();
       if (currentTab === 'compta') refreshAccounting();
       if (currentTab === 'admin') renderAdminTrans();
     },
     err => console.error('Trans listener:', err)
   );
 
-  // Stocks
+  // STOCKS - Synchronisation globale
   if (unsubStocks) unsubStocks();
   unsubStocks = onSnapshot(
     query(collection(db, 'stocks'), orderBy('isoDate','desc')),
@@ -738,16 +742,41 @@ function startFirebaseListeners() {
       STATE.stocks = snap.docs.map(d => ({id: d.id, ...d.data()}));
       renderStocks();
       renderDashboard();
+      renderStockActuel();
     },
     err => console.error('Stock listener:', err)
   );
 
-  // Users (stored in Firestore too)
+  // CREDITS - Synchronisation globale
+  if (unsubCredits) unsubCredits();
+  unsubCredits = onSnapshot(
+    query(collection(db, 'credits'), orderBy('isoDate','desc')),
+    snap => {
+      STATE.credits = snap.docs.map(d => ({id: d.id, ...d.data()}));
+      renderCredits();
+      renderDettes();
+      renderMySales();
+    },
+    err => console.error('Credits listener:', err)
+  );
+
+  // STOCK DEPART - Synchronisation globale
+  if (unsubStockDepart) unsubStockDepart();
+  unsubStockDepart = onSnapshot(
+    query(collection(db, 'stock_depart'), orderBy('isoDate','desc')),
+    snap => {
+      STATE.stockDepart = snap.docs.map(d => ({id: d.id, ...d.data()}));
+      if (currentTab === 'stock-depart') renderStockDepart();
+      renderStockActuel();
+    },
+    err => console.error('StockDepart listener:', err)
+  );
+
+  // USERS - Synchronisation globale
   if (unsubUsers) unsubUsers();
   unsubUsers = onSnapshot(collection(db, 'users'), snap => {
     if (!snap.empty) {
       const fbUsers = snap.docs.map(d => ({id: d.id, ...d.data()}));
-      // Merge: keep local admin, add Firebase users
       const base = STATE.users.filter(u => u.role === 'admin' && u.username === 'admin');
       const extra = fbUsers.filter(u => !base.find(b => b.username === u.username));
       STATE.users = [...base, ...extra];
@@ -758,7 +787,7 @@ function startFirebaseListeners() {
 
   STATE.fbReady = true;
   document.getElementById('fb-banner').classList.add('show');
-  showToast('🔥 Firebase connecté — données synchronisées en temps réel.');
+  showToast('🔥 Firebase connecté — synchronisation globale activée sur tous les appareils.');
 
   // Flush pending queue
   flushPendingQueue();
@@ -871,6 +900,8 @@ function doLogout() {
   if (unsubTrans) unsubTrans();
   if (unsubStocks) unsubStocks();
   if (unsubUsers) unsubUsers();
+  if (unsubCredits) unsubCredits();
+  if (unsubStockDepart) unsubStockDepart();
   STATE.currentUser = null;
   document.getElementById('auth-screen').style.display = 'flex';
   document.getElementById('app').style.display = 'none';
@@ -2098,22 +2129,7 @@ function renderStockActuel() {
   </tr>`;
 }
 
-// Firebase listener pour stock départ
-function startStockDepartListener() {
-  if (!window._fbReady || !window._db) return;
-  const {collection, onSnapshot, query, orderBy} = window._fbFns;
-  onSnapshot(
-    query(collection(window._db,'stock_depart'), orderBy('isoDate','desc')),
-    snap => {
-      STATE.stockDepart = snap.docs.map(d=>({id:d.id,...d.data()}));
-      if (currentTab==='stock-depart') renderStockDepart();
-      if (currentTab==='stock-actuel') renderStockActuel();
-    },
-    err => console.error('StockDepart listener:', err)
-  );
-}
-window.addEventListener('fb-ready', () => { startStockDepartListener(); });
-if (window._fbReady) startStockDepartListener();
+// StockDepart listener intégré dans startFirebaseListeners
 
 function renderAll() {
   if (!STATE.currentUser) return;
@@ -2131,4 +2147,3 @@ setInterval(() => {
 </script>
 </body>
 </html>
-
