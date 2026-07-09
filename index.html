@@ -408,18 +408,57 @@ tr:hover td{background:#f7f9ff;}
         <div class="card-title">📥 Entrée de stock</div>
         <div class="form-row">
           <div class="form-group" style="flex:2;min-width:200px;">
-            <label>Description du produit</label>
-            <textarea id="s-desc" placeholder="Ex: Farine 25kg, huile végétale..."></textarea>
+            <label>Produit</label>
+            <select id="s-desc">
+              <option value="">-- Choisir un produit --</option>
+              <option value="7up">7up</option>
+              <option value="Beller">Beller</option>
+              <option value="Couronne">Couronne</option>
+              <option value="Culligan">Culligan</option>
+              <option value="Dassani">Dassani</option>
+              <option value="Frooty">Frooty</option>
+              <option value="Generade">Generade</option>
+              <option value="Gros Frutop">Gros Frutop</option>
+              <option value="Gros Valle">Gros Valle</option>
+              <option value="Heineken">Heineken</option>
+              <option value="Kinanm">Kinanm</option>
+              <option value="Koka">Koka</option>
+              <option value="Kola Real">Kola Real</option>
+              <option value="Prestige">Prestige</option>
+              <option value="Prorade">Prorade</option>
+              <option value="Sprite">Sprite</option>
+              <option value="Tampico">Tampico</option>
+              <option value="Ti Frutop">Ti Frutop</option>
+              <option value="Ti Valle">Ti Valle</option>
+            </select>
           </div>
         </div>
         <div class="form-row">
           <div class="form-group">
             <label>Quantité reçue</label>
-            <input type="number" id="s-qty" min="1" placeholder="Ex: 50"/>
+            <input type="number" id="s-qty" min="1" placeholder="Ex: 10" oninput="calcStockQty()"/>
           </div>
           <div class="form-group">
-            <label>Prix unitaire (HTG)</label>
-            <input type="number" id="s-price" min="0" step="0.01" placeholder="Ex: 150.00"/>
+            <label>Unité principale</label>
+            <select id="s-unit" onchange="calcStockQty()">
+              <option value="caisse">Caisse</option>
+              <option value="bout">Bout</option>
+              <option value="unite">Unité</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label>+ Unités supplémentaires</label>
+            <input type="number" id="s-extra-units" min="0" placeholder="Ex: 3" oninput="calcStockQty()"/>
+          </div>
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label>Total en caisses (calculé)</label>
+            <input type="number" id="s-qty-caisses" step="0.01" readonly style="background:#f0f2f7;font-weight:700;color:#1a56db;"/>
+          </div>
+          <div class="form-group">
+            <label>Prix / Caisse (HTG)</label>
+            <input type="number" id="s-price" min="0" step="0.01" placeholder="Ex: 1200.00"/>
           </div>
           <div class="form-group">
             <label>Fournisseur</label>
@@ -441,11 +480,11 @@ tr:hover td{background:#f7f9ff;}
         </div>
       </div>
       <div class="card">
-        <div class="card-title">📦 Historique des mouvements de stock</div>
+        <div class="card-title">📦 Historique des mouvements de stock (Entrées et Sorties)</div>
         <div class="table-wrap">
           <table>
-            <thead><tr><th>Date</th><th>Description</th><th>Qté</th><th>Prix unit.</th><th>Valeur</th><th>Fournisseur</th></tr></thead>
-            <tbody id="stock-table-body"><tr><td colspan="6" style="text-align:center;color:var(--text3);padding:1.5rem;">Aucun mouvement.</td></tr></tbody>
+            <thead><tr><th>Date</th><th>Type</th><th>Produit</th><th>Qté (caisses)</th><th>Prix/Caisse</th><th>Valeur</th><th>Fournisseur/Client</th></tr></thead>
+            <tbody id="stock-table-body"><tr><td colspan="7" style="text-align:center;color:var(--text3);padding:1.5rem;">Aucun mouvement.</td></tr></tbody>
           </table>
         </div>
       </div>
@@ -457,7 +496,7 @@ tr:hover td{background:#f7f9ff;}
         <div class="card-title">📊 Stock Actuel par Produit</div>
         <div class="table-wrap">
           <table>
-            <thead><tr><th>Produit</th><th>Stock départ (caisses)</th><th>Ventes (caisses)</th><th>Stock actuel (caisses)</th><th>Valeur estimée (HTG)</th></tr></thead>
+            <thead><tr><th>Produit</th><th>Stock départ</th><th>Entrées</th><th>Sorties</th><th>Stock actuel</th><th>Prix/Caisse</th><th>Valeur (HTG)</th></tr></thead>
             <tbody id="stock-actuel-body"><tr><td colspan="5" style="text-align:center;color:var(--text3);padding:1.5rem;">Aucune donnée disponible.</td></tr></tbody>
           </table>
         </div>
@@ -1213,18 +1252,38 @@ function renderMySales() {
 // ============================================================
 // STOCKS
 // ============================================================
+function calcStockQty() {
+  const qty = parseFloat(document.getElementById('s-qty').value) || 0;
+  const unit = document.getElementById('s-unit').value;
+  const extra = parseFloat(document.getElementById('s-extra-units').value) || 0;
+  const produit = document.getElementById('s-desc').value;
+  const isBeller = produit.toLowerCase().includes('beller');
+  const casseSize = isBeller ? 48 : 24;
+  
+  let totalCaisses = 0;
+  if (unit === 'caisse') totalCaisses = qty + extra/casseSize;
+  else if (unit === 'bout') totalCaisses = qty*0.5 + extra/casseSize;
+  else if (unit === 'unite') totalCaisses = qty/casseSize + extra/casseSize;
+  
+  document.getElementById('s-qty-caisses').value = totalCaisses.toFixed(2);
+}
+
 async function submitStock() {
-  const desc = document.getElementById('s-desc').value.trim();
-  const qty = parseFloat(document.getElementById('s-qty').value);
-  const price = parseFloat(document.getElementById('s-price').value);
+  const desc = document.getElementById('s-desc').value;
+  const qty = parseFloat(document.getElementById('s-qty').value) || 0;
+  const unit = document.getElementById('s-unit').value;
+  const extra = parseFloat(document.getElementById('s-extra-units').value) || 0;
+  const qtyCaisses = parseFloat(document.getElementById('s-qty-caisses').value) || 0;
+  const price = parseFloat(document.getElementById('s-price').value) || 0;
   const supplier = document.getElementById('s-supplier').value.trim();
-  if (!desc||isNaN(qty)||qty<=0||isNaN(price)||price<0) {
-    showToast('⚠ Veuillez remplir tous les champs.','warn'); return;
+  if (!desc||qty<=0||price<=0) {
+    showToast('⚠ Veuillez remplir tous les champs obligatoires.','warn'); return;
   }
   const entry = {
     type:'stock-in', date:todayStr(), isoDate:isoDate(), time:nowStr(),
     seller:STATE.currentUser.username, description:desc, supplier:supplier||'',
-    quantity:qty, unitPrice:price, amount:qty*price, createdAt: new Date().toISOString()
+    quantity:qty, unit:unit, extraUnits:extra, quantityCaisses:qtyCaisses,
+    unitPrice:price, amount:qtyCaisses*price, createdAt: new Date().toISOString()
   };
   if (STATE.isOnline && STATE.fbReady) {
     try {
@@ -1246,20 +1305,70 @@ async function submitStock() {
   }
   document.getElementById('s-desc').value='';
   document.getElementById('s-qty').value='';
+  document.getElementById('s-unit').value='caisse';
+  document.getElementById('s-extra-units').value='';
+  document.getElementById('s-qty-caisses').value='';
   document.getElementById('s-price').value='';
   document.getElementById('s-supplier').value='';
 }
 
 function renderStocks() {
   const body = document.getElementById('stock-table-body');
-  const all = [...STATE.stocks].sort((a,b)=>(b.isoDate||'').localeCompare(a.isoDate||''));
+  
+  // Entrées de stock
+  const entrees = STATE.stocks.map(s => ({
+    ...s, _type:'entree',
+    qtyCaisses: s.quantityCaisses || s.quantity,
+    prixCaisse: s.unitPrice || 0
+  }));
+  
+  // Sorties (ventes)
+  const sorties = (STATE.transactions||[]).filter(t=>t.type==='vente').map(t => {
+    const isBeller = (t.description||'').toLowerCase().includes('beller');
+    const casseSize = isBeller ? 48 : 24;
+    let qtyCaisses = 0;
+    switch(t.unit) {
+      case 'caisse': qtyCaisses = t.quantity; break;
+      case 'bout': case 'caisse 1/2': qtyCaisses = t.quantity*0.5; break;
+      case 'caisse+3': qtyCaisses = t.quantity + 3/casseSize; break;
+      case 'caisse+6': qtyCaisses = t.quantity + 6/casseSize; break;
+      case 'bout+3': qtyCaisses = t.quantity*0.5 + 3/casseSize; break;
+      case 'bout+6': qtyCaisses = t.quantity*0.5 + 6/casseSize; break;
+      default: qtyCaisses = t.quantity/casseSize; break;
+    }
+    return {...t, _type:'sortie', qtyCaisses, prixCaisse:t.prixCaisse||t.unitPrice||0};
+  });
+  
+  // Combiner et trier du plus récent au plus ancien
+  const all = [...entrees, ...sorties].sort((a,b) => {
+    if (b.isoDate !== a.isoDate) return (b.isoDate||'').localeCompare(a.isoDate||'');
+    return (b.time||'').localeCompare(a.time||'');
+  });
+  
   if (!all.length) {
-    body.innerHTML='<tr><td colspan="6" style="text-align:center;color:var(--text3);padding:1.5rem;">Aucun mouvement.</td></tr>';
+    body.innerHTML='<tr><td colspan="7" style="text-align:center;color:var(--text3);padding:1.5rem;">Aucun mouvement.</td></tr>';
   } else {
-    body.innerHTML=all.map(s=>`<tr>
-      <td>${s.date}</td><td>${esc(s.description)}</td><td>${s.quantity}</td>
-      <td>${fmtHTG(s.unitPrice)}</td><td>${fmtHTG(s.amount)}</td><td>${esc(s.supplier)}</td>
-    </tr>`).join('');
+    body.innerHTML=all.map(s=> s._type==='entree' ? `<tr style="background:#e6f6ef;">
+      <td>${s.date}</td>
+      <td><span class="badge badge-in">📥 Entrée</span></td>
+      <td>${esc(s.description)}</td>
+      <td style="color:#0f7b4f;font-weight:600;">+${(s.qtyCaisses||0).toFixed(2)}</td>
+      <td>${fmtHTG(s.prixCaisse)}</td>
+      <td>${fmtHTG(s.amount)}</td>
+      <td>${esc(s.supplier||'')}</td>
+    </tr>` : `<tr style="background:#fdecea;">
+      <td>${s.date}</td>
+      <td><span class="badge badge-out">📤 Sortie</span></td>
+      <td>${esc(s.description)}</td>
+      <td style="color:#c0392b;font-weight:600;">-${(s.qtyCaisses||0).toFixed(2)}</td>
+      <td>${fmtHTG(s.prixCaisse||0)}</td>
+      <td>${fmtHTG(s.amount||0)}</td>
+      <td>${esc(s.client||s.seller||'')}</td>
+    </tr>`).join('') + `<tr style="background:var(--surface2);font-weight:700;border-top:2px solid var(--border);">
+      <td colspan="3">📊 TOTAUX</td>
+      <td>Entrées: ${entrees.reduce((a,s)=>a+(s.qtyCaisses||0),0).toFixed(2)} | Sorties: ${sorties.reduce((a,s)=>a+(s.qtyCaisses||0),0).toFixed(2)}</td>
+      <td colspan="3">Valeur entrées: ${fmtHTG(entrees.reduce((a,s)=>a+s.amount,0))}</td>
+    </tr>`;
   }
   const stockVal = STATE.stocks.reduce((a,s)=>a+s.amount,0);
   document.getElementById('stock-value').textContent = fmtHTG(stockVal);
@@ -1904,62 +2013,87 @@ function renderStockDepart() {
   </tr>`).join('');
 }
 
+function getQtyCaisses(t) {
+  const isBeller = (t.description||'').toLowerCase().includes('beller');
+  const casseSize = isBeller ? 48 : 24;
+  let qtyCaisses = 0;
+  switch(t.unit) {
+    case 'caisse': qtyCaisses = t.quantity; break;
+    case 'bout': case 'caisse 1/2': qtyCaisses = t.quantity*0.5; break;
+    case 'caisse+3': qtyCaisses = t.quantity + 3/casseSize; break;
+    case 'caisse+6': qtyCaisses = t.quantity + 6/casseSize; break;
+    case 'bout+3': qtyCaisses = t.quantity*0.5 + 3/casseSize; break;
+    case 'bout+6': qtyCaisses = t.quantity*0.5 + 6/casseSize; break;
+    default: qtyCaisses = t.quantity/casseSize; break;
+  }
+  return qtyCaisses;
+}
+
 function renderStockActuel() {
   const body = document.getElementById('stock-actuel-body');
   if (!body) return;
   
-  // Grouper stock de départ par produit
-  const stockMap = {};
+  // 1. Stock de départ par produit
+  const departMap = {};
   (STATE.stockDepart||[]).forEach(s => {
     const key = s.description;
-    if (!stockMap[key]) stockMap[key] = {qty:0, prix:0};
-    stockMap[key].qty += s.quantity;
-    stockMap[key].prix = s.prixCaisse; // dernier prix
+    if (!departMap[key]) departMap[key] = {qty:0, prix:0};
+    departMap[key].qty += parseFloat(s.quantity) || 0;
+    departMap[key].prix = s.prixCaisse || 0;
   });
   
-  // Grouper ventes par produit (en caisses)
-  const ventesMap = {};
+  // 2. Entrées de stock par produit (en caisses)
+  const entreesMap = {};
+  STATE.stocks.forEach(s => {
+    const key = s.description;
+    if (!entreesMap[key]) entreesMap[key] = 0;
+    entreesMap[key] += parseFloat(s.quantityCaisses || s.quantity) || 0;
+  });
+  
+  // 3. Sorties (ventes) par produit (en caisses)
+  const sortiesMap = {};
   (STATE.transactions||[]).filter(t=>t.type==='vente').forEach(t => {
     const key = t.description;
-    if (!ventesMap[key]) ventesMap[key] = 0;
-    const isBeller = key.toLowerCase().includes('beller');
-    const casseSize = isBeller ? 48 : 24;
-    let qtyCaisses = 0;
-    switch(t.unit) {
-      case 'caisse': qtyCaisses = t.quantity; break;
-      case 'bout': case 'caisse 1/2': qtyCaisses = t.quantity * 0.5; break;
-      case 'caisse+3': qtyCaisses = t.quantity + 3/casseSize; break;
-      case 'caisse+6': qtyCaisses = t.quantity + 6/casseSize; break;
-      case 'bout+3': qtyCaisses = t.quantity*0.5 + 3/casseSize; break;
-      case 'bout+6': qtyCaisses = t.quantity*0.5 + 6/casseSize; break;
-      default: qtyCaisses = t.quantity/casseSize; break;
-    }
-    ventesMap[key] += qtyCaisses;
+    if (!sortiesMap[key]) sortiesMap[key] = 0;
+    sortiesMap[key] += getQtyCaisses(t);
   });
   
-  const allProducts = new Set([...Object.keys(stockMap), ...Object.keys(ventesMap)]);
+  const allProducts = new Set([
+    ...Object.keys(departMap),
+    ...Object.keys(entreesMap),
+    ...Object.keys(sortiesMap)
+  ]);
+  
   if (!allProducts.size) {
-    body.innerHTML='<tr><td colspan="5" style="text-align:center;color:var(--text3);padding:1.5rem;">Aucune donnée disponible.</td></tr>';
+    body.innerHTML='<tr><td colspan="7" style="text-align:center;color:var(--text3);padding:1.5rem;">Aucune donnée disponible.</td></tr>';
     return;
   }
   
   const rows = [...allProducts].map(p => {
-    const depart = stockMap[p]?.qty || 0;
-    const vendu = ventesMap[p] || 0;
-    const actuel = Math.max(0, depart - vendu);
-    const prix = stockMap[p]?.prix || 0;
+    const depart = departMap[p]?.qty || 0;
+    const entrees = entreesMap[p] || 0;
+    const sorties = sortiesMap[p] || 0;
+    const actuel = Math.max(0, depart + entrees - sorties);
+    const prix = departMap[p]?.prix || 0;
     const valeur = actuel * prix;
-    return { p, depart, vendu, actuel, valeur };
+    return { p, depart, entrees, sorties, actuel, prix, valeur };
   }).sort((a,b) => a.p.localeCompare(b.p));
   
   body.innerHTML = rows.map(r=>`<tr>
     <td style="font-weight:600;">${esc(r.p)}</td>
-    <td>${r.depart.toFixed(1)}</td>
-    <td style="color:#c0392b;">${r.vendu.toFixed(1)}</td>
-    <td style="font-weight:700;color:${r.actuel>0?'#0f7b4f':'#c0392b'};">${r.actuel.toFixed(1)}</td>
+    <td>${r.depart.toFixed(2)}</td>
+    <td style="color:#0f7b4f;font-weight:600;">+${r.entrees.toFixed(2)}</td>
+    <td style="color:#c0392b;font-weight:600;">-${r.sorties.toFixed(2)}</td>
+    <td style="font-weight:700;color:${r.actuel>0?'#0f7b4f':'#c0392b'};">${r.actuel.toFixed(2)}</td>
+    <td>${fmtHTG(r.prix)}</td>
     <td>${fmtHTG(r.valeur)}</td>
   </tr>`).join('') + `<tr style="background:var(--surface2);font-weight:700;border-top:2px solid var(--border);">
-    <td>TOTAL</td><td></td><td></td><td></td>
+    <td>📊 TOTAL</td>
+    <td>${rows.reduce((a,r)=>a+r.depart,0).toFixed(2)}</td>
+    <td style="color:#0f7b4f;">+${rows.reduce((a,r)=>a+r.entrees,0).toFixed(2)}</td>
+    <td style="color:#c0392b;">-${rows.reduce((a,r)=>a+r.sorties,0).toFixed(2)}</td>
+    <td>${rows.reduce((a,r)=>a+r.actuel,0).toFixed(2)}</td>
+    <td></td>
     <td>${fmtHTG(rows.reduce((a,r)=>a+r.valeur,0))}</td>
   </tr>`;
 }
@@ -1997,3 +2131,4 @@ setInterval(() => {
 </script>
 </body>
 </html>
+
