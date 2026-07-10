@@ -2013,15 +2013,25 @@ function openEditCredit(id, client, due, paid, finalBalance) {
   if (STATE.isOnline && STATE.fbReady && id) {
     const {doc, updateDoc} = window._fbFns;
     updateDoc(doc(window._db,'credits',id), {paid:paidNum, finalBalance:newFinal, status:newFinal===0?'soldé':'partiel'})
-      .then(() => {
-        logNotification('✏️ Modification crédit', `Client: ${client} | Ancien paiement: ${fmtHTG(paid)} | Nouveau: ${fmtHTG(paidNum)} | Balance finale: ${fmtHTG(newFinal)}`);
+      .then(async () => {
+        await logNotification('✏️ Modification crédit', `Client: ${client} | Ancien paiement: ${fmtHTG(paid)} | Nouveau: ${fmtHTG(paidNum)} | Balance finale: ${fmtHTG(newFinal)}`);
         showToast('✅ Paiement modifié.');
         markUnsaved();
-        // Mise à jour locale immédiate
-        const idx = (STATE.credits||[]).findIndex(c=>c.id===id);
-        if (idx>=0) { STATE.credits[idx].paid=paidNum; STATE.credits[idx].finalBalance=newFinal; }
+        // Mise à jour locale immédiate dans STATE.credits
+        if (!STATE.credits) STATE.credits = [];
+        const idx = STATE.credits.findIndex(c=>c.id===id);
+        if (idx>=0) { 
+          STATE.credits[idx] = {...STATE.credits[idx], paid:paidNum, finalBalance:newFinal, status:newFinal===0?'soldé':'partiel'};
+        }
+        // Forcer le rafraîchissement des deux onglets
         renderCredits();
         renderDettes();
+        // Si l'onglet dettes est actif, basculer et revenir pour forcer l'affichage
+        if (currentTab === 'dettes') {
+          const body = document.getElementById('dettes-table-body');
+          if (body) body.innerHTML = '<tr><td colspan="5" style="text-align:center;">Mise à jour...</td></tr>';
+          setTimeout(() => renderDettes(), 100);
+        }
       })
       .catch(e => showToast('⚠ Erreur: '+e.message,'warn'));
   }
@@ -2039,8 +2049,10 @@ async function deleteCredit(id) {
       markUnsaved();
       // Mise à jour locale immédiate
       STATE.credits = (STATE.credits||[]).filter(c => c.id !== id);
+      // Forcer le rafraîchissement immédiat
       renderCredits();
       renderDettes();
+      setTimeout(() => renderDettes(), 200);
     } catch(e) { showToast('⚠ Erreur: '+e.message,'warn'); }
   } else {
     STATE.credits = (STATE.credits||[]).filter(c => c.id !== id);
@@ -2053,7 +2065,7 @@ async function deleteCredit(id) {
 
 function renderDettes() {
   const body = document.getElementById('dettes-table-body');
-  if (!body) return;
+  if (!body) { console.log('dettes-table-body not found'); return; }
   
   // Collecter tous les clients uniques
   const clients = new Set();
