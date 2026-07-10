@@ -176,6 +176,7 @@ tr:hover td{background:#f7f9ff;}
     </div>
     <span id="unsaved-indicator" style="display:none;background:#fef3e2;color:#b45309;font-size:.75rem;padding:3px 10px;border-radius:12px;font-weight:600;">⚠ Non sauvegardé</span>
     <button class="btn btn-success" style="padding:4px 12px;font-size:.8rem;" onclick="saveAllData()">💾 Sauvegarder</button>
+    <button id="btn-export-drive" class="btn btn-outline" style="display:none;padding:4px 12px;font-size:.8rem;background:#34a853;color:#fff;border:none;" onclick="exportCompletToExcel()">📥 Exporter Google Drive</button>
     <button class="btn btn-outline" style="padding:4px 12px;font-size:.8rem;" onclick="doLogout()">Déconnexion</button>
   </div>
   <div class="offline-banner" id="offline-banner">⚠ Hors ligne — les transactions seront envoyées dès le retour d'internet (<span id="pending-count">0</span> en attente)</div>
@@ -918,6 +919,7 @@ function doLogin() {
     // Admin voit tout + Notifications
     document.getElementById('tab-admin-btn').style.display = user.role === 'admin' ? 'block' : 'none';
     document.getElementById('tab-notif-btn').style.display = user.role === 'admin' ? 'block' : 'none';
+    document.getElementById('btn-export-drive').style.display = user.role === 'admin' ? 'block' : 'none';
     document.getElementById('tab-compta-btn').style.display = 'block';
     document.getElementById('tab-stock-depart-btn').style.display = 'block';
     document.getElementById('tab-stocks-btn').style.display = 'block';
