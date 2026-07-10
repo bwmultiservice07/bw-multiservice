@@ -2017,6 +2017,11 @@ function openEditCredit(id, client, due, paid, finalBalance) {
         logNotification('✏️ Modification crédit', `Client: ${client} | Ancien paiement: ${fmtHTG(paid)} | Nouveau: ${fmtHTG(paidNum)} | Balance finale: ${fmtHTG(newFinal)}`);
         showToast('✅ Paiement modifié.');
         markUnsaved();
+        // Mise à jour locale immédiate
+        const idx = (STATE.credits||[]).findIndex(c=>c.id===id);
+        if (idx>=0) { STATE.credits[idx].paid=paidNum; STATE.credits[idx].finalBalance=newFinal; }
+        renderCredits();
+        renderDettes();
       })
       .catch(e => showToast('⚠ Erreur: '+e.message,'warn'));
   }
@@ -2032,34 +2037,19 @@ async function deleteCredit(id) {
       await logNotification('🗑 Suppression crédit', `Client: ${oldCredit?.client||'?'} | Montant: ${fmtHTG(oldCredit?.paid||0)} | Date: ${oldCredit?.date||'?'}`);
       showToast('🗑 Paiement supprimé.','warn');
       markUnsaved();
+      // Mise à jour locale immédiate
+      STATE.credits = (STATE.credits||[]).filter(c => c.id !== id);
+      renderCredits();
+      renderDettes();
     } catch(e) { showToast('⚠ Erreur: '+e.message,'warn'); }
   } else {
     STATE.credits = (STATE.credits||[]).filter(c => c.id !== id);
     renderCredits();
+    renderDettes();
   }
 }
 
-// Firebase listener pour credits
-function startCreditListener() {
-  if (!window._fbReady || !window._db) return;
-  const {collection, onSnapshot, query, orderBy} = window._fbFns;
-  const db = window._db;
-  onSnapshot(
-    query(collection(db, 'credits'), orderBy('isoDate','desc')),
-    snap => {
-      STATE.credits = snap.docs.map(d => ({id: d.id, ...d.data()}));
-      renderCredits();
-      renderDettes();
-      renderMySales();
-    },
-    err => console.error('Credits listener:', err)
-  );
-}
-
-window.addEventListener('fb-ready', () => {
-  startCreditListener();
-});
-if (window._fbReady) startCreditListener();
+// Credits listener intégré dans startFirebaseListeners
 
 function renderDettes() {
   const body = document.getElementById('dettes-table-body');
