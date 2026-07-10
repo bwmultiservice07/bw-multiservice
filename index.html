@@ -8,7 +8,7 @@
 <!-- Firebase SDKs -->
 <script type="module">
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
-import { getFirestore, collection, addDoc, onSnapshot, doc, updateDoc, deleteDoc, query, orderBy, serverTimestamp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
+import { getFirestore, collection, addDoc, onSnapshot, doc, updateDoc, deleteDoc, query, orderBy, serverTimestamp, getDocs } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
 
 const firebaseConfig = {
   apiKey: "AIzaSyBtk9kE-vJ-cNA3_1GMM5Zm63RbMMHjaNg",
@@ -25,7 +25,7 @@ const db = getFirestore(fireApp);
 
 // Expose to global scope for use in non-module scripts
 window._db = db;
-window._fbFns = { collection, addDoc, onSnapshot, doc, updateDoc, deleteDoc, query, orderBy, serverTimestamp };
+window._fbFns = { collection, addDoc, onSnapshot, doc, updateDoc, deleteDoc, query, orderBy, serverTimestamp, getDocs };
 window._fbReady = true;
 window.dispatchEvent(new Event('fb-ready'));
 </script>
@@ -915,7 +915,9 @@ function doLogin() {
   document.getElementById('top-username').textContent = user.username;
   document.getElementById('top-avatar').textContent = user.username[0].toUpperCase();
   if (user.role === 'admin' || user.role === 'gestionnaire') {
-    document.getElementById('tab-admin-btn').style.display = 'block';
+    // Admin voit tout + Notifications
+    document.getElementById('tab-admin-btn').style.display = user.role === 'admin' ? 'block' : 'none';
+    document.getElementById('tab-notif-btn').style.display = user.role === 'admin' ? 'block' : 'none';
     document.getElementById('tab-compta-btn').style.display = 'block';
     document.getElementById('tab-stock-depart-btn').style.display = 'block';
     document.getElementById('tab-stocks-btn').style.display = 'block';
@@ -924,17 +926,14 @@ function doLogin() {
     document.getElementById('tab-credit-btn').style.display = 'block';
     document.getElementById('tab-dettes-btn').style.display = 'block';
   } else {
-    // Vendeur : onglet Ventes, Crédit Client et Liste des Dettes
-    document.getElementById('tab-stock-depart-btn').style.display = 'none';
-    document.getElementById('tab-stock-depart-btn').style.display = 'none';
-  document.getElementById('tab-stocks-btn').style.display = 'none';
-  document.getElementById('tab-stock-actuel-btn').style.display = 'none';
-    document.getElementById('tab-stock-actuel-btn').style.display = 'none';
-    document.getElementById('tab-tableau-btn').style.display = 'none';
+    // Vendeur : onglets Ventes, Crédit Client, Liste des Dettes
     document.getElementById('tab-admin-btn').style.display = 'none';
-  document.getElementById('tab-notif-btn').style.display = 'none';
     document.getElementById('tab-notif-btn').style.display = 'none';
     document.getElementById('tab-compta-btn').style.display = 'none';
+    document.getElementById('tab-stock-depart-btn').style.display = 'none';
+    document.getElementById('tab-stocks-btn').style.display = 'none';
+    document.getElementById('tab-stock-actuel-btn').style.display = 'none';
+    document.getElementById('tab-tableau-btn').style.display = 'none';
     document.getElementById('tab-credit-btn').style.display = 'block';
     document.getElementById('tab-dettes-btn').style.display = 'block';
   }
@@ -1547,17 +1546,22 @@ function clearFilter() { document.getElementById('filter-date').value=''; render
 // ============================================================
 function renderAdminTrans() {
   const body = document.getElementById('admin-trans-body');
-  const sorted = [...STATE.transactions].sort((a,b)=>(b.isoDate||'').localeCompare(a.isoDate||''));
+  const sorted = [...STATE.transactions].sort((a,b) => {
+    if ((b.isoDate||'') !== (a.isoDate||'')) return (b.isoDate||'').localeCompare(a.isoDate||'');
+    return (b.time||'').localeCompare(a.time||'');
+  });
   if (!sorted.length) {
     body.innerHTML='<tr><td colspan="7" style="text-align:center;color:var(--text3);padding:1.5rem;">Aucune transaction.</td></tr>';
     return;
   }
+  // Admin et Gestionnaire peuvent modifier/supprimer
+  const canEdit = STATE.currentUser && (STATE.currentUser.role==='admin' || STATE.currentUser.role==='gestionnaire');
   body.innerHTML=sorted.map(t=>`<tr>
     <td>${t.date}</td><td>${t.time}</td><td>${esc(t.seller)}</td><td>${esc(t.description)}</td>
     <td>${t.quantity}</td><td>${fmtHTG(t.amount)}</td>
     <td style="white-space:nowrap;">
-      <button class="btn btn-outline" style="font-size:.75rem;padding:3px 10px;" onclick="openEditModal('${t.id}')">✏</button>
-      <button class="btn" style="font-size:.75rem;padding:3px 10px;background:var(--danger-bg);color:var(--danger);border:1px solid #f5b7b1;margin-left:4px;" onclick="deleteTransaction('${t.id}')">🗑</button>
+      ${canEdit ? `<button class="btn btn-outline" style="font-size:.75rem;padding:3px 10px;" onclick="openEditModal('${t.id}')">✏</button>
+      <button class="btn" style="font-size:.75rem;padding:3px 10px;background:var(--danger-bg);color:var(--danger);border:1px solid #f5b7b1;margin-left:4px;" onclick="deleteTransaction('${t.id}')">🗑</button>` : '—'}
     </td>
   </tr>`).join('');
 }
@@ -2047,7 +2051,6 @@ function startCreditListener() {
       renderCredits();
       renderDettes();
       renderMySales();
-      if (currentTab === 'ventes') renderMySales();
     },
     err => console.error('Credits listener:', err)
   );
