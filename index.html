@@ -1339,7 +1339,12 @@ async function submitSale() {
   if (STATE.isOnline && STATE.fbReady) {
     try {
       const {collection, addDoc} = window._fbFns;
-      await addDoc(collection(window._db,'transactions'), tx);
+      const ref = await addDoc(collection(window._db,'transactions'), tx);
+      // Affichage immédiat en local : l'écouteur Firestore la remplacera par
+      // la version serveur dès qu'il se déclenchera, mais on n'attend pas.
+      if (!STATE.transactions.find(t => t.id === ref.id)) {
+        STATE.transactions = [{id: ref.id, ...tx}, ...STATE.transactions];
+      }
       showToast('✅ Vente transmise en temps réel sur Firebase / bwmultiservice07@gmail.com');
     } catch(e) {
       STATE.pendingQueue.push({...tx, status:'pending'});
@@ -1354,6 +1359,12 @@ async function submitSale() {
   }
   updatePendingUI();
   markUnsaved();
+  // Rafraîchir tout de suite au lieu d'attendre le retour du serveur Firebase :
+  // sans ça, la vente reste invisible dans "Toutes les transactions" tant que
+  // l'écouteur temps réel n'a pas reçu la confirmation.
+  renderMySales();
+  renderDashboard();
+  renderDettes();
   document.getElementById('v-desc').value='';
   document.getElementById('v-qty').value='';
   document.getElementById('v-unit').value='unité';
