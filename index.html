@@ -2392,7 +2392,12 @@ function renderCredits() {
   }
   let rows = [];
   sorted.forEach(c => {
-    const hasDebt = c.finalBalance > 0;
+    // Le statut affiché reflète la dette RÉELLE et actuelle du client (même
+    // calcul que la Liste des Dettes), pas seulement la balance figée de cet
+    // enregistrement — sinon un client réglé sur un paiement mais qui a une
+    // autre vente à crédit non soldée apparaîtrait à tort comme "Soldé" ici.
+    const currentDebt = getClientDebt(c.client);
+    const hasDebt = currentDebt > 0;
     const clientColor = hasDebt ? 'color:#c0392b;font-weight:700;' : 'color:#0f7b4f;font-weight:700;';
     rows.push(`<tr>
       <td>${c.date}</td><td>${c.time}</td>
@@ -2407,7 +2412,7 @@ function renderCredits() {
         <td colspan="2" style="color:#b45309;font-style:italic;">↩ Report</td>
         <td style="color:#c0392b;font-weight:700;">${esc(c.client)}</td>
         <td colspan="2" style="color:#b45309;font-style:italic;">Balance reportée</td>
-        <td style="color:#c0392b;font-weight:700;">${fmtHTG(c.finalBalance)}</td>
+        <td style="color:#c0392b;font-weight:700;">${fmtHTG(currentDebt)}</td>
         <td><span class="badge badge-pending">⚠ À payer</span></td>
         <td></td>
       </tr>`);
