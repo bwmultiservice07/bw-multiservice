@@ -5,6 +5,8 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>BW Multiservice – Gestion</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<!-- Google Identity Services (OAuth pour l'export vers Google Drive) -->
+<script src="https://accounts.google.com/gsi/client" async defer></script>
 <!-- Firebase SDKs -->
 <script type="module">
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
@@ -1832,6 +1834,86 @@ function buildAnalyse() {
 }
 
 // ============================================================
+// GOOGLE DRIVE INTEGRATION (export automatique vers Drive)
+// ============================================================
+const GOOGLE_CLIENT_ID = '965323239313-t6ku4152ceadekaja782j5e5hol6gho0.apps.googleusercontent.com';
+const GOOGLE_DRIVE_SCOPE = 'https://www.googleapis.com/auth/drive.file';
+
+let _gDriveTokenClient = null;
+let _gDriveAccessToken = null;
+let _gDriveTokenExpiry = 0;
+
+function initGDriveTokenClient() {
+  if (_gDriveTokenClient) return true;
+  if (typeof google === 'undefined' || !google.accounts || !google.accounts.oauth2) return false;
+  _gDriveTokenClient = google.accounts.oauth2.initTokenClient({
+    client_id: GOOGLE_CLIENT_ID,
+    scope: GOOGLE_DRIVE_SCOPE,
+    callback: () => {} // redéfini à chaque appel dans getGDriveAccessToken()
+  });
+  return true;
+}
+
+function getGDriveAccessToken() {
+  return new Promise((resolve, reject) => {
+    if (!initGDriveTokenClient()) {
+      reject(new Error("Le service d'authentification Google n'a pas pu se charger. Vérifiez votre connexion et réessayez."));
+      return;
+    }
+    const now = Date.now();
+    if (_gDriveAccessToken && now < _gDriveTokenExpiry) {
+      resolve(_gDriveAccessToken);
+      return;
+    }
+    _gDriveTokenClient.callback = (resp) => {
+      if (resp.error) { reject(new Error(resp.error)); return; }
+      _gDriveAccessToken = resp.access_token;
+      _gDriveTokenExpiry = Date.now() + (resp.expires_in * 1000) - 60000;
+      resolve(_gDriveAccessToken);
+    };
+    _gDriveTokenClient.requestAccessToken({ prompt: _gDriveAccessToken ? '' : 'consent' });
+  });
+}
+
+async function uploadFileToDrive(blob, filename, mimeType) {
+  const token = await getGDriveAccessToken();
+  const metadata = { name: filename, mimeType };
+  // L'API Drive exige un vrai multipart/related (RFC 2387) avec une frontière
+  // (boundary) définie manuellement — un simple FormData (multipart/form-data)
+  // n'est PAS accepté par cet endpoint.
+  const boundary = 'bwms_' + Math.abs(hashCode(filename + '_' + metadata.mimeType + '_' + blob.size)).toString(16);
+  const delimiter = `\r\n--${boundary}\r\n`;
+  const closeDelimiter = `\r\n--${boundary}--`;
+  const metadataPart = delimiter + 'Content-Type: application/json; charset=UTF-8\r\n\r\n' + JSON.stringify(metadata);
+  const mediaHeader = delimiter + `Content-Type: ${mimeType}\r\n\r\n`;
+  const bodyBlob = new Blob([metadataPart, mediaHeader, blob, closeDelimiter]);
+
+  const res = await fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id,name,webViewLink', {
+    method: 'POST',
+    headers: {
+      Authorization: 'Bearer ' + token,
+      'Content-Type': `multipart/related; boundary=${boundary}`
+    },
+    body: bodyBlob
+  });
+  if (!res.ok) {
+    let detail = '';
+    try { detail = (await res.json()).error?.message || ''; } catch (e) {}
+    throw new Error(`Erreur Drive (${res.status}) ${detail}`);
+  }
+  return res.json();
+}
+
+function hashCode(str) {
+  let hash = 0;
+  for (let i = 0; i < str.length; i++) {
+    hash = ((hash << 5) - hash) + str.charCodeAt(i);
+    hash |= 0;
+  }
+  return hash;
+}
+
+// ============================================================
 // EXCEL EXPORT
 // ============================================================
 function exportAllToExcel() {
@@ -1889,6 +1971,153 @@ function exportAllToExcel() {
 
   XLSX.writeFile(wb,`BW_Multiservice_${isoDate()}.xlsx`);
   showToast('📥 Fichier Excel téléchargé.');
+}
+
+function buildFullWorkbook() {
+  const wb = XLSX.utils.book_new();
+  const sales = (STATE.transactions||[]).filter(t=>t.type==='vente')
+    .sort((a,b)=>(a.isoDate||'').localeCompare(b.isoDate||'')||(a.time||'').localeCompare(b.time||''));
+  const stockVal = (STATE.stocks||[]).reduce((a,s)=>a+(s.amount||0),0);
+
+  // 1. Ventes
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([
+    ['Date','Heure','Vendeur','Produit','Unité','Quantité','Prix unit.','Montant','Cash','Crédit','Balance','Client','Statut'],
+    ...sales.map(t=>[t.date,t.time,t.seller,t.description,t.unit,t.quantity,t.unitPrice||0,t.amount||0,t.cash||0,t.credit||0,t.balance||0,t.client||'',t.balance>0?(t.balance===t.credit?'Non soldé':'Partiel'):'Soldé'])
+  ]), '📋 Ventes');
+
+  // 2. Crédits Clients
+  const credits = [...(STATE.credits||[])].sort((a,b)=>(b.isoDate||'').localeCompare(a.isoDate||'')||(b.time||'').localeCompare(a.time||''));
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([
+    ['Date','Heure','Client','Vendeur','Dû','Payé','Balance finale','Statut','Source'],
+    ...credits.map(c=>[c.date,c.time,c.client,c.seller||'',c.due||0,c.paid||0,c.finalBalance||0,c.status||'',c.source||''])
+  ]), '💳 Crédits Clients');
+
+  // 3. Liste des Dettes (clients avec balance restante > 0)
+  const clientsSet = new Set();
+  sales.forEach(t=>{ if (t.client) clientsSet.add(t.client); });
+  (STATE.credits||[]).forEach(c=>{ if (c.client) clientsSet.add(c.client); });
+  const debtors = [...clientsSet].map(client=>{
+    const name = client.toLowerCase();
+    const totalDu = sales.filter(t=>(t.client||'').toLowerCase()===name && (t.balance||0)>0).reduce((a,t)=>a+(t.balance||0),0);
+    const totalPaye = (STATE.credits||[]).filter(c=>(c.client||'').toLowerCase()===name && c.source!=='vente').reduce((a,c)=>a+(c.paid||0),0);
+    return { client, totalDu, totalPaye, balanceRestante: Math.max(0, totalDu-totalPaye) };
+  }).filter(d=>d.balanceRestante>0).sort((a,b)=>b.balanceRestante-a.balanceRestante);
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([
+    ['Client','Total Dû','Total Payé','Balance Restante','Statut'],
+    ...debtors.map(d=>[d.client,d.totalDu,d.totalPaye,d.balanceRestante,'En cours']),
+    ['TOTAL', debtors.reduce((a,d)=>a+d.totalDu,0), debtors.reduce((a,d)=>a+d.totalPaye,0), debtors.reduce((a,d)=>a+d.balanceRestante,0), '']
+  ]), '📋 Liste des Dettes');
+
+  // 4. Mouvements Stocks (entrées + sorties)
+  const entrees = (STATE.stocks||[]).map(s=>({
+    date:s.date, type:'Entrée', description:s.description,
+    qtyCaisses: s.quantityCaisses||s.quantity||0, prixCaisse: s.unitPrice||0,
+    amount: s.amount||0, tiers: s.supplier||''
+  }));
+  const sorties = sales.map(t=>({
+    date:t.date, type:'Sortie', description:t.description,
+    qtyCaisses: getQtyCaisses(t), prixCaisse: t.prixCaisse||t.unitPrice||0,
+    amount: t.amount||0, tiers: t.client||t.seller||''
+  }));
+  const mouvements = [...entrees, ...sorties].sort((a,b)=>(b.date||'').localeCompare(a.date||''));
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([
+    ['Date','Type','Description','Qté (caisses)','Prix caisse','Montant','Fournisseur / Client'],
+    ...mouvements.map(m=>[m.date,m.type,m.description,m.qtyCaisses,m.prixCaisse,m.amount,m.tiers])
+  ]), '📦 Mouvements Stocks');
+
+  // 5. Stock de Départ
+  const stockDepart = [...(STATE.stockDepart||[])].sort((a,b)=>(b.isoDate||'').localeCompare(a.isoDate||''));
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([
+    ['Date','Description','Quantité','Prix caisse','Valeur'],
+    ...stockDepart.map(s=>[s.date,s.description,s.quantity,s.prixCaisse||0,s.valeur||0])
+  ]), '🏁 Stock de Départ');
+
+  // 6. Stock Actuel (départ + entrées - sorties)
+  const departMap = {}, entreesMap = {}, sortiesMap = {};
+  (STATE.stockDepart||[]).forEach(s=>{
+    if (!departMap[s.description]) departMap[s.description] = {qty:0, prix:0};
+    departMap[s.description].qty += parseFloat(s.quantity)||0;
+    departMap[s.description].prix = s.prixCaisse||0;
+  });
+  (STATE.stocks||[]).forEach(s=>{
+    entreesMap[s.description] = (entreesMap[s.description]||0) + (parseFloat(s.quantityCaisses||s.quantity)||0);
+  });
+  sales.forEach(t=>{
+    sortiesMap[t.description] = (sortiesMap[t.description]||0) + getQtyCaisses(t);
+  });
+  const allProducts = new Set([...Object.keys(departMap), ...Object.keys(entreesMap), ...Object.keys(sortiesMap)]);
+  const stockActuelRows = [...allProducts].map(p=>{
+    const depart = departMap[p]?.qty||0, ent = entreesMap[p]||0, sor = sortiesMap[p]||0;
+    const actuel = Math.max(0, depart+ent-sor);
+    const prix = departMap[p]?.prix||0;
+    return [p, depart, ent, sor, actuel, prix, actuel*prix];
+  }).sort((a,b)=>String(a[0]).localeCompare(String(b[0])));
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([
+    ['Produit','Stock départ','Entrées','Sorties','Stock actuel','Prix caisse','Valeur'],
+    ...stockActuelRows
+  ]), '📊 Stock Actuel');
+
+  // 7. Tableau de Bord
+  const today = todayStr();
+  const now = new Date();
+  const curMonth = String(now.getMonth()+1).padStart(2,'0')+'/'+now.getFullYear();
+  const todaySales = sales.filter(t=>t.date===today);
+  const monthSales = sales.filter(t=>{ const p=(t.date||'').split('/'); return p.length===3 && p[1]+'/'+p[2]===curMonth; });
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([
+    ['Indicateur','Valeur'],
+    ['Ventes du jour (HTG)', todaySales.reduce((a,t)=>a+(t.amount||0),0)],
+    ['Transactions du jour', todaySales.length],
+    ['Ventes du mois (HTG)', monthSales.reduce((a,t)=>a+(t.amount||0),0)],
+    ['Transactions du mois', monthSales.length],
+    ['Quantité vendue ce mois', monthSales.reduce((a,t)=>a+(t.quantity||0),0)],
+    ['Valeur du stock (entrées, HTG)', stockVal],
+    ['Total dettes en cours (HTG)', debtors.reduce((a,d)=>a+d.balanceRestante,0)],
+    ['Date d\'export', isoDate()]
+  ]), '📊 Tableau de Bord');
+
+  // 8. Journal Général + Analyse Financière
+  let pce=1;
+  const jRows=[['Date','N° Pièce','Compte débiteur','Compte créditeur','Libellé','Débit HTG','Crédit HTG']];
+  [...(STATE.transactions||[])].sort((a,b)=>(a.isoDate||'').localeCompare(b.isoDate||'')).forEach(t=>{
+    if(t.type==='vente') jRows.push([t.date,`PC-${String(pce).padStart(4,'0')}`,'5100 – Caisse','7000 – Ventes',t.description,t.amount,t.amount]);
+    else jRows.push([t.date,`PC-${String(pce).padStart(4,'0')}`,'3100 – Stocks','4010 – Fournisseurs',t.description,t.amount,t.amount]);
+    pce++;
+  });
+  const vt = sales.reduce((a,t)=>a+(t.amount||0),0);
+  const nbV = sales.length;
+  jRows.push([]);
+  jRows.push(['ANALYSE FINANCIÈRE']);
+  jRows.push(['Indicateur','Valeur']);
+  jRows.push(["Chiffre d'affaires total", vt]);
+  jRows.push(['Panier moyen', nbV?vt/nbV:0]);
+  jRows.push(['Valeur du stock', stockVal]);
+  jRows.push(['Nombre de ventes', nbV]);
+  jRows.push(['Marge brute estimée (%)', stockVal>0?parseFloat(((vt-stockVal)/stockVal*100).toFixed(2)):0]);
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(jRows), '📒 Journal + Analyse');
+
+  return wb;
+}
+
+async function exportCompletToExcel() {
+  if (typeof XLSX === 'undefined') { showToast('⚠ Bibliothèque Excel non disponible.','warn'); return; }
+  const btn = document.getElementById('btn-export-drive');
+  if (btn) btn.disabled = true;
+  try {
+    showToast('⏳ Génération du fichier Excel complet...');
+    const wb = buildFullWorkbook();
+    const wbArray = XLSX.write(wb, { bookType:'xlsx', type:'array' });
+    const blob = new Blob([wbArray], { type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+    const filename = `BW_Multiservice_${isoDate()}.xlsx`;
+    showToast('🔐 Connexion à Google Drive...');
+    const file = await uploadFileToDrive(blob, filename, 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    showToast(`✅ Exporté vers Google Drive : ${file.name}`);
+    if (file.webViewLink) window.open(file.webViewLink, '_blank');
+  } catch (e) {
+    console.error('Export Drive:', e);
+    showToast('⚠ Échec de l\'envoi vers Drive : ' + e.message, 'warn');
+  } finally {
+    if (btn) btn.disabled = false;
+  }
 }
 
 function updateClientList() {
