@@ -306,6 +306,9 @@ tr:hover td{background:#f7f9ff;}
     <div class="tab-content" id="tab-credit">
       <div class="card">
         <div class="card-title">💳 Paiement Client — Remboursement de crédit</div>
+        <div id="credit-correction-banner" style="display:none;background:#fef3e2;color:#8a5a00;border:1px solid #f5d59a;border-radius:8px;padding:8px 12px;margin-bottom:12px;font-size:.85rem;font-weight:600;">
+          ✏️ Modification en cours — <span id="credit-correction-banner-text"></span>. Le nom du client est figé ; le montant remboursé peut être corrigé.
+        </div>
         <div class="form-row">
           <div class="form-group" style="flex:2;min-width:200px;">
             <label>Nom du client</label>
@@ -738,6 +741,10 @@ let unsubTrans = null, unsubStocks = null, unsubUsers = null;
 // sa date/heure d'origine et son client : seuls les autres champs (produit,
 // quantité, prix, montant, cash, crédit) restent modifiables.
 let _pendingCorrection = null; // { date, isoDate, time, client }
+// Quand un paiement de crédit est chargé pour modification (admin/gestionnaire)
+// depuis l'historique, on met à jour l'enregistrement existant au lieu d'en
+// créer un nouveau, et le nom du client reste figé.
+let _pendingCreditEditId = null;
 
 function loadLocal() {
   try {
@@ -994,6 +1001,7 @@ function doLogout() {
 
 function performLogout() {
   unlockSaleForm();
+  unlockCreditForm();
   if (unsubTrans) unsubTrans();
   if (unsubStocks) unsubStocks();
   if (unsubUsers) unsubUsers();
@@ -2279,6 +2287,46 @@ async function submitCredit() {
   const paid = parseFloat(document.getElementById('cr-paid').value) || 0;
   const final = parseFloat(document.getElementById('cr-final').value) || 0;
   if (!client || paid <= 0) { showToast('⚠ Veuillez remplir tous les champs.','warn'); return; }
+
+  // Mode modification (clic sur ✏ dans l'historique) : on met à jour
+  // l'enregistrement existant au lieu d'en créer un nouveau, sans toucher
+  // au client ni à la date d'origine.
+  if (_pendingCreditEditId) {
+    if (!requireAdminOrGest()) return;
+    const id = _pendingCreditEditId;
+    const oldCredit = (STATE.credits||[]).find(c=>c.id===id);
+    if (STATE.isOnline && STATE.fbReady) {
+      try {
+        const {doc, updateDoc} = window._fbFns;
+        await updateDoc(doc(window._db,'credits',id), {
+          paid:paid, finalBalance:final, status: final===0?'soldé':'partiel',
+          editedBy: STATE.currentUser.username, editedAt: new Date().toISOString()
+        });
+        await logNotification('✏️ Modification crédit', `Client: ${client} | Ancien paiement: ${fmtHTG(oldCredit?.paid||0)} | Nouveau: ${fmtHTG(paid)} | Balance finale: ${fmtHTG(final)}`);
+        showToast('✅ Paiement modifié.');
+        markUnsaved();
+        const idx = (STATE.credits||[]).findIndex(c=>c.id===id);
+        if (idx>=0) STATE.credits[idx] = {...STATE.credits[idx], paid, finalBalance:final, status: final===0?'soldé':'partiel'};
+        renderCredits();
+        renderDettes();
+        if (currentTab === 'dettes') {
+          const body = document.getElementById('dettes-table-body');
+          if (body) body.innerHTML = '<tr><td colspan="5" style="text-align:center;">Mise à jour...</td></tr>';
+          setTimeout(() => renderDettes(), 100);
+        }
+      } catch(e) { showToast('⚠ Erreur: '+e.message,'warn'); }
+    } else {
+      showToast('⚠ Hors ligne — impossible de modifier ce paiement maintenant.','warn');
+      return;
+    }
+    document.getElementById('cr-client').value = '';
+    document.getElementById('cr-balance-due').value = '';
+    document.getElementById('cr-paid').value = '';
+    document.getElementById('cr-final').value = '';
+    unlockCreditForm();
+    return;
+  }
+
   const cr = {
     type:'credit', date:todayStr(), isoDate:isoDate(), time:nowStr(),
     seller:STATE.currentUser.username, client:client, due:due, paid:paid, finalBalance:final,
@@ -2345,7 +2393,7 @@ function renderCredits() {
       <td>${fmtHTG(c.due)}</td><td>${fmtHTG(c.paid||0)}</td>
       <td style="${clientColor}">${fmtHTG(c.finalBalance||0)}</td>
       <td><span class="badge ${hasDebt?'badge-pending':'badge-sent'}">${hasDebt?'⏳ Partiel':'✅ Soldé'}</span></td>
-      <td style="white-space:nowrap;">${STATE.currentUser&&(STATE.currentUser.role==='admin'||STATE.currentUser.role==='gestionnaire')?`<button class="btn btn-outline" style="font-size:.75rem;padding:3px 10px;" onclick="openEditCredit('${c.id||''}','${esc(c.client)}',${c.due||0},${c.paid||0},${c.finalBalance||0})">✏</button><button class="btn" style="font-size:.75rem;padding:3px 10px;background:var(--danger-bg);color:var(--danger);border:1px solid #f5b7b1;margin-left:4px;" onclick="deleteCredit('${c.id||''}')">🗑</button>`:'—'}</td>
+      <td style="white-space:nowrap;">${STATE.currentUser&&(STATE.currentUser.role==='admin'||STATE.currentUser.role==='gestionnaire')?`<button class="btn btn-outline" style="font-size:.75rem;padding:3px 10px;" onclick="openEditCredit('${c.id||''}','${esc(c.client)}',${c.due||0},${c.paid||0},${c.finalBalance||0},'${esc(c.date||'')}','${esc(c.time||'')}')">✏</button><button class="btn" style="font-size:.75rem;padding:3px 10px;background:var(--danger-bg);color:var(--danger);border:1px solid #f5b7b1;margin-left:4px;" onclick="deleteCredit('${c.id||''}')">🗑</button>`:'—'}</td>
     </tr>`);
     if (hasDebt) {
       rows.push(`<tr style="background:#fef3e2;">
@@ -2361,37 +2409,37 @@ function renderCredits() {
   body.innerHTML = rows.join('');
 }
 
-function openEditCredit(id, client, due, paid, finalBalance) {
+// Admin/gestionnaire : clic sur ✏ dans l'historique des crédits clients.
+// Charge le paiement dans le formulaire "Paiement Client" pour le corriger ;
+// le nom du client reste figé et la validation met à jour l'enregistrement
+// existant au lieu d'en créer un nouveau.
+function openEditCredit(id, client, due, paid, finalBalance, date, time) {
   if (!requireAdminOrGest()) return;
-  const newPaid = prompt(`Modifier le montant remboursé pour ${client} (actuel: ${paid} HTG):`, paid);
-  if (newPaid === null) return;
-  const paidNum = parseFloat(newPaid) || 0;
-  const newFinal = Math.max(0, due - paidNum);
-  if (STATE.isOnline && STATE.fbReady && id) {
-    const {doc, updateDoc} = window._fbFns;
-    updateDoc(doc(window._db,'credits',id), {paid:paidNum, finalBalance:newFinal, status:newFinal===0?'soldé':'partiel'})
-      .then(async () => {
-        await logNotification('✏️ Modification crédit', `Client: ${client} | Ancien paiement: ${fmtHTG(paid)} | Nouveau: ${fmtHTG(paidNum)} | Balance finale: ${fmtHTG(newFinal)}`);
-        showToast('✅ Paiement modifié.');
-        markUnsaved();
-        // Mise à jour locale immédiate dans STATE.credits
-        if (!STATE.credits) STATE.credits = [];
-        const idx = STATE.credits.findIndex(c=>c.id===id);
-        if (idx>=0) { 
-          STATE.credits[idx] = {...STATE.credits[idx], paid:paidNum, finalBalance:newFinal, status:newFinal===0?'soldé':'partiel'};
-        }
-        // Forcer le rafraîchissement des deux onglets
-        renderCredits();
-        renderDettes();
-        // Si l'onglet dettes est actif, basculer et revenir pour forcer l'affichage
-        if (currentTab === 'dettes') {
-          const body = document.getElementById('dettes-table-body');
-          if (body) body.innerHTML = '<tr><td colspan="5" style="text-align:center;">Mise à jour...</td></tr>';
-          setTimeout(() => renderDettes(), 100);
-        }
-      })
-      .catch(e => showToast('⚠ Erreur: '+e.message,'warn'));
+  if (!id) { showToast('⚠ Paiement introuvable.','warn'); return; }
+  document.getElementById('cr-client').value = client || '';
+  document.getElementById('cr-balance-due').value = (due||0).toFixed(2);
+  document.getElementById('cr-paid').value = paid || '';
+  document.getElementById('cr-final').value = (finalBalance||0).toFixed(2);
+  const clientInput = document.getElementById('cr-client');
+  clientInput.readOnly = true;
+  clientInput.style.background = '#f0f2f7';
+  _pendingCreditEditId = id;
+  const banner = document.getElementById('credit-correction-banner');
+  const bannerText = document.getElementById('credit-correction-banner-text');
+  if (banner && bannerText) {
+    bannerText.textContent = `paiement de ${client} du ${date||''} à ${time||''}`;
+    banner.style.display = 'block';
   }
+  clientInput.scrollIntoView({behavior:'smooth', block:'center'});
+  showToast('✏️ Paiement chargé dans le formulaire — corrigez le montant puis cliquez sur Enregistrer.');
+}
+
+function unlockCreditForm() {
+  _pendingCreditEditId = null;
+  const clientInput = document.getElementById('cr-client');
+  if (clientInput) { clientInput.readOnly = false; clientInput.style.background = ''; }
+  const banner = document.getElementById('credit-correction-banner');
+  if (banner) banner.style.display = 'none';
 }
 
 async function deleteCredit(id) {
