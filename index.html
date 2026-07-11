@@ -537,8 +537,8 @@ tr:hover td{background:#f7f9ff;}
         <div class="card-title">📊 Stock Actuel par Produit</div>
         <div class="table-wrap">
           <table>
-            <thead><tr><th>Produit</th><th>Stock départ</th><th>Entrées</th><th>Sorties</th><th>Stock actuel</th><th>Prix/Caisse</th><th>Valeur (HTG)</th></tr></thead>
-            <tbody id="stock-actuel-body"><tr><td colspan="7" style="text-align:center;color:var(--text3);padding:1.5rem;">Aucune donnée disponible.</td></tr></tbody>
+            <thead><tr><th>Produit</th><th>Stock départ</th><th>Entrées</th><th>Sorties</th><th>Stock actuel</th><th>Prix caisse/bout</th><th>Prix unitaire</th><th>Valeur (HTG)</th></tr></thead>
+            <tbody id="stock-actuel-body"><tr><td colspan="8" style="text-align:center;color:var(--text3);padding:1.5rem;">Aucune donnée disponible.</td></tr></tbody>
           </table>
         </div>
       </div>
@@ -1184,17 +1184,24 @@ function formatUnitLabel(unit) {
   return UNIT_LABELS[unit] || unit || '';
 }
 
-// Affiche une quantité exprimée en équivalent-caisses (souvent décimale, ex: 1.25)
-// sous une forme lisible sans décimale, ex: "1 caisse et 6 unités".
-function formatCaissesDisplay(qtyCaisses, casseSize) {
+// Décompose une quantité en équivalent-caisses (décimale, ex: 1.25) en un
+// nombre entier de caisses + un reliquat d'unités individuelles.
+function breakdownCaisses(qtyCaisses, casseSize) {
   casseSize = casseSize || 24;
-  const val = qtyCaisses || 0;
-  if (Math.abs(val) < 1e-9) return '0';
-  const sign = val < 0 ? '-' : '';
-  const abs = Math.abs(val);
+  const abs = Math.abs(qtyCaisses || 0);
   let caisses = Math.floor(abs + 1e-9);
   let unites = Math.round((abs - caisses) * casseSize);
   if (unites >= casseSize) { caisses += 1; unites -= casseSize; }
+  return { caisses, unites };
+}
+
+// Affiche une quantité exprimée en équivalent-caisses (souvent décimale, ex: 1.25)
+// sous une forme lisible sans décimale, ex: "1 caisse et 6 unités".
+function formatCaissesDisplay(qtyCaisses, casseSize) {
+  const val = qtyCaisses || 0;
+  if (Math.abs(val) < 1e-9) return '0';
+  const sign = val < 0 ? '-' : '';
+  const {caisses, unites} = breakdownCaisses(val, casseSize);
   const parts = [];
   if (caisses > 0) parts.push(`${caisses} caisse${caisses>1?'s':''}`);
   if (unites > 0) parts.push(`${unites} unité${unites>1?'s':''}`);
@@ -2832,14 +2839,17 @@ function renderStockActuel() {
   const departMap = {};
   (STATE.stockDepart||[]).forEach(s => {
     const key = s.description;
-    if (!departMap[key]) departMap[key] = {qty:0, prix:0};
+    if (!departMap[key]) departMap[key] = {qty:0, prix:0, prixUnitaire:0};
     // Les nouveaux enregistrements ont quantityCaisses (unité/nombre d'unité pris
     // en compte) ; les anciens enregistrements stockaient directement en caisses.
     const qc = (s.quantityCaisses !== undefined) ? (parseFloat(s.quantityCaisses)||0) : (parseFloat(s.quantity)||0);
     departMap[key].qty += qc;
-    if (s.prixCaisse) departMap[key].prix = s.prixCaisse;
+    if (s.prixCaisse) {
+      departMap[key].prix = s.prixCaisse;
+      departMap[key].prixUnitaire = s.prixUnitaire || (s.prixCaisse / getCasseSize(s.description, s.unit));
+    }
   });
-  
+
   // 2. Entrées de stock par produit (en caisses)
   const entreesMap = {};
   STATE.stocks.forEach(s => {
@@ -2847,7 +2857,7 @@ function renderStockActuel() {
     if (!entreesMap[key]) entreesMap[key] = 0;
     entreesMap[key] += parseFloat(s.quantityCaisses || s.quantity) || 0;
   });
-  
+
   // 3. Sorties (ventes) par produit (en caisses)
   const sortiesMap = {};
   (STATE.transactions||[]).filter(t=>t.type==='vente').forEach(t => {
@@ -2855,27 +2865,30 @@ function renderStockActuel() {
     if (!sortiesMap[key]) sortiesMap[key] = 0;
     sortiesMap[key] += getQtyCaisses(t);
   });
-  
+
   const allProducts = new Set([
     ...Object.keys(departMap),
     ...Object.keys(entreesMap),
     ...Object.keys(sortiesMap)
   ]);
-  
+
   if (!allProducts.size) {
-    body.innerHTML='<tr><td colspan="7" style="text-align:center;color:var(--text3);padding:1.5rem;">Aucune donnée disponible.</td></tr>';
+    body.innerHTML='<tr><td colspan="8" style="text-align:center;color:var(--text3);padding:1.5rem;">Aucune donnée disponible.</td></tr>';
     return;
   }
-  
+
   const rows = [...allProducts].map(p => {
     const depart = departMap[p]?.qty || 0;
     const entrees = entreesMap[p] || 0;
     const sorties = sortiesMap[p] || 0;
     const actuel = Math.max(0, depart + entrees - sorties);
     const prix = departMap[p]?.prix || 0;
-    const valeur = actuel * prix;
     const casseSize = getCasseSize(p, null);
-    return { p, depart, entrees, sorties, actuel, prix, valeur, casseSize };
+    const prixUnitaire = departMap[p]?.prixUnitaire || (prix ? prix / casseSize : 0);
+    // Valeur (HTG) = (quantité caisse × Prix caisse/bout) + (nombre d'unité × Prix unitaire)
+    const { caisses: qteCaisse, unites: nbUnite } = breakdownCaisses(actuel, casseSize);
+    const valeur = (qteCaisse * prix) + (nbUnite * prixUnitaire);
+    return { p, depart, entrees, sorties, actuel, prix, prixUnitaire, valeur, casseSize };
   }).sort((a,b) => a.p.localeCompare(b.p));
 
   // Valeur totale globale — somme des valeurs monétaires de chaque produit.
@@ -2888,9 +2901,10 @@ function renderStockActuel() {
     <td style="color:#c0392b;font-weight:600;">-${formatCaissesDisplay(r.sorties, r.casseSize)}</td>
     <td style="font-weight:700;color:${r.actuel>0?'#0f7b4f':'#c0392b'};">${formatCaissesDisplay(r.actuel, r.casseSize)}</td>
     <td>${fmtHTG(r.prix)}</td>
+    <td>${fmtHTG(r.prixUnitaire)}</td>
     <td style="font-weight:700;color:#1a56db;">${fmtHTG(r.valeur)}</td>
   </tr>`).join('') + `<tr style="background:var(--surface2);font-weight:700;border-top:2px solid var(--border);">
-    <td colspan="5">📊 TOTAL</td>
+    <td colspan="6">📊 TOTAL</td>
     <td></td>
     <td style="color:#1a56db;">${fmtHTG(totalValeur)}</td>
   </tr>`;
