@@ -783,11 +783,15 @@ function startFirebaseListeners() {
     query(collection(db, 'transactions'), orderBy('isoDate','desc'), orderBy('time','desc')),
     snap => {
       STATE.transactions = snap.docs.map(d => ({id: d.id, ...d.data()}));
-      // Mettre à jour TOUS les affichages
+      // Mettre à jour TOUS les affichages (ventes, crédits, dettes du vendeur
+      // comme de l'admin/gestionnaire) dès qu'une vente est ajoutée, corrigée
+      // ou supprimée — la Liste des Dettes dépend aussi des ventes à crédit,
+      // pas seulement des paiements, donc elle doit se rafraîchir ici aussi.
       renderMySales();
       renderDashboard();
       renderStocks();
       renderStockActuel();
+      renderDettes();
       if (currentTab === 'compta') refreshAccounting();
       if (currentTab === 'admin') renderAdminTrans();
     },
@@ -2309,6 +2313,7 @@ async function submitCredit() {
         if (idx>=0) STATE.credits[idx] = {...STATE.credits[idx], paid, finalBalance:final, status: final===0?'soldé':'partiel'};
         renderCredits();
         renderDettes();
+        renderMySales();
         if (currentTab === 'dettes') {
           const body = document.getElementById('dettes-table-body');
           if (body) body.innerHTML = '<tr><td colspan="5" style="text-align:center;">Mise à jour...</td></tr>';
@@ -2351,6 +2356,8 @@ async function submitCredit() {
     showToast(`⚠ Balance restante de ${fmtHTG(final)} reportée pour ${client}.`,'warn');
   }
   renderCredits();
+  renderDettes();
+  renderMySales();
   document.getElementById('cr-client').value = '';
   document.getElementById('cr-balance-due').value = '';
   document.getElementById('cr-paid').value = '';
@@ -2458,12 +2465,14 @@ async function deleteCredit(id) {
       // Forcer le rafraîchissement immédiat
       renderCredits();
       renderDettes();
+      renderMySales();
       setTimeout(() => renderDettes(), 200);
     } catch(e) { showToast('⚠ Erreur: '+e.message,'warn'); }
   } else {
     STATE.credits = (STATE.credits||[]).filter(c => c.id !== id);
     renderCredits();
     renderDettes();
+    renderMySales();
   }
 }
 
