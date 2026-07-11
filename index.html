@@ -688,6 +688,18 @@ tr:hover td{background:#f7f9ff;}
   </div>
 </div>
 
+<div class="edit-modal-bg" id="logout-modal-bg">
+  <div class="edit-modal">
+    <h3>⚠ Modifications non sauvegardées</h3>
+    <p id="logout-modal-text" style="margin:.3rem 0 1rem;color:var(--text2);font-size:.88rem;"></p>
+    <div style="display:flex;flex-direction:column;gap:8px;">
+      <button class="btn btn-primary" onclick="confirmLogout('save')">💾 Sauvegarder et se déconnecter</button>
+      <button id="logout-no-save-btn" class="btn" style="background:var(--danger-bg);color:var(--danger);border:1px solid #f5b7b1;" onclick="confirmLogout('discard')">🚪 Se déconnecter sans sauvegarder</button>
+      <button class="btn btn-outline" onclick="closeLogoutModal()">Annuler</button>
+    </div>
+  </div>
+</div>
+
 <div id="toast"></div>
 
 <script>
@@ -967,20 +979,15 @@ function doLogin() {
   updateConnStatus();
   renderAll();
   renderUsers();
-  // Mettre à jour le titre des transactions selon le rôle
+  // L'onglet Ventes est désormais identique pour tout le monde : tout le
+  // monde voit toutes les transactions de tous les vendeurs.
   const titleEl = document.getElementById('my-sales-title');
-  if (titleEl) {
-    if (user.role === 'admin' || user.role === 'gestionnaire') {
-      titleEl.textContent = '📋 Toutes les transactions (tous vendeurs)';
-    } else {
-      titleEl.textContent = '📋 Mes transactions du jour';
-    }
-  }
+  if (titleEl) titleEl.textContent = '📋 Toutes les transactions (tous vendeurs)';
 }
 async function saveAllData() {
   if (!STATE.isOnline || !STATE.fbReady) {
     showToast('⚠ Hors ligne — impossible de sauvegarder maintenant.','warn');
-    return;
+    return false;
   }
   // Envoyer la file d'attente si elle existe
   if (STATE.pendingQueue.length > 0) {
@@ -988,19 +995,47 @@ async function saveAllData() {
   }
   markSaved();
   showToast('✅ Toutes les données sont sauvegardées sur Firebase.');
+  return true;
 }
 
+// Le vendeur doit obligatoirement sauvegarder ses ventes avant de se
+// déconnecter : pas d'option pour ignorer. Admin/gestionnaire ont le choix.
 function doLogout() {
-  if (_hasUnsavedChanges) {
-    const confirm = window.confirm('⚠ Vous avez des modifications non sauvegardées. Voulez-vous sauvegarder avant de quitter ?');
-    if (confirm) {
-      saveAllData().then(() => {
-        performLogout();
-      });
-      return;
-    }
+  if (!_hasUnsavedChanges) { performLogout(); return; }
+  const isVendeur = STATE.currentUser && STATE.currentUser.role === 'vendeur';
+  const noSaveBtn = document.getElementById('logout-no-save-btn');
+  const text = document.getElementById('logout-modal-text');
+  if (isVendeur) {
+    if (noSaveBtn) noSaveBtn.style.display = 'none';
+    if (text) text.textContent = "Vous avez des ventes non sauvegardées. La sauvegarde est obligatoire avant de vous déconnecter.";
+  } else {
+    if (noSaveBtn) noSaveBtn.style.display = 'block';
+    if (text) text.textContent = "Vous avez des modifications non sauvegardées. Voulez-vous les sauvegarder avant de vous déconnecter ?";
   }
-  performLogout();
+  document.getElementById('logout-modal-bg').classList.add('show');
+}
+
+function closeLogoutModal() {
+  document.getElementById('logout-modal-bg').classList.remove('show');
+}
+
+async function confirmLogout(action) {
+  const isVendeur = STATE.currentUser && STATE.currentUser.role === 'vendeur';
+  if (action === 'save' || isVendeur) {
+    // Sauvegarde obligatoire pour le vendeur, même s'il a cliqué sur
+    // "se déconnecter sans sauvegarder" par erreur — le bouton est de
+    // toute façon masqué pour lui.
+    const ok = await saveAllData();
+    if (!ok) {
+      showToast('⚠ Connexion requise pour sauvegarder avant de vous déconnecter.','warn');
+      return; // on ne ferme pas le modal : on reste connecté tant que ce n'est pas sauvegardé
+    }
+    closeLogoutModal();
+    performLogout();
+  } else if (action === 'discard') {
+    closeLogoutModal();
+    performLogout();
+  }
 }
 
 function performLogout() {
@@ -1366,22 +1401,18 @@ function renderMySales() {
     return d === todayIso || d2 === todayFR || d2 === todayEN || d2 === todayIso;
   }
   
-  // Toutes les ventes du vendeur (pas seulement aujourd'hui)
+  // Toutes les ventes de tous les vendeurs — cet onglet est désormais
+  // identique pour vendeur, gestionnaire et admin (plus de filtrage par
+  // vendeur connecté).
   const mine = [...STATE.transactions, ...STATE.pendingQueue]
-    .filter(t => {
-      const matchSeller = isAdminOrGest ? true : t.seller === STATE.currentUser.username;
-      return matchSeller && t.type === 'vente';
-    })
+    .filter(t => t.type === 'vente')
     .sort((a,b) => {
       const da = getIsoFromTx(a), db = getIsoFromTx(b);
       if (db !== da) return db.localeCompare(da); // plus récent en haut
       return (b.time||'').localeCompare(a.time||'');
     });
-    
-  const allCredits = (STATE.credits||[]).filter(c => {
-    const matchSeller = isAdminOrGest ? true : c.seller === STATE.currentUser.username;
-    return matchSeller && c.source !== 'vente';
-  });
+
+  const allCredits = (STATE.credits||[]).filter(c => c.source !== 'vente');
 
   // Combiner ventes et crédits
   const allRows = [
