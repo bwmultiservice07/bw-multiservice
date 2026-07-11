@@ -2075,25 +2075,52 @@ function buildFullWorkbook() {
     ['Date d\'export', isoDate()]
   ]), '📊 Tableau de Bord');
 
-  // 8. Journal Général + Analyse Financière
+  // 8. Journal Général (comptabilité complète — comme l'onglet Comptabilité)
   let pce=1;
   const jRows=[['Date','N° Pièce','Compte débiteur','Compte créditeur','Libellé','Débit HTG','Crédit HTG']];
-  [...(STATE.transactions||[])].sort((a,b)=>(a.isoDate||'').localeCompare(b.isoDate||'')).forEach(t=>{
+  const txSorted = [...(STATE.transactions||[])].sort((a,b)=>(a.isoDate||'').localeCompare(b.isoDate||''));
+  txSorted.forEach(t=>{
     if(t.type==='vente') jRows.push([t.date,`PC-${String(pce).padStart(4,'0')}`,'5100 – Caisse','7000 – Ventes',t.description,t.amount,t.amount]);
     else jRows.push([t.date,`PC-${String(pce).padStart(4,'0')}`,'3100 – Stocks','4010 – Fournisseurs',t.description,t.amount,t.amount]);
     pce++;
   });
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(jRows), '📒 Journal Général');
+
+  // 9. Grand Livre
   const vt = sales.reduce((a,t)=>a+(t.amount||0),0);
   const nbV = sales.length;
-  jRows.push([]);
-  jRows.push(['ANALYSE FINANCIÈRE']);
-  jRows.push(['Indicateur','Valeur']);
-  jRows.push(["Chiffre d'affaires total", vt]);
-  jRows.push(['Panier moyen', nbV?vt/nbV:0]);
-  jRows.push(['Valeur du stock', stockVal]);
-  jRows.push(['Nombre de ventes', nbV]);
-  jRows.push(['Marge brute estimée (%)', stockVal>0?parseFloat(((vt-stockVal)/stockVal*100).toFixed(2)):0]);
-  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(jRows), '📒 Journal + Analyse');
+  const glRows=[['Compte','Date','Libellé','Débit','Crédit','Solde']];
+  const accs={'5100 – Caisse':[],'7000 – Ventes':[],'3100 – Stocks':[],'4010 – Fournisseurs':[]};
+  txSorted.forEach(t=>{
+    if(t.type==='vente'){accs['5100 – Caisse'].push({d:t.date,l:t.description,db:t.amount,cr:0});accs['7000 – Ventes'].push({d:t.date,l:t.description,db:0,cr:t.amount});}
+    else{accs['3100 – Stocks'].push({d:t.date,l:t.description,db:t.amount,cr:0});accs['4010 – Fournisseurs'].push({d:t.date,l:t.description,db:0,cr:t.amount});}
+  });
+  Object.entries(accs).forEach(([acc,ents])=>{let s=0;ents.forEach(e=>{s+=e.db-e.cr;glRows.push([acc,e.d,e.l,e.db||'',e.cr||'',s]);});});
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(glRows), '📗 Grand Livre');
+
+  // 10. Balance de Vérification
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([
+    ['N° Compte','Intitulé','Débit HTG','Crédit HTG'],
+    ['3100','Stocks',stockVal,0],['4010','Fournisseurs',0,stockVal],
+    ['5100','Caisse',vt,0],['7000','Ventes',0,vt],['','Totaux',stockVal+vt,stockVal+vt]
+  ]), '⚖️ Balance de Vérification');
+
+  // 11. Bilan
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([
+    ['ACTIF','Montant HTG','PASSIF','Montant HTG'],
+    ['Stocks',stockVal,'Fournisseurs',stockVal],['Caisse',vt,'Résultat',vt],
+    ['Total Actif',stockVal+vt,'Total Passif',stockVal+vt]
+  ]), '📑 Bilan');
+
+  // 12. Analyse Financière
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([
+    ['Indicateur','Valeur'],
+    ["Chiffre d'affaires total", vt],
+    ['Panier moyen', nbV?vt/nbV:0],
+    ['Valeur du stock', stockVal],
+    ['Nombre de ventes', nbV],
+    ['Marge brute estimée (%)', stockVal>0?parseFloat(((vt-stockVal)/stockVal*100).toFixed(2)):0]
+  ]), '📈 Analyse Financière');
 
   return wb;
 }
