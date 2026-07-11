@@ -286,7 +286,7 @@ tr:hover td{background:#f7f9ff;}
           </div>
         </div>
         <button class="send-btn" onclick="submitSale()">Envoyer ➤</button>
-        <button class="btn btn-outline" style="margin-top:8px;font-size:.85rem;" onclick="corrigerDerniereVente()">✏️ Corriger dernière vente</button>
+        <button id="btn-corriger-vente" class="btn btn-outline" style="margin-top:8px;font-size:.85rem;display:none;" onclick="corrigerDerniereVente()">✏️ Corriger dernière vente</button>
       </div>
       <div class="card">
         <div class="card-title" id="my-sales-title">📋 Mes transactions du jour</div>
@@ -929,6 +929,8 @@ function doLogin() {
     document.getElementById('tab-tableau-btn').style.display = 'block';
     document.getElementById('tab-credit-btn').style.display = 'block';
     document.getElementById('tab-dettes-btn').style.display = 'block';
+    // Seuls admin et gestionnaire peuvent corriger une vente déjà envoyée
+    document.getElementById('btn-corriger-vente').style.display = 'inline-flex';
   } else {
     // Vendeur : onglets Ventes, Crédit Client, Liste des Dettes
     document.getElementById('tab-admin-btn').style.display = 'none';
@@ -940,6 +942,9 @@ function doLogin() {
     document.getElementById('tab-tableau-btn').style.display = 'none';
     document.getElementById('tab-credit-btn').style.display = 'block';
     document.getElementById('tab-dettes-btn').style.display = 'block';
+    // Le vendeur ne peut plus corriger/supprimer lui-même ses ventes :
+    // seuls admin et gestionnaire en ont le droit désormais.
+    document.getElementById('btn-corriger-vente').style.display = 'none';
   }
   updateConnStatus();
   renderAll();
@@ -1114,7 +1119,19 @@ function calcMontant() {
   calcBalance();
 }
 
+// Seuls admin et gestionnaire ont le droit de corriger/modifier/supprimer
+// les ventes, les transactions du jour et les crédits clients.
+function requireAdminOrGest() {
+  const role = STATE.currentUser && STATE.currentUser.role;
+  if (role !== 'admin' && role !== 'gestionnaire') {
+    showToast('⛔ Seuls l\'admin et le gestionnaire peuvent corriger, modifier ou supprimer cette information.', 'warn');
+    return false;
+  }
+  return true;
+}
+
 async function corrigerDerniereVente() {
+  if (!requireAdminOrGest()) return;
   // Trouver la dernière vente du vendeur connecté
   const myVentes = STATE.transactions.filter(t => t.type==='vente' && t.seller===STATE.currentUser.username)
     .sort((a,b) => (b.isoDate||'').localeCompare(a.isoDate||'')||(b.time||'').localeCompare(a.time||''));
@@ -1625,6 +1642,7 @@ async function deleteUser(username, fbId) {
 }
 
 function openEditModal(id) {
+  if (!requireAdminOrGest()) return;
   const tx = STATE.transactions.find(t=>t.id===id);
   if (!tx) return;
   document.getElementById('edit-id').value = id;
@@ -1654,6 +1672,7 @@ async function logNotification(action, details) {
 }
 
 async function saveEdit() {
+  if (!requireAdminOrGest()) return;
   const id = document.getElementById('edit-id').value;
   const desc = document.getElementById('edit-desc').value.trim();
   const qty = parseFloat(document.getElementById('edit-qty').value);
@@ -1678,6 +1697,7 @@ async function saveEdit() {
 }
 
 async function deleteTransaction(id) {
+  if (!requireAdminOrGest()) return;
   if (!confirm('Supprimer définitivement cette transaction ?')) return;
   if (STATE.isOnline && STATE.fbReady) {
     try {
@@ -2264,6 +2284,7 @@ function renderCredits() {
 }
 
 function openEditCredit(id, client, due, paid, finalBalance) {
+  if (!requireAdminOrGest()) return;
   const newPaid = prompt(`Modifier le montant remboursé pour ${client} (actuel: ${paid} HTG):`, paid);
   if (newPaid === null) return;
   const paidNum = parseFloat(newPaid) || 0;
@@ -2296,6 +2317,7 @@ function openEditCredit(id, client, due, paid, finalBalance) {
 }
 
 async function deleteCredit(id) {
+  if (!requireAdminOrGest()) return;
   if (!confirm('Supprimer ce paiement de crédit ?')) return;
   if (STATE.isOnline && STATE.fbReady && id) {
     try {
