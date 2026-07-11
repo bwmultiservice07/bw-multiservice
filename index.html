@@ -1395,23 +1395,22 @@ function formatGroupLabel(isoDate) {
   return `📅 ${d} ${months[parseInt(m)-1]} ${y}`;
 }
 
+function formatMonthLabel(isoMonth) {
+  if (!isoMonth) return 'Mois inconnu';
+  const [y, m] = isoMonth.split('-');
+  const months = ['Janvier','Février','Mars','Avril','Mai','Juin','Juillet','Août','Septembre','Octobre','Novembre','Décembre'];
+  return `📅 ${months[parseInt(m)-1]} ${y}`;
+}
+
 function renderMySales() {
   if (!STATE.currentUser) return;
   const body = document.getElementById('my-sales-body');
   
   const now = new Date();
-  const todayIso = now.toISOString().split('T')[0];
-  const todayFR = now.toLocaleDateString('fr-FR');
-  const todayEN = now.toLocaleDateString('en-US');
-  
+  const currentMonth = now.toISOString().slice(0,7); // YYYY-MM
+
   const isAdminOrGest = STATE.currentUser.role === 'admin' || STATE.currentUser.role === 'gestionnaire';
-  
-  function isToday(t) {
-    const d = t.isoDate || '';
-    const d2 = t.date || '';
-    return d === todayIso || d2 === todayFR || d2 === todayEN || d2 === todayIso;
-  }
-  
+
   // Toutes les ventes de tous les vendeurs — cet onglet est désormais
   // identique pour vendeur, gestionnaire et admin (plus de filtrage par
   // vendeur connecté).
@@ -1440,35 +1439,34 @@ function renderMySales() {
     return;
   }
 
-  // Grouper par jour
+  // Grouper par mois (le plus récent en haut, le plus ancien en bas)
   const groups = {};
   allRows.forEach(t => {
-    const iso = getIsoFromTx(t);
-    if (!groups[iso]) groups[iso] = [];
-    groups[iso].push(t);
+    const month = getIsoFromTx(t).slice(0,7);
+    if (!groups[month]) groups[month] = [];
+    groups[month].push(t);
   });
 
-  // Trier les groupes du plus récent au plus ancien
-  const sortedDates = Object.keys(groups).sort((a,b) => b.localeCompare(a));
+  const sortedMonths = Object.keys(groups).sort((a,b) => b.localeCompare(a));
 
   let html = '';
-  sortedDates.forEach(iso => {
-    const rows = groups[iso];
+  sortedMonths.forEach(month => {
+    const rows = groups[month];
     const ventes = rows.filter(t => !t._isCredit);
     const credits = rows.filter(t => t._isCredit);
-    
+
     // Totaux du groupe
     const totMontant = ventes.reduce((a,t) => a+(t.amount||0), 0);
     const totCash = ventes.reduce((a,t) => a+(t.cash||0), 0);
     const totCredit = ventes.reduce((a,t) => a+(t.credit||0), 0);
     const totBalance = ventes.reduce((a,t) => a+(t.balance||0), 0);
     const totPaiements = credits.reduce((a,c) => a+(c.paid||0), 0);
-    
-    // Ligne de séparation par jour
-    const isCurrentDay = iso === todayIso;
-    const label = isCurrentDay ? `📅 AUJOURD'HUI — ${formatGroupLabel(iso)}` : formatGroupLabel(iso);
-    
-    html += `<tr style="background:${isCurrentDay?'#1a56db':'#5a6282'};color:#fff;font-weight:700;">
+
+    // Ligne de séparation par mois
+    const isCurrentMonth = month === currentMonth;
+    const label = isCurrentMonth ? `📅 CE MOIS-CI — ${formatMonthLabel(month)}` : formatMonthLabel(month);
+
+    html += `<tr style="background:${isCurrentMonth?'#1a56db':'#5a6282'};color:#fff;font-weight:700;">
       <td colspan="12" style="padding:8px 10px;font-size:.9rem;">
         ${label} &nbsp;|&nbsp; ${ventes.length} vente(s) &nbsp;|&nbsp; ${credits.length} paiement(s) crédit
       </td>
@@ -1501,9 +1499,9 @@ function renderMySales() {
       }
     });
     
-    // Totaux du jour
+    // Totaux du mois
     html += `<tr style="background:var(--surface2);font-weight:700;border-top:2px solid var(--border);">
-      <td colspan="6">📊 Totaux — ${formatGroupLabel(iso)}</td>
+      <td colspan="6">📊 Totaux — ${formatMonthLabel(month)}</td>
       <td>${fmtHTG(totMontant)}</td>
       <td>${fmtHTG(totCash + totPaiements)}</td>
       <td>${fmtHTG(totCredit)}</td>
@@ -2432,33 +2430,51 @@ function renderCredits() {
     body.innerHTML = '<tr><td colspan="9" style="text-align:center;color:var(--text3);padding:1.5rem;">Aucun paiement enregistré.</td></tr>';
     return;
   }
-  let rows = [];
+  const now = new Date();
+  const currentMonth = now.toISOString().slice(0,7);
+  // Grouper par mois (le plus récent en haut, le plus ancien en bas)
+  const groups = {};
   sorted.forEach(c => {
-    // Le statut affiché reflète la dette RÉELLE et actuelle du client (même
-    // calcul que la Liste des Dettes), pas seulement la balance figée de cet
-    // enregistrement — sinon un client réglé sur un paiement mais qui a une
-    // autre vente à crédit non soldée apparaîtrait à tort comme "Soldé" ici.
-    const currentDebt = getClientDebt(c.client);
-    const hasDebt = currentDebt > 0;
-    const clientColor = hasDebt ? 'color:#c0392b;font-weight:700;' : 'color:#0f7b4f;font-weight:700;';
-    rows.push(`<tr>
-      <td>${c.date}</td><td>${c.time}</td>
-      <td style="${clientColor}">${esc(c.client)}</td>
-      <td>${fmtHTG(c.due)}</td><td>${fmtHTG(c.paid||0)}</td>
-      <td style="${clientColor}">${fmtHTG(c.finalBalance||0)}</td>
-      <td><span class="badge ${hasDebt?'badge-pending':'badge-sent'}">${hasDebt?'⏳ Partiel':'✅ Soldé'}</span></td>
-      <td style="white-space:nowrap;">${STATE.currentUser&&(STATE.currentUser.role==='admin'||STATE.currentUser.role==='gestionnaire')?`<button class="btn btn-outline" style="font-size:.75rem;padding:3px 10px;" onclick="openEditCredit('${c.id||''}','${esc(c.client)}',${c.due||0},${c.paid||0},${c.finalBalance||0},'${esc(c.date||'')}','${esc(c.time||'')}')">✏</button><button class="btn" style="font-size:.75rem;padding:3px 10px;background:var(--danger-bg);color:var(--danger);border:1px solid #f5b7b1;margin-left:4px;" onclick="deleteCredit('${c.id||''}')">🗑</button>`:'—'}</td>
+    const month = (getIsoFromTx ? getIsoFromTx(c) : (c.isoDate||c.date||'')).slice(0,7);
+    if (!groups[month]) groups[month] = [];
+    groups[month].push(c);
+  });
+  const sortedMonths = Object.keys(groups).sort((a,b) => b.localeCompare(a));
+
+  let rows = [];
+  sortedMonths.forEach(month => {
+    const isCurrentMonth = month === currentMonth;
+    const label = isCurrentMonth ? `📅 CE MOIS-CI — ${formatMonthLabel(month)}` : formatMonthLabel(month);
+    rows.push(`<tr style="background:${isCurrentMonth?'#1a56db':'#5a6282'};color:#fff;font-weight:700;">
+      <td colspan="8" style="padding:8px 10px;font-size:.9rem;">${label}</td>
     </tr>`);
-    if (hasDebt) {
-      rows.push(`<tr style="background:#fef3e2;">
-        <td colspan="2" style="color:#b45309;font-style:italic;">↩ Report</td>
-        <td style="color:#c0392b;font-weight:700;">${esc(c.client)}</td>
-        <td colspan="2" style="color:#b45309;font-style:italic;">Balance reportée</td>
-        <td style="color:#c0392b;font-weight:700;">${fmtHTG(currentDebt)}</td>
-        <td><span class="badge badge-pending">⚠ À payer</span></td>
-        <td></td>
+    groups[month].forEach(c => {
+      // Le statut affiché reflète la dette RÉELLE et actuelle du client (même
+      // calcul que la Liste des Dettes), pas seulement la balance figée de cet
+      // enregistrement — sinon un client réglé sur un paiement mais qui a une
+      // autre vente à crédit non soldée apparaîtrait à tort comme "Soldé" ici.
+      const currentDebt = getClientDebt(c.client);
+      const hasDebt = currentDebt > 0;
+      const clientColor = hasDebt ? 'color:#c0392b;font-weight:700;' : 'color:#0f7b4f;font-weight:700;';
+      rows.push(`<tr>
+        <td>${c.date}</td><td>${c.time}</td>
+        <td style="${clientColor}">${esc(c.client)}</td>
+        <td>${fmtHTG(c.due)}</td><td>${fmtHTG(c.paid||0)}</td>
+        <td style="${clientColor}">${fmtHTG(c.finalBalance||0)}</td>
+        <td><span class="badge ${hasDebt?'badge-pending':'badge-sent'}">${hasDebt?'⏳ Partiel':'✅ Soldé'}</span></td>
+        <td style="white-space:nowrap;">${STATE.currentUser&&(STATE.currentUser.role==='admin'||STATE.currentUser.role==='gestionnaire')?`<button class="btn btn-outline" style="font-size:.75rem;padding:3px 10px;" onclick="openEditCredit('${c.id||''}','${esc(c.client)}',${c.due||0},${c.paid||0},${c.finalBalance||0},'${esc(c.date||'')}','${esc(c.time||'')}')">✏</button><button class="btn" style="font-size:.75rem;padding:3px 10px;background:var(--danger-bg);color:var(--danger);border:1px solid #f5b7b1;margin-left:4px;" onclick="deleteCredit('${c.id||''}')">🗑</button>`:'—'}</td>
       </tr>`);
-    }
+      if (hasDebt) {
+        rows.push(`<tr style="background:#fef3e2;">
+          <td colspan="2" style="color:#b45309;font-style:italic;">↩ Report</td>
+          <td style="color:#c0392b;font-weight:700;">${esc(c.client)}</td>
+          <td colspan="2" style="color:#b45309;font-style:italic;">Balance reportée</td>
+          <td style="color:#c0392b;font-weight:700;">${fmtHTG(currentDebt)}</td>
+          <td><span class="badge badge-pending">⚠ À payer</span></td>
+          <td></td>
+        </tr>`);
+      }
+    });
   });
   body.innerHTML = rows.join('');
 }
