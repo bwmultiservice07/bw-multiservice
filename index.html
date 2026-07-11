@@ -1157,6 +1157,35 @@ async function corrigerDerniereVente() {
   }
 }
 
+// Admin/gestionnaire : clic sur le statut d'une ligne dans "Toutes les transactions"
+// pour charger cette vente dans le formulaire et la corriger.
+async function loadSaleForCorrection(id) {
+  if (!requireAdminOrGest()) return;
+  const tx = STATE.transactions.find(t => t.id === id && t.type === 'vente');
+  if (!tx) { showToast('⚠ Vente introuvable.','warn'); return; }
+  document.getElementById('v-desc').value = tx.description || '';
+  document.getElementById('v-qty').value = tx.quantity || '';
+  document.getElementById('v-unit').value = tx.unit || 'unité';
+  document.getElementById('v-prix').value = tx.unitPrice || '';
+  if (document.getElementById('v-prix-caisse')) document.getElementById('v-prix-caisse').value = tx.prixCaisse || '';
+  document.getElementById('v-amount').value = tx.amount || '';
+  document.getElementById('v-cash').value = tx.cash || '';
+  document.getElementById('v-credit').value = tx.credit || '';
+  document.getElementById('v-balance').value = tx.balance || '';
+  document.getElementById('v-client').value = tx.client || '';
+  document.getElementById('v-desc').scrollIntoView({behavior:'smooth', block:'center'});
+  if (STATE.isOnline && STATE.fbReady) {
+    try {
+      const {doc, deleteDoc} = window._fbFns;
+      await deleteDoc(doc(window._db,'transactions',id));
+      await logNotification('✏️ Correction vente', `Vendeur: ${tx.seller||'?'} | Produit: ${tx.description} | Montant: ${fmtHTG(tx.amount||0)} | Date: ${tx.date||'?'}`);
+      showToast('✏️ Vente chargée dans le formulaire — corrigez puis cliquez sur Envoyer.');
+    } catch(e) { showToast('⚠ Erreur: '+e.message,'warn'); }
+  } else {
+    showToast('⚠ Hors ligne — impossible de charger cette vente pour correction.','warn');
+  }
+}
+
 function calcBalance() {
   const amount = parseFloat(document.getElementById('v-amount').value) || 0;
   const cash = parseFloat(document.getElementById('v-cash').value) || 0;
@@ -1358,13 +1387,18 @@ function renderMySales() {
           <td><span class="badge badge-sent">💳 Crédit</span></td>
         </tr>`;
       } else {
+        const clickable = isAdminOrGest && t.id;
+        const badge = `<span class="badge ${t.status==='sent'?'badge-sent':'badge-pending'}">${t.status==='sent'?'✓ Envoyé':'⏳ En attente'}</span>`;
+        const statutCell = clickable
+          ? `<td style="cursor:pointer;text-decoration:underline;" onclick="loadSaleForCorrection('${t.id}')" title="Cliquer pour corriger cette vente">${badge}</td>`
+          : `<td>${badge}</td>`;
         html += `<tr>
           <td>${t.date}</td><td>${t.time}</td><td>${esc(t.description)}</td><td>${t.quantity}</td>
           <td>${esc(t.unit||'')}</td><td>${fmtHTG(t.unitPrice||0)}</td>
           <td>${fmtHTG(t.amount)}</td><td>${fmtHTG(t.cash||0)}</td>
           <td>${fmtHTG(t.credit||0)}</td><td>${fmtHTG(t.balance||0)}</td>
           <td style="color:${(t.balance||0)>0?'#c0392b':'#0f7b4f'};font-weight:600;">${esc(t.client||'')}</td>
-          <td><span class="badge ${t.status==='sent'?'badge-sent':'badge-pending'}">${t.status==='sent'?'✓ Envoyé':'⏳ En attente'}</span></td>
+          ${statutCell}
         </tr>`;
       }
     });
