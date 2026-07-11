@@ -244,14 +244,11 @@ tr:hover td{background:#f7f9ff;}
           <div class="form-group">
             <label>Unité</label>
             <select id="v-unit" onchange="calcMontant()">
-              <option value="unité">Unité</option>
               <option value="caisse">Caisse (24 unités)</option>
               <option value="bout">Bout (12 unités)</option>
-              <option value="caisse 1/2">Caisse 1/2 (12 unités)</option>
-              <option value="caisse+3">1 Caisse et 3 unités</option>
-              <option value="caisse+6">1 Caisse et 6 unités</option>
-              <option value="bout+3">1 Bout et 3 unités</option>
-              <option value="bout+6">1 Bout et 6 unités</option>
+              <option value="caisse-1-2">Caisse et 1/2 (36 unités)</option>
+              <option value="bout-1-2">Bout et 1/2 (18 unités)</option>
+              <option value="caisse-beller">Caisse Beller (48 unités)</option>
             </select>
           </div>
           <div class="form-group">
@@ -261,6 +258,10 @@ tr:hover td{background:#f7f9ff;}
           <div class="form-group">
             <label>Prix unitaire (HTG) — auto</label>
             <input type="number" id="v-prix" min="0" step="0.01" placeholder="Ex: 50.00" oninput="calcMontant()" readonly style="background:#f0f2f7;"/>
+          </div>
+          <div class="form-group">
+            <label>Nombre d'unité</label>
+            <input type="number" id="v-nb-unite" min="0" step="1" placeholder="Ex: 1, 2, 3..." oninput="calcMontant()"/>
           </div>
           <div class="form-group">
             <label>Montant total (HTG) — automatique</label>
@@ -1112,11 +1113,43 @@ function showToast(msg, type) {
 // ============================================================
 // SALES
 // ============================================================
+// Table des facteurs "caisse" par type d'unité (nouvelle liste à 5 options).
+// Un caisse = 24 unités (48 pour Beller). Bout = 1/2 caisse. Caisse et 1/2 = 1.5
+// caisse. Bout et 1/2 = 1.5 bout = 0.75 caisse. Caisse Beller = 1 caisse de 48 unités.
+const UNIT_FACTORS = {
+  'caisse': 1,
+  'bout': 0.5,
+  'caisse-1-2': 1.5,
+  'bout-1-2': 0.75,
+  'caisse-beller': 1
+};
+
+// Détermine la taille d'une caisse (en unités) pour un produit/unité donné.
+// Beller = 48 unités/caisse ; sinon 24 unités/caisse. Le produit est détecté
+// via le nom (contient "beller") ou via le choix explicite "Caisse Beller".
+function getCasseSize(produit, unit) {
+  const isBellerProduit = (produit||'').toLowerCase().includes('beller');
+  const isBellerUnit = unit === 'caisse-beller';
+  return (isBellerProduit || isBellerUnit) ? 48 : 24;
+}
+
+// Libellé lisible pour un code d'unité (affichage dans les tableaux).
+const UNIT_LABELS = {
+  'caisse': 'Caisse',
+  'bout': 'Bout',
+  'caisse-1-2': 'Caisse et 1/2',
+  'bout-1-2': 'Bout et 1/2',
+  'caisse-beller': 'Caisse Beller'
+};
+function formatUnitLabel(unit) {
+  return UNIT_LABELS[unit] || unit || '';
+}
+
 function calcPrixUnitaire() {
   const prixCaisse = parseFloat(document.getElementById('v-prix-caisse').value) || 0;
   const produit = document.getElementById('v-desc').value;
-  const isBeller = (produit||'').toLowerCase().includes('beller');
-  const casseSize = isBeller ? 48 : 24;
+  const unit = document.getElementById('v-unit').value;
+  const casseSize = getCasseSize(produit, unit);
   // Prix unitaire = prix caisse / nombre d'unités dans une caisse
   const prixUnit = prixCaisse > 0 ? prixCaisse / casseSize : 0;
   document.getElementById('v-prix').value = prixUnit.toFixed(2);
@@ -1128,47 +1161,12 @@ function calcMontant() {
   const prixCaisse = parseFloat(document.getElementById('v-prix-caisse').value) || 0;
   const prixUnit = parseFloat(document.getElementById('v-prix').value) || 0;
   const unit = document.getElementById('v-unit').value;
-  const produit = document.getElementById('v-desc').value;
-  const isBeller = (produit||'').toLowerCase().includes('beller');
-  const casseSize = isBeller ? 48 : 24;
-  const boutSize = casseSize / 2;
+  const nbUnite = parseFloat(document.getElementById('v-nb-unite').value) || 0;
 
-  let montant = 0;
-
-  // Règles de calcul:
-  // - caisse ou bout : quantite × prix caisse HTG
-  // - caisse+X ou bout+X : (quantite × prix caisse) + (X unites × prix unitaire)
-  // - unité seule : quantite × prix unitaire
-
-  switch(unit) {
-    case 'caisse':
-      // Quantité × Prix caisse
-      montant = qty * prixCaisse;
-      break;
-    case 'bout':
-    case 'caisse 1/2':
-      // Quantité × Prix bout (= prix caisse / 2)
-      montant = qty * (prixCaisse / 2);
-      break;
-    case 'caisse+3':
-      // (Quantité × Prix caisse) + (3 × Prix unitaire)
-      montant = (qty * prixCaisse) + (3 * prixUnit);
-      break;
-    case 'caisse+6':
-      montant = (qty * prixCaisse) + (6 * prixUnit);
-      break;
-    case 'bout+3':
-      montant = (qty * (prixCaisse / 2)) + (3 * prixUnit);
-      break;
-    case 'bout+6':
-      montant = (qty * (prixCaisse / 2)) + (6 * prixUnit);
-      break;
-    case 'unité':
-    default:
-      // Quantité × Prix unitaire
-      montant = qty * prixUnit;
-      break;
-  }
+  // Montant total = (Quantité × facteur de l'unité × Prix caisse)
+  //               + (Nombre d'unité × Prix unitaire)
+  const factor = UNIT_FACTORS[unit] !== undefined ? UNIT_FACTORS[unit] : 1;
+  const montant = (qty * factor * prixCaisse) + (nbUnite * prixUnit);
 
   document.getElementById('v-amount').value = montant.toFixed(2);
   calcBalance();
@@ -1223,8 +1221,9 @@ async function corrigerDerniereVente() {
   // Pré-remplir le formulaire avec la dernière vente
   document.getElementById('v-desc').value = last.description || '';
   document.getElementById('v-qty').value = last.quantity || '';
-  document.getElementById('v-unit').value = last.unit || 'unité';
+  document.getElementById('v-unit').value = last.unit || 'caisse';
   document.getElementById('v-prix').value = last.unitPrice || '';
+  document.getElementById('v-nb-unite').value = last.nombreUnite || '';
   document.getElementById('v-amount').value = last.amount || '';
   document.getElementById('v-cash').value = last.cash || '';
   document.getElementById('v-credit').value = last.credit || '';
@@ -1249,8 +1248,9 @@ async function loadSaleForCorrection(id) {
   if (!tx) { showToast('⚠ Vente introuvable.','warn'); return; }
   document.getElementById('v-desc').value = tx.description || '';
   document.getElementById('v-qty').value = tx.quantity || '';
-  document.getElementById('v-unit').value = tx.unit || 'unité';
+  document.getElementById('v-unit').value = tx.unit || 'caisse';
   document.getElementById('v-prix').value = tx.unitPrice || '';
+  document.getElementById('v-nb-unite').value = tx.nombreUnite || '';
   if (document.getElementById('v-prix-caisse')) document.getElementById('v-prix-caisse').value = tx.prixCaisse || '';
   document.getElementById('v-amount').value = tx.amount || '';
   document.getElementById('v-cash').value = tx.cash || '';
@@ -1301,6 +1301,7 @@ async function submitSale() {
   const balance = parseFloat(document.getElementById('v-balance').value) || 0;
   const client = document.getElementById('v-client').value.trim();
   const prix = parseFloat(document.getElementById('v-prix').value) || 0;
+  const nbUnite = parseFloat(document.getElementById('v-nb-unite').value) || 0;
   const clientCheck = document.getElementById('v-client').value.trim();
   if (!desc||isNaN(qty)||qty<=0||prix<=0||isNaN(amount)||amount<=0) {
     showToast('⚠ Veuillez remplir tous les champs obligatoires (produit, quantité, prix, montant).','warn'); return;
@@ -1315,8 +1316,8 @@ async function submitSale() {
   const saleTime = _pendingCorrection ? _pendingCorrection.time : nowStr();
   const tx = {
     type:'vente', date:saleDate, isoDate:saleIsoDate, time:saleTime,
-    seller:STATE.currentUser.username, description:desc, unit:unit||'unité',
-    quantity:qty, unitPrice:prix, prixCaisse:parseFloat(document.getElementById('v-prix-caisse').value)||0, amount:amount, cash:cash, credit:balance, balance:balance,
+    seller:STATE.currentUser.username, description:desc, unit:unit||'caisse',
+    quantity:qty, unitPrice:prix, nombreUnite:nbUnite, prixCaisse:parseFloat(document.getElementById('v-prix-caisse').value)||0, amount:amount, cash:cash, credit:balance, balance:balance,
     client:client||'', status:'sent', createdAt: new Date().toISOString()
   };
   // Si vente à crédit (balance > 0), auto-créer une entrée dans credits
@@ -1367,9 +1368,10 @@ async function submitSale() {
   renderDettes();
   document.getElementById('v-desc').value='';
   document.getElementById('v-qty').value='';
-  document.getElementById('v-unit').value='unité';
+  document.getElementById('v-unit').value='caisse';
   document.getElementById('v-prix-caisse').value='';
   document.getElementById('v-prix').value='';
+  document.getElementById('v-nb-unite').value='';
   document.getElementById('v-amount').value='';
   document.getElementById('v-cash').value='';
   document.getElementById('v-credit').value='';
@@ -1472,33 +1474,69 @@ function renderMySales() {
       </td>
     </tr>`;
     
-    // Lignes des transactions du groupe
+    // Sous-groupement par jour à l'intérieur du mois (le plus récent en haut,
+    // le plus ancien en bas), avec un total par jour.
+    const dayGroups = {};
     rows.forEach(t => {
-      if (t._isCredit) {
-        html += `<tr style="background:#e6f6ef;">
-          <td>${t.date}</td><td>${t.time}</td><td>💳 Paiement client</td><td>—</td><td>—</td><td>—</td>
-          <td>—</td><td>${fmtHTG(t.paid||0)}</td>
-          <td>—</td><td>${fmtHTG(t.finalBalance||0)}</td>
-          <td style="color:#0f7b4f;font-weight:600;">${esc(t.client||'')}</td>
-          <td><span class="badge badge-sent">💳 Crédit</span></td>
-        </tr>`;
-      } else {
-        const clickable = isAdminOrGest && t.id;
-        const badge = `<span class="badge ${t.status==='sent'?'badge-sent':'badge-pending'}">${t.status==='sent'?'✓ Envoyé':'⏳ En attente'}</span>`;
-        const statutCell = clickable
-          ? `<td style="cursor:pointer;text-decoration:underline;" onclick="loadSaleForCorrection('${t.id}')" title="Cliquer pour corriger cette vente">${badge}</td>`
-          : `<td>${badge}</td>`;
-        html += `<tr>
-          <td>${t.date}</td><td>${t.time}</td><td>${esc(t.description)}</td><td>${t.quantity}</td>
-          <td>${esc(t.unit||'')}</td><td>${fmtHTG(t.unitPrice||0)}</td>
-          <td>${fmtHTG(t.amount)}</td><td>${fmtHTG(t.cash||0)}</td>
-          <td>${fmtHTG(t.credit||0)}</td><td>${fmtHTG(t.balance||0)}</td>
-          <td style="color:${(t.balance||0)>0?'#c0392b':'#0f7b4f'};font-weight:600;">${esc(t.client||'')}</td>
-          ${statutCell}
-        </tr>`;
-      }
+      const day = getIsoFromTx(t);
+      if (!dayGroups[day]) dayGroups[day] = [];
+      dayGroups[day].push(t);
     });
-    
+    const sortedDays = Object.keys(dayGroups).sort((a,b) => b.localeCompare(a));
+
+    sortedDays.forEach(day => {
+      const dayRows = dayGroups[day];
+      const dayVentes = dayRows.filter(t => !t._isCredit);
+      const dayCredits = dayRows.filter(t => t._isCredit);
+      const dayTotMontant = dayVentes.reduce((a,t) => a+(t.amount||0), 0);
+      const dayTotCash = dayVentes.reduce((a,t) => a+(t.cash||0), 0);
+      const dayTotCredit = dayVentes.reduce((a,t) => a+(t.credit||0), 0);
+      const dayTotBalance = dayVentes.reduce((a,t) => a+(t.balance||0), 0);
+      const dayTotPaiements = dayCredits.reduce((a,c) => a+(c.paid||0), 0);
+
+      html += `<tr style="background:#eef1f8;font-weight:600;">
+        <td colspan="12" style="padding:6px 10px;font-size:.82rem;color:#3a4260;">
+          ${formatGroupLabel(day)} &nbsp;|&nbsp; ${dayVentes.length} vente(s) &nbsp;|&nbsp; ${dayCredits.length} paiement(s) crédit
+        </td>
+      </tr>`;
+
+      dayRows.forEach(t => {
+        if (t._isCredit) {
+          html += `<tr style="background:#e6f6ef;">
+            <td>${t.date}</td><td>${t.time}</td><td>💳 Paiement client</td><td>—</td><td>—</td><td>—</td>
+            <td>—</td><td>${fmtHTG(t.paid||0)}</td>
+            <td>—</td><td>${fmtHTG(t.finalBalance||0)}</td>
+            <td style="color:#0f7b4f;font-weight:600;">${esc(t.client||'')}</td>
+            <td><span class="badge badge-sent">💳 Crédit</span></td>
+          </tr>`;
+        } else {
+          const clickable = isAdminOrGest && t.id;
+          const badge = `<span class="badge ${t.status==='sent'?'badge-sent':'badge-pending'}">${t.status==='sent'?'✓ Envoyé':'⏳ En attente'}</span>`;
+          const statutCell = clickable
+            ? `<td style="cursor:pointer;text-decoration:underline;" onclick="loadSaleForCorrection('${t.id}')" title="Cliquer pour corriger cette vente">${badge}</td>`
+            : `<td>${badge}</td>`;
+          html += `<tr>
+            <td>${t.date}</td><td>${t.time}</td><td>${esc(t.description)}</td><td>${t.quantity}</td>
+            <td>${esc(formatUnitLabel(t.unit))}</td><td>${fmtHTG(t.unitPrice||0)}</td>
+            <td>${fmtHTG(t.amount)}</td><td>${fmtHTG(t.cash||0)}</td>
+            <td>${fmtHTG(t.credit||0)}</td><td>${fmtHTG(t.balance||0)}</td>
+            <td style="color:${(t.balance||0)>0?'#c0392b':'#0f7b4f'};font-weight:600;">${esc(t.client||'')}</td>
+            ${statutCell}
+          </tr>`;
+        }
+      });
+
+      // Total du jour
+      html += `<tr style="background:#f6f7fb;font-weight:600;border-top:1px solid var(--border);">
+        <td colspan="6" style="font-size:.82rem;">📊 Total jour — ${formatGroupLabel(day)}</td>
+        <td>${fmtHTG(dayTotMontant)}</td>
+        <td>${fmtHTG(dayTotCash + dayTotPaiements)}</td>
+        <td>${fmtHTG(dayTotCredit)}</td>
+        <td>${fmtHTG(dayTotBalance)}</td>
+        <td colspan="2" style="font-size:.8rem;">${dayVentes.length} vente(s) | ${dayCredits.length} crédit(s)</td>
+      </tr>`;
+    });
+
     // Totaux du mois
     html += `<tr style="background:var(--surface2);font-weight:700;border-top:2px solid var(--border);">
       <td colspan="6">📊 Totaux — ${formatMonthLabel(month)}</td>
@@ -1588,19 +1626,7 @@ function renderStocks() {
   
   // Sorties (ventes)
   const sorties = (STATE.transactions||[]).filter(t=>t.type==='vente').map(t => {
-    const isBeller = (t.description||'').toLowerCase().includes('beller');
-    const casseSize = isBeller ? 48 : 24;
-    let qtyCaisses = 0;
-    switch(t.unit) {
-      case 'caisse': qtyCaisses = t.quantity; break;
-      case 'bout': case 'caisse 1/2': qtyCaisses = t.quantity*0.5; break;
-      case 'caisse+3': qtyCaisses = t.quantity + 3/casseSize; break;
-      case 'caisse+6': qtyCaisses = t.quantity + 6/casseSize; break;
-      case 'bout+3': qtyCaisses = t.quantity*0.5 + 3/casseSize; break;
-      case 'bout+6': qtyCaisses = t.quantity*0.5 + 6/casseSize; break;
-      default: qtyCaisses = t.quantity/casseSize; break;
-    }
-    return {...t, _type:'sortie', qtyCaisses, prixCaisse:t.prixCaisse||t.unitPrice||0};
+    return {...t, _type:'sortie', qtyCaisses: getQtyCaisses(t), prixCaisse:t.prixCaisse||t.unitPrice||0};
   });
   
   // Combiner et trier du plus récent au plus ancien
@@ -1677,7 +1703,7 @@ function renderAllTrans(data) {
     <td><span class="badge badge-sent">💳 Crédit</span></td>
   </tr>` : `<tr>
     <td>${t.date}</td><td>${t.time}</td><td>${esc(t.seller)}</td><td>${esc(t.description)}</td>
-    <td>${t.quantity} ${esc(t.unit||'')}</td><td>${fmtHTG(t.amount)}</td>
+    <td>${t.quantity} ${esc(formatUnitLabel(t.unit))}</td><td>${fmtHTG(t.amount)}</td>
     <td>${fmtHTG(t.cash||0)}</td><td>${fmtHTG(t.credit||0)}</td><td>${fmtHTG(t.balance||0)}</td><td>${esc(t.client||'')}</td>
     <td><span class="badge ${t.type==='vente'?'badge-out':'badge-in'}">${t.type==='vente'?'📤 Vente':'📥 Stock'}</span></td>
   </tr>`).join('');
@@ -2132,7 +2158,7 @@ function buildFullWorkbook() {
   // 1. Ventes
   XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([
     ['Date','Heure','Vendeur','Produit','Unité','Quantité','Prix unit.','Montant','Cash','Crédit','Balance','Client','Statut'],
-    ...sales.map(t=>[t.date,t.time,t.seller,t.description,t.unit,t.quantity,t.unitPrice||0,t.amount||0,t.cash||0,t.credit||0,t.balance||0,t.client||'',t.balance>0?(t.balance===t.credit?'Non soldé':'Partiel'):'Soldé'])
+    ...sales.map(t=>[t.date,t.time,t.seller,t.description,formatUnitLabel(t.unit),t.quantity,t.unitPrice||0,t.amount||0,t.cash||0,t.credit||0,t.balance||0,t.client||'',t.balance>0?(t.balance===t.credit?'Non soldé':'Partiel'):'Soldé'])
   ]), '📋 Ventes');
 
   // 2. Crédits Clients
@@ -2647,18 +2673,26 @@ function renderStockDepart() {
 }
 
 function getQtyCaisses(t) {
-  const isBeller = (t.description||'').toLowerCase().includes('beller');
-  const casseSize = isBeller ? 48 : 24;
+  const casseSize = getCasseSize(t.description, t.unit);
+  const qty = t.quantity || 0;
   let qtyCaisses = 0;
   switch(t.unit) {
-    case 'caisse': qtyCaisses = t.quantity; break;
-    case 'bout': case 'caisse 1/2': qtyCaisses = t.quantity*0.5; break;
-    case 'caisse+3': qtyCaisses = t.quantity + 3/casseSize; break;
-    case 'caisse+6': qtyCaisses = t.quantity + 6/casseSize; break;
-    case 'bout+3': qtyCaisses = t.quantity*0.5 + 3/casseSize; break;
-    case 'bout+6': qtyCaisses = t.quantity*0.5 + 6/casseSize; break;
-    default: qtyCaisses = t.quantity/casseSize; break;
+    // Nouvelle liste d'unités (Caisse, Bout, Caisse et 1/2, Bout et 1/2, Caisse Beller)
+    case 'caisse': case 'caisse-beller': qtyCaisses = qty; break;
+    case 'bout': qtyCaisses = qty*0.5; break;
+    case 'caisse-1-2': qtyCaisses = qty*1.5; break;
+    case 'bout-1-2': qtyCaisses = qty*0.75; break;
+    // Anciennes valeurs d'unité (ventes historiques conservées telles quelles)
+    case 'caisse 1/2': qtyCaisses = qty*0.5; break;
+    case 'caisse+3': qtyCaisses = qty + 3/casseSize; break;
+    case 'caisse+6': qtyCaisses = qty + 6/casseSize; break;
+    case 'bout+3': qtyCaisses = qty*0.5 + 3/casseSize; break;
+    case 'bout+6': qtyCaisses = qty*0.5 + 6/casseSize; break;
+    default: qtyCaisses = qty/casseSize; break;
   }
+  // Nombre d'unité (nouveau champ) : unités individuelles vendues en plus,
+  // converties en équivalent-caisses.
+  qtyCaisses += (t.nombreUnite||0) / casseSize;
   return qtyCaisses;
 }
 
