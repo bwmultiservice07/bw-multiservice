@@ -206,6 +206,9 @@ tr:hover td{background:#f7f9ff;}
       </div>
       <div class="card">
         <div class="card-title">🧾 Enregistrer une vente</div>
+        <div id="correction-banner" style="display:none;background:#fef3e2;color:#8a5a00;border:1px solid #f5d59a;border-radius:8px;padding:8px 12px;margin-bottom:12px;font-size:.85rem;font-weight:600;">
+          ✏️ Correction en cours — <span id="correction-banner-text"></span>. La date et le client sont figés ; les autres champs peuvent être modifiés.
+        </div>
         <div class="form-row">
           <div class="form-group" style="flex:2;min-width:200px;">
             <label>Description des marchandises</label>
@@ -731,6 +734,10 @@ let STATE = {
 let currentTab = 'ventes';
 let currentAccTab = 'transactions';
 let unsubTrans = null, unsubStocks = null, unsubUsers = null;
+// Quand une vente est chargée pour correction (admin/gestionnaire), on fige
+// sa date/heure d'origine et son client : seuls les autres champs (produit,
+// quantité, prix, montant, cash, crédit) restent modifiables.
+let _pendingCorrection = null; // { date, isoDate, time, client }
 
 function loadLocal() {
   try {
@@ -986,6 +993,7 @@ function doLogout() {
 }
 
 function performLogout() {
+  unlockSaleForm();
   if (unsubTrans) unsubTrans();
   if (unsubStocks) unsubStocks();
   if (unsubUsers) unsubUsers();
@@ -1130,6 +1138,34 @@ function requireAdminOrGest() {
   return true;
 }
 
+// Fige la date/heure/client de la vente en cours de correction : seuls les
+// autres champs (produit, quantité, prix, montant, cash, crédit) restent
+// modifiables. Appelé par corrigerDerniereVente() et loadSaleForCorrection().
+function lockSaleForCorrection(tx) {
+  _pendingCorrection = {
+    date: tx.date || todayStr(),
+    isoDate: tx.isoDate || isoDate(),
+    time: tx.time || nowStr()
+  };
+  const clientInput = document.getElementById('v-client');
+  clientInput.readOnly = true;
+  clientInput.style.background = '#f0f2f7';
+  const banner = document.getElementById('correction-banner');
+  const bannerText = document.getElementById('correction-banner-text');
+  if (banner && bannerText) {
+    bannerText.textContent = `vente du ${_pendingCorrection.date} à ${_pendingCorrection.time}`;
+    banner.style.display = 'block';
+  }
+}
+
+function unlockSaleForm() {
+  _pendingCorrection = null;
+  const clientInput = document.getElementById('v-client');
+  if (clientInput) { clientInput.readOnly = false; clientInput.style.background = ''; }
+  const banner = document.getElementById('correction-banner');
+  if (banner) banner.style.display = 'none';
+}
+
 async function corrigerDerniereVente() {
   if (!requireAdminOrGest()) return;
   // Trouver la dernière vente du vendeur connecté
@@ -1147,6 +1183,7 @@ async function corrigerDerniereVente() {
   document.getElementById('v-credit').value = last.credit || '';
   document.getElementById('v-balance').value = last.balance || '';
   document.getElementById('v-client').value = last.client || '';
+  lockSaleForCorrection(last);
   // Supprimer la dernière vente pour la remplacer
   if (STATE.isOnline && STATE.fbReady && last.id) {
     try {
@@ -1173,6 +1210,7 @@ async function loadSaleForCorrection(id) {
   document.getElementById('v-credit').value = tx.credit || '';
   document.getElementById('v-balance').value = tx.balance || '';
   document.getElementById('v-client').value = tx.client || '';
+  lockSaleForCorrection(tx);
   document.getElementById('v-desc').scrollIntoView({behavior:'smooth', block:'center'});
   if (STATE.isOnline && STATE.fbReady) {
     try {
@@ -1223,8 +1261,13 @@ async function submitSale() {
   if (balance > 0 && !client) {
     showToast('⚠ Le nom du client est obligatoire pour une vente à crédit.','warn'); return;
   }
+  // En correction (admin/gestionnaire), la date/heure d'origine est figée
+  // et ne doit pas être remplacée par la date du jour.
+  const saleDate = _pendingCorrection ? _pendingCorrection.date : todayStr();
+  const saleIsoDate = _pendingCorrection ? _pendingCorrection.isoDate : isoDate();
+  const saleTime = _pendingCorrection ? _pendingCorrection.time : nowStr();
   const tx = {
-    type:'vente', date:todayStr(), isoDate:isoDate(), time:nowStr(),
+    type:'vente', date:saleDate, isoDate:saleIsoDate, time:saleTime,
     seller:STATE.currentUser.username, description:desc, unit:unit||'unité',
     quantity:qty, unitPrice:prix, prixCaisse:parseFloat(document.getElementById('v-prix-caisse').value)||0, amount:amount, cash:cash, credit:balance, balance:balance,
     client:client||'', status:'sent', createdAt: new Date().toISOString()
@@ -1232,7 +1275,7 @@ async function submitSale() {
   // Si vente à crédit (balance > 0), auto-créer une entrée dans credits
   if (balance > 0 && client) {
     const cr = {
-      type:'credit', date:todayStr(), isoDate:isoDate(), time:nowStr(),
+      type:'credit', date:saleDate, isoDate:saleIsoDate, time:saleTime,
       seller:STATE.currentUser.username, client:client, due:balance, paid:0, finalBalance:balance,
       status:'partiel', source:'vente', createdAt: new Date().toISOString()
     };
@@ -1274,6 +1317,7 @@ async function submitSale() {
   document.getElementById('v-credit').value='';
   document.getElementById('v-balance').value='';
   document.getElementById('v-client').value='';
+  unlockSaleForm();
 }
 
 function getIsoFromTx(t) {
