@@ -364,7 +364,7 @@ tr:hover td{background:#f7f9ff;}
         <div class="form-row">
           <div class="form-group" style="flex:2;min-width:200px;">
             <label>Produit</label>
-            <select id="sd-desc">
+            <select id="sd-desc" onchange="calcStockDepartValeur()">
               <option value="">-- Choisir un produit --</option>
               <option value="7up">7up</option>
               <option value="Beller">Beller</option>
@@ -390,12 +390,32 @@ tr:hover td{background:#f7f9ff;}
         </div>
         <div class="form-row">
           <div class="form-group">
-            <label>Quantité (caisses)</label>
-            <input type="number" id="sd-qty" min="0" placeholder="Ex: 10"/>
+            <label>Quantité</label>
+            <input type="number" id="sd-qty" min="0" placeholder="Ex: 10" oninput="calcStockDepartValeur()"/>
           </div>
           <div class="form-group">
-            <label>Prix / Caisse (HTG)</label>
-            <input type="number" id="sd-prix" min="0" step="0.01" placeholder="Ex: 1200.00"/>
+            <label>Unité</label>
+            <select id="sd-unit" onchange="calcStockDepartValeur()">
+              <option value="caisse">Caisse (24 unités)</option>
+              <option value="bout">Bout (12 unités)</option>
+              <option value="caisse-1-2">Caisse et 1/2 (36 unités)</option>
+              <option value="bout-1-2">Bout et 1/2 (18 unités)</option>
+              <option value="caisse-beller">Caisse Beller (48 unités)</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label>Prix unitaire (HTG)</label>
+            <input type="number" id="sd-prix-unitaire" min="0" step="0.01" placeholder="Ex: 50.00" oninput="calcStockDepartValeur()"/>
+          </div>
+          <div class="form-group">
+            <label>Nombre d'unité</label>
+            <input type="number" id="sd-nb-unite" min="0" step="1" placeholder="Ex: 1, 2, 3..." oninput="calcStockDepartValeur()"/>
+          </div>
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label>Valeur totale (HTG) — automatique</label>
+            <input type="number" id="sd-valeur" readonly style="background:#f0f2f7;font-weight:700;color:#1a56db;"/>
           </div>
           <div class="form-group">
             <label>Date</label>
@@ -408,8 +428,8 @@ tr:hover td{background:#f7f9ff;}
         <div class="card-title">📋 Historique du stock de départ</div>
         <div class="table-wrap">
           <table>
-            <thead><tr><th>Date</th><th>Produit</th><th>Qté (caisses)</th><th>Prix/Caisse</th><th>Valeur totale</th></tr></thead>
-            <tbody id="stock-depart-body"><tr><td colspan="5" style="text-align:center;color:var(--text3);padding:1.5rem;">Aucun stock de départ enregistré.</td></tr></tbody>
+            <thead><tr><th>Date</th><th>Produit</th><th>Quantité</th><th>Unité</th><th>Prix unitaire</th><th>Nombre d'unité</th><th>Valeur totale</th></tr></thead>
+            <tbody id="stock-depart-body"><tr><td colspan="7" style="text-align:center;color:var(--text3);padding:1.5rem;">Aucun stock de départ enregistré.</td></tr></tbody>
           </table>
         </div>
       </div>
@@ -422,7 +442,7 @@ tr:hover td{background:#f7f9ff;}
         <div class="form-row">
           <div class="form-group" style="flex:2;min-width:200px;">
             <label>Produit</label>
-            <select id="s-desc">
+            <select id="s-desc" onchange="calcStockQty();calcStockPrixUnitaire();">
               <option value="">-- Choisir un produit --</option>
               <option value="7up">7up</option>
               <option value="Beller">Beller</option>
@@ -466,12 +486,16 @@ tr:hover td{background:#f7f9ff;}
         </div>
         <div class="form-row">
           <div class="form-group">
-            <label>Total en caisses (calculé)</label>
-            <input type="number" id="s-qty-caisses" step="0.01" readonly style="background:#f0f2f7;font-weight:700;color:#1a56db;"/>
+            <label>Prix / Caisse (HTG)</label>
+            <input type="number" id="s-price" min="0" step="0.01" placeholder="Ex: 1200.00" oninput="calcStockPrixUnitaire()"/>
           </div>
           <div class="form-group">
-            <label>Prix / Caisse (HTG)</label>
-            <input type="number" id="s-price" min="0" step="0.01" placeholder="Ex: 1200.00"/>
+            <label>Prix unitaire (HTG) — auto</label>
+            <input type="number" id="s-prix-unitaire" step="0.01" readonly style="background:#f0f2f7;"/>
+          </div>
+          <div class="form-group">
+            <label>Total en caisses (calculé)</label>
+            <input type="number" id="s-qty-caisses" step="0.01" readonly style="background:#f0f2f7;font-weight:700;color:#1a56db;"/>
           </div>
           <div class="form-group">
             <label>Fournisseur</label>
@@ -496,8 +520,8 @@ tr:hover td{background:#f7f9ff;}
         <div class="card-title">📦 Historique des mouvements de stock (Entrées et Sorties)</div>
         <div class="table-wrap">
           <table>
-            <thead><tr><th>Date</th><th>Type</th><th>Produit</th><th>Qté (caisses)</th><th>Prix/Caisse</th><th>Valeur</th><th>Fournisseur/Client</th></tr></thead>
-            <tbody id="stock-table-body"><tr><td colspan="7" style="text-align:center;color:var(--text3);padding:1.5rem;">Aucun mouvement.</td></tr></tbody>
+            <thead><tr><th>Date</th><th>Type</th><th>Produit</th><th>Qté</th><th>Prix/Caisse</th><th>Prix unitaire</th><th>Valeur</th><th>Fournisseur/Client</th></tr></thead>
+            <tbody id="stock-table-body"><tr><td colspan="8" style="text-align:center;color:var(--text3);padding:1.5rem;">Aucun mouvement.</td></tr></tbody>
           </table>
         </div>
       </div>
@@ -510,7 +534,7 @@ tr:hover td{background:#f7f9ff;}
         <div class="table-wrap">
           <table>
             <thead><tr><th>Produit</th><th>Stock départ</th><th>Entrées</th><th>Sorties</th><th>Stock actuel</th><th>Prix/Caisse</th><th>Valeur (HTG)</th></tr></thead>
-            <tbody id="stock-actuel-body"><tr><td colspan="5" style="text-align:center;color:var(--text3);padding:1.5rem;">Aucune donnée disponible.</td></tr></tbody>
+            <tbody id="stock-actuel-body"><tr><td colspan="7" style="text-align:center;color:var(--text3);padding:1.5rem;">Aucune donnée disponible.</td></tr></tbody>
           </table>
         </div>
       </div>
@@ -1095,7 +1119,18 @@ function switchAccTab(name, btn) {
 // HELPERS
 // ============================================================
 function todayStr() { return new Date().toLocaleDateString('fr-FR'); }
-function isoDate() { return new Date().toISOString().split('T')[0]; }
+// Date locale (et non UTC) au format YYYY-MM-DD. Important : new Date().toISOString()
+// bascule sur la date UTC, ce qui décale la journée dès ~19h heure d'Haïti (UTC-5) —
+// une vente du soir se retrouvait alors groupée sous le jour suivant. On construit
+// donc la date à partir des composantes locales (getFullYear/getMonth/getDate).
+function isoDate() {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+}
+function localMonthStr() {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`;
+}
 function nowStr() { return new Date().toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit',second:'2-digit'}); }
 function fmtHTG(n) {
   if (isNaN(n)||n===undefined) return '0 HTG';
@@ -1143,6 +1178,24 @@ const UNIT_LABELS = {
 };
 function formatUnitLabel(unit) {
   return UNIT_LABELS[unit] || unit || '';
+}
+
+// Affiche une quantité exprimée en équivalent-caisses (souvent décimale, ex: 1.25)
+// sous une forme lisible sans décimale, ex: "1 caisse et 6 unités".
+function formatCaissesDisplay(qtyCaisses, casseSize) {
+  casseSize = casseSize || 24;
+  const val = qtyCaisses || 0;
+  if (Math.abs(val) < 1e-9) return '0';
+  const sign = val < 0 ? '-' : '';
+  const abs = Math.abs(val);
+  let caisses = Math.floor(abs + 1e-9);
+  let unites = Math.round((abs - caisses) * casseSize);
+  if (unites >= casseSize) { caisses += 1; unites -= casseSize; }
+  const parts = [];
+  if (caisses > 0) parts.push(`${caisses} caisse${caisses>1?'s':''}`);
+  if (unites > 0) parts.push(`${unites} unité${unites>1?'s':''}`);
+  if (!parts.length) return '0';
+  return sign + parts.join(' et ');
 }
 
 function calcPrixUnitaire() {
@@ -1408,8 +1461,7 @@ function renderMySales() {
   if (!STATE.currentUser) return;
   const body = document.getElementById('my-sales-body');
   
-  const now = new Date();
-  const currentMonth = now.toISOString().slice(0,7); // YYYY-MM
+  const currentMonth = localMonthStr(); // YYYY-MM (local, pas UTC)
 
   const isAdminOrGest = STATE.currentUser.role === 'admin' || STATE.currentUser.role === 'gestionnaire';
 
@@ -1559,15 +1611,22 @@ function calcStockQty() {
   const unit = document.getElementById('s-unit').value;
   const extra = parseFloat(document.getElementById('s-extra-units').value) || 0;
   const produit = document.getElementById('s-desc').value;
-  const isBeller = produit.toLowerCase().includes('beller');
-  const casseSize = isBeller ? 48 : 24;
-  
+  const casseSize = getCasseSize(produit, null);
+
   let totalCaisses = 0;
   if (unit === 'caisse') totalCaisses = qty + extra/casseSize;
   else if (unit === 'bout') totalCaisses = qty*0.5 + extra/casseSize;
   else if (unit === 'unite') totalCaisses = qty/casseSize + extra/casseSize;
-  
+
   document.getElementById('s-qty-caisses').value = totalCaisses.toFixed(2);
+}
+
+function calcStockPrixUnitaire() {
+  const prixCaisse = parseFloat(document.getElementById('s-price').value) || 0;
+  const produit = document.getElementById('s-desc').value;
+  const casseSize = getCasseSize(produit, null);
+  const prixUnit = prixCaisse > 0 ? prixCaisse / casseSize : 0;
+  document.getElementById('s-prix-unitaire').value = prixUnit.toFixed(2);
 }
 
 async function submitStock() {
@@ -1577,6 +1636,7 @@ async function submitStock() {
   const extra = parseFloat(document.getElementById('s-extra-units').value) || 0;
   const qtyCaisses = parseFloat(document.getElementById('s-qty-caisses').value) || 0;
   const price = parseFloat(document.getElementById('s-price').value) || 0;
+  const prixUnitaire = parseFloat(document.getElementById('s-prix-unitaire').value) || 0;
   const supplier = document.getElementById('s-supplier').value.trim();
   if (!desc||qty<=0||price<=0) {
     showToast('⚠ Veuillez remplir tous les champs obligatoires.','warn'); return;
@@ -1585,12 +1645,15 @@ async function submitStock() {
     type:'stock-in', date:todayStr(), isoDate:isoDate(), time:nowStr(),
     seller:STATE.currentUser.username, description:desc, supplier:supplier||'',
     quantity:qty, unit:unit, extraUnits:extra, quantityCaisses:qtyCaisses,
-    unitPrice:price, amount:qtyCaisses*price, createdAt: new Date().toISOString()
+    unitPrice:price, prixUnitaire:prixUnitaire, amount:qtyCaisses*price, createdAt: new Date().toISOString()
   };
   if (STATE.isOnline && STATE.fbReady) {
     try {
       const {collection, addDoc} = window._fbFns;
-      await addDoc(collection(window._db,'stocks'), entry);
+      const ref = await addDoc(collection(window._db,'stocks'), entry);
+      if (!STATE.stocks.find(s => s.id === ref.id)) {
+        STATE.stocks = [{id: ref.id, ...entry}, ...STATE.stocks];
+      }
       // Also log in transactions
       await addDoc(collection(window._db,'transactions'), {
         ...entry, description:`[ENTRÉE STOCK] ${desc}`, product:'Stock', status:'sent'
@@ -1605,59 +1668,68 @@ async function submitStock() {
     showToast('📤 Hors ligne — entrée en file d\'attente.','warn');
     updatePendingUI();
   }
+  renderStocks();
+  renderStockActuel();
+  renderDashboard();
   document.getElementById('s-desc').value='';
   document.getElementById('s-qty').value='';
   document.getElementById('s-unit').value='caisse';
   document.getElementById('s-extra-units').value='';
   document.getElementById('s-qty-caisses').value='';
   document.getElementById('s-price').value='';
+  document.getElementById('s-prix-unitaire').value='';
   document.getElementById('s-supplier').value='';
 }
 
 function renderStocks() {
   const body = document.getElementById('stock-table-body');
-  
+
   // Entrées de stock
   const entrees = STATE.stocks.map(s => ({
     ...s, _type:'entree',
     qtyCaisses: s.quantityCaisses || s.quantity,
-    prixCaisse: s.unitPrice || 0
+    prixCaisse: s.unitPrice || 0,
+    prixUnitaire: s.prixUnitaire || (s.unitPrice ? s.unitPrice / getCasseSize(s.description, null) : 0),
+    casseSize: getCasseSize(s.description, null)
   }));
-  
+
   // Sorties (ventes)
   const sorties = (STATE.transactions||[]).filter(t=>t.type==='vente').map(t => {
-    return {...t, _type:'sortie', qtyCaisses: getQtyCaisses(t), prixCaisse:t.prixCaisse||t.unitPrice||0};
+    return {...t, _type:'sortie', qtyCaisses: getQtyCaisses(t), prixCaisse:t.prixCaisse||t.unitPrice||0,
+      prixUnitaire: t.unitPrice||0, casseSize: getCasseSize(t.description, t.unit)};
   });
-  
+
   // Combiner et trier du plus récent au plus ancien
   const all = [...entrees, ...sorties].sort((a,b) => {
     if (b.isoDate !== a.isoDate) return (b.isoDate||'').localeCompare(a.isoDate||'');
     return (b.time||'').localeCompare(a.time||'');
   });
-  
+
   if (!all.length) {
-    body.innerHTML='<tr><td colspan="7" style="text-align:center;color:var(--text3);padding:1.5rem;">Aucun mouvement.</td></tr>';
+    body.innerHTML='<tr><td colspan="8" style="text-align:center;color:var(--text3);padding:1.5rem;">Aucun mouvement.</td></tr>';
   } else {
     body.innerHTML=all.map(s=> s._type==='entree' ? `<tr style="background:#e6f6ef;">
       <td>${s.date}</td>
       <td><span class="badge badge-in">📥 Entrée</span></td>
       <td>${esc(s.description)}</td>
-      <td style="color:#0f7b4f;font-weight:600;">+${(s.qtyCaisses||0).toFixed(2)}</td>
+      <td style="color:#0f7b4f;font-weight:600;">+${formatCaissesDisplay(s.qtyCaisses, s.casseSize)}</td>
       <td>${fmtHTG(s.prixCaisse)}</td>
+      <td>${fmtHTG(s.prixUnitaire)}</td>
       <td>${fmtHTG(s.amount)}</td>
       <td>${esc(s.supplier||'')}</td>
     </tr>` : `<tr style="background:#fdecea;">
       <td>${s.date}</td>
       <td><span class="badge badge-out">📤 Sortie</span></td>
       <td>${esc(s.description)}</td>
-      <td style="color:#c0392b;font-weight:600;">-${(s.qtyCaisses||0).toFixed(2)}</td>
+      <td style="color:#c0392b;font-weight:600;">-${formatCaissesDisplay(s.qtyCaisses, s.casseSize)}</td>
       <td>${fmtHTG(s.prixCaisse||0)}</td>
+      <td>${fmtHTG(s.prixUnitaire||0)}</td>
       <td>${fmtHTG(s.amount||0)}</td>
       <td>${esc(s.client||s.seller||'')}</td>
     </tr>`).join('') + `<tr style="background:var(--surface2);font-weight:700;border-top:2px solid var(--border);">
       <td colspan="3">📊 TOTAUX</td>
       <td>Entrées: ${entrees.reduce((a,s)=>a+(s.qtyCaisses||0),0).toFixed(2)} | Sorties: ${sorties.reduce((a,s)=>a+(s.qtyCaisses||0),0).toFixed(2)}</td>
-      <td colspan="3">Valeur entrées: ${fmtHTG(entrees.reduce((a,s)=>a+s.amount,0))}</td>
+      <td colspan="4">Valeur entrées: ${fmtHTG(entrees.reduce((a,s)=>a+s.amount,0))}</td>
     </tr>`;
   }
   const stockVal = STATE.stocks.reduce((a,s)=>a+s.amount,0);
@@ -2456,8 +2528,7 @@ function renderCredits() {
     body.innerHTML = '<tr><td colspan="9" style="text-align:center;color:var(--text3);padding:1.5rem;">Aucun paiement enregistré.</td></tr>';
     return;
   }
-  const now = new Date();
-  const currentMonth = now.toISOString().slice(0,7);
+  const currentMonth = localMonthStr();
   // Grouper par mois (le plus récent en haut, le plus ancien en bas)
   const groups = {};
   sorted.forEach(c => {
@@ -2632,29 +2703,65 @@ function renderDettes() {
   </tr>`;
 }
 
+// Calcule automatiquement la valeur totale du stock de départ à partir de
+// Quantité, Unité, Prix unitaire et Nombre d'unité — même logique que la
+// vente : valeur = (quantité × facteur unité × taille caisse + nombre d'unité) × prix unitaire.
+function calcStockDepartValeur() {
+  const qty = parseFloat(document.getElementById('sd-qty').value) || 0;
+  const unit = document.getElementById('sd-unit').value;
+  const prixUnit = parseFloat(document.getElementById('sd-prix-unitaire').value) || 0;
+  const nbUnite = parseFloat(document.getElementById('sd-nb-unite').value) || 0;
+  const produit = document.getElementById('sd-desc').value;
+  const casseSize = getCasseSize(produit, unit);
+  const factor = UNIT_FACTORS[unit] !== undefined ? UNIT_FACTORS[unit] : 1;
+  const totalUnites = (qty * factor * casseSize) + nbUnite;
+  const valeur = totalUnites * prixUnit;
+  document.getElementById('sd-valeur').value = valeur.toFixed(2);
+  return valeur;
+}
+
 async function submitStockDepart() {
   const desc = document.getElementById('sd-desc').value;
   const qty = parseFloat(document.getElementById('sd-qty').value) || 0;
-  const prix = parseFloat(document.getElementById('sd-prix').value) || 0;
+  const unit = document.getElementById('sd-unit').value;
+  const prixUnit = parseFloat(document.getElementById('sd-prix-unitaire').value) || 0;
+  const nbUnite = parseFloat(document.getElementById('sd-nb-unite').value) || 0;
   const date = document.getElementById('sd-date').value || isoDate();
-  if (!desc || qty <= 0 || prix <= 0) {
+  if (!desc || qty <= 0 || prixUnit <= 0) {
     showToast('⚠ Veuillez remplir tous les champs.','warn'); return;
   }
+  const casseSize = getCasseSize(desc, unit);
+  const valeur = calcStockDepartValeur();
   const entry = {
-    type:'stock-depart', description:desc, quantity:qty, prixCaisse:prix,
-    valeur:qty*prix, isoDate:date, date:date, createdAt:new Date().toISOString(),
+    type:'stock-depart', description:desc, quantity:qty, unit:unit, nombreUnite:nbUnite,
+    prixUnitaire:prixUnit, prixCaisse:prixUnit*casseSize,
+    quantityCaisses:getQtyCaisses({description:desc, unit:unit, quantity:qty, nombreUnite:nbUnite}),
+    valeur:valeur, isoDate:date, date:date, createdAt:new Date().toISOString(),
     seller:STATE.currentUser.username
   };
   if (STATE.isOnline && STATE.fbReady) {
     try {
       const {collection, addDoc} = window._fbFns;
-      await addDoc(collection(window._db,'stock_depart'), entry);
+      const ref = await addDoc(collection(window._db,'stock_depart'), entry);
+      if (!STATE.stockDepart.find(s => s.id === ref.id)) {
+        STATE.stockDepart = [{id: ref.id, ...entry}, ...(STATE.stockDepart||[])];
+      }
       showToast('✅ Stock de départ enregistré.');
     } catch(e) { showToast('⚠ Erreur: '+e.message,'warn'); }
+  } else {
+    STATE.pendingQueue.push({...entry, colTarget:'stock_depart'});
+    saveLocal();
+    showToast('📤 Hors ligne — entrée en file d\'attente.','warn');
+    updatePendingUI();
   }
+  renderStockDepart();
+  renderStockActuel();
   document.getElementById('sd-desc').value='';
   document.getElementById('sd-qty').value='';
-  document.getElementById('sd-prix').value='';
+  document.getElementById('sd-unit').value='caisse';
+  document.getElementById('sd-prix-unitaire').value='';
+  document.getElementById('sd-nb-unite').value='';
+  document.getElementById('sd-valeur').value='';
   document.getElementById('sd-date').value='';
 }
 
@@ -2663,12 +2770,15 @@ function renderStockDepart() {
   if (!body) return;
   const items = (STATE.stockDepart||[]).sort((a,b)=>(b.isoDate||'').localeCompare(a.isoDate||''));
   if (!items.length) {
-    body.innerHTML='<tr><td colspan="5" style="text-align:center;color:var(--text3);padding:1.5rem;">Aucun stock de départ enregistré.</td></tr>';
+    body.innerHTML='<tr><td colspan="7" style="text-align:center;color:var(--text3);padding:1.5rem;">Aucun stock de départ enregistré.</td></tr>';
     return;
   }
   body.innerHTML = items.map(s=>`<tr>
     <td>${s.date}</td><td>${esc(s.description)}</td><td>${s.quantity}</td>
-    <td>${fmtHTG(s.prixCaisse)}</td><td>${fmtHTG(s.valeur)}</td>
+    <td>${esc(formatUnitLabel(s.unit))}</td>
+    <td>${fmtHTG(s.prixUnitaire || (s.prixCaisse ? s.prixCaisse/getCasseSize(s.description,null) : 0))}</td>
+    <td>${s.nombreUnite||0}</td>
+    <td>${fmtHTG(s.valeur)}</td>
   </tr>`).join('');
 }
 
@@ -2700,13 +2810,16 @@ function renderStockActuel() {
   const body = document.getElementById('stock-actuel-body');
   if (!body) return;
   
-  // 1. Stock de départ par produit
+  // 1. Stock de départ par produit (en équivalent-caisses)
   const departMap = {};
   (STATE.stockDepart||[]).forEach(s => {
     const key = s.description;
     if (!departMap[key]) departMap[key] = {qty:0, prix:0};
-    departMap[key].qty += parseFloat(s.quantity) || 0;
-    departMap[key].prix = s.prixCaisse || 0;
+    // Les nouveaux enregistrements ont quantityCaisses (unité/nombre d'unité pris
+    // en compte) ; les anciens enregistrements stockaient directement en caisses.
+    const qc = (s.quantityCaisses !== undefined) ? (parseFloat(s.quantityCaisses)||0) : (parseFloat(s.quantity)||0);
+    departMap[key].qty += qc;
+    if (s.prixCaisse) departMap[key].prix = s.prixCaisse;
   });
   
   // 2. Entrées de stock par produit (en caisses)
@@ -2743,25 +2856,25 @@ function renderStockActuel() {
     const actuel = Math.max(0, depart + entrees - sorties);
     const prix = departMap[p]?.prix || 0;
     const valeur = actuel * prix;
-    return { p, depart, entrees, sorties, actuel, prix, valeur };
+    const casseSize = getCasseSize(p, null);
+    return { p, depart, entrees, sorties, actuel, prix, valeur, casseSize };
   }).sort((a,b) => a.p.localeCompare(b.p));
-  
+
+  // Valeur totale globale — somme des valeurs monétaires de chaque produit.
+  const totalValeur = rows.reduce((a,r)=>a+r.valeur,0);
+
   body.innerHTML = rows.map(r=>`<tr>
     <td style="font-weight:600;">${esc(r.p)}</td>
-    <td>${r.depart.toFixed(2)}</td>
-    <td style="color:#0f7b4f;font-weight:600;">+${r.entrees.toFixed(2)}</td>
-    <td style="color:#c0392b;font-weight:600;">-${r.sorties.toFixed(2)}</td>
-    <td style="font-weight:700;color:${r.actuel>0?'#0f7b4f':'#c0392b'};">${r.actuel.toFixed(2)}</td>
+    <td>${formatCaissesDisplay(r.depart, r.casseSize)}</td>
+    <td style="color:#0f7b4f;font-weight:600;">+${formatCaissesDisplay(r.entrees, r.casseSize)}</td>
+    <td style="color:#c0392b;font-weight:600;">-${formatCaissesDisplay(r.sorties, r.casseSize)}</td>
+    <td style="font-weight:700;color:${r.actuel>0?'#0f7b4f':'#c0392b'};">${formatCaissesDisplay(r.actuel, r.casseSize)}</td>
     <td>${fmtHTG(r.prix)}</td>
-    <td>${fmtHTG(r.valeur)}</td>
+    <td style="font-weight:700;color:#1a56db;">${fmtHTG(r.valeur)}</td>
   </tr>`).join('') + `<tr style="background:var(--surface2);font-weight:700;border-top:2px solid var(--border);">
-    <td>📊 TOTAL</td>
-    <td>${rows.reduce((a,r)=>a+r.depart,0).toFixed(2)}</td>
-    <td style="color:#0f7b4f;">+${rows.reduce((a,r)=>a+r.entrees,0).toFixed(2)}</td>
-    <td style="color:#c0392b;">-${rows.reduce((a,r)=>a+r.sorties,0).toFixed(2)}</td>
-    <td>${rows.reduce((a,r)=>a+r.actuel,0).toFixed(2)}</td>
+    <td colspan="5">📊 TOTAL</td>
     <td></td>
-    <td>${fmtHTG(rows.reduce((a,r)=>a+r.valeur,0))}</td>
+    <td style="color:#1a56db;">${fmtHTG(totalValeur)}</td>
   </tr>`;
 }
 
