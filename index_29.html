@@ -1,0 +1,2574 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>BW Multiservice – Gestion</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<!-- Google Identity Services (OAuth pour l'export vers Google Drive) -->
+<script src="https://accounts.google.com/gsi/client" async defer></script>
+<!-- Firebase SDKs -->
+<script type="module">
+import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
+import { getFirestore, collection, addDoc, onSnapshot, doc, updateDoc, deleteDoc, query, orderBy, serverTimestamp, getDocs } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
+
+const firebaseConfig = {
+  apiKey: "AIzaSyBtk9kE-vJ-cNA3_1GMM5Zm63RbMMHjaNg",
+  authDomain: "bw-multiservice07.firebaseapp.com",
+  projectId: "bw-multiservice07",
+  storageBucket: "bw-multiservice07.firebasestorage.app",
+  messagingSenderId: "281277807196",
+  appId: "1:281277807196:web:276d79f1a959ad0dcb0499",
+  measurementId: "G-5B3G9Z5SX8"
+};
+
+const fireApp = initializeApp(firebaseConfig);
+const db = getFirestore(fireApp);
+
+// Expose to global scope for use in non-module scripts
+window._db = db;
+window._fbFns = { collection, addDoc, onSnapshot, doc, updateDoc, deleteDoc, query, orderBy, serverTimestamp, getDocs };
+window._fbReady = true;
+window.dispatchEvent(new Event('fb-ready'));
+</script>
+
+<style>
+:root {
+  --bg:#f4f6fa;--surface:#fff;--surface2:#f0f2f7;--border:#e2e6ef;
+  --accent:#1a56db;--accent-bg:#e8f0fd;--accent-text:#1a3a8a;
+  --success:#0f7b4f;--success-bg:#e6f6ef;--danger:#c0392b;--danger-bg:#fdecea;
+  --warn:#b45309;--warn-bg:#fef3e2;--text:#1a1a2e;--text2:#5a6282;--text3:#9099b7;
+  --radius:10px;
+}
+*{box-sizing:border-box;margin:0;padding:0;}
+body{font-family:'Segoe UI',Arial,sans-serif;background:var(--bg);color:var(--text);min-height:100vh;font-size:15px;}
+
+#auth-screen{display:flex;align-items:center;justify-content:center;min-height:100vh;background:linear-gradient(135deg,#1a56db 0%,#0f2a6b 100%);}
+.auth-box{background:#fff;border-radius:18px;padding:2.5rem 2rem;width:100%;max-width:360px;box-shadow:0 8px 40px rgba(0,0,0,.18);}
+.auth-logo .brand{font-size:1.5rem;font-weight:700;color:#1a56db;letter-spacing:1px;text-align:center;display:block;}
+.auth-logo .tagline{font-size:.8rem;color:#9099b7;text-align:center;display:block;margin-bottom:1.5rem;}
+.auth-box h2{font-size:1.1rem;font-weight:600;color:#1a1a2e;margin-bottom:1.2rem;text-align:center;}
+.form-group{margin-bottom:1rem;}
+.form-group label{display:block;font-size:.78rem;color:#5a6282;margin-bottom:4px;font-weight:500;text-transform:uppercase;letter-spacing:.5px;}
+.form-group input,.form-group select,.form-group textarea{width:100%;padding:.6rem .8rem;border:1.5px solid #e2e6ef;border-radius:8px;font-size:.95rem;outline:none;transition:border .2s;font-family:inherit;}
+.form-group input:focus,.form-group textarea:focus{border-color:#1a56db;}
+.form-group textarea{resize:vertical;min-height:60px;}
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;padding:.65rem 1.2rem;border-radius:8px;font-size:.95rem;font-weight:600;border:none;cursor:pointer;transition:background .18s,transform .12s;}
+.btn:active{transform:scale(.97);}
+.btn-primary{background:#1a56db;color:#fff;width:100%;}
+.btn-primary:hover{background:#1342b0;}
+.btn-success{background:var(--success);color:#fff;}
+.btn-outline{background:transparent;border:1.5px solid var(--border);color:var(--text2);}
+.btn-outline:hover{border-color:#1a56db;color:#1a56db;}
+.auth-err{color:#c0392b;font-size:.82rem;text-align:center;margin-top:.5rem;min-height:18px;}
+
+#app{display:none;flex-direction:column;min-height:100vh;}
+.topbar{background:#fff;border-bottom:1px solid var(--border);display:flex;align-items:center;padding:0 1.2rem;height:54px;gap:12px;position:sticky;top:0;z-index:100;box-shadow:0 1px 6px rgba(26,86,219,.06);}
+.topbar .brand{font-weight:700;color:#1a56db;font-size:1.1rem;letter-spacing:.5px;}
+.user-pill{margin-left:auto;display:flex;align-items:center;gap:8px;background:var(--accent-bg);border-radius:20px;padding:4px 12px 4px 4px;font-size:.82rem;font-weight:500;color:var(--accent-text);}
+.avatar{width:26px;height:26px;border-radius:50%;background:#1a56db;color:#fff;display:flex;align-items:center;justify-content:center;font-size:.72rem;font-weight:700;}
+.status-dot{width:8px;height:8px;border-radius:50%;background:#e74c3c;display:inline-block;}
+.status-dot.online{background:#27ae60;}
+.offline-banner{background:#fef3e2;color:#b45309;font-size:.8rem;padding:5px 1.2rem;text-align:center;border-bottom:1px solid #f7c948;display:none;}
+.offline-banner.show{display:block;}
+.fb-banner{background:var(--success-bg);color:var(--success);font-size:.8rem;padding:5px 1.2rem;text-align:center;border-bottom:1px solid #7ed8b4;display:none;}
+.fb-banner.show{display:block;}
+
+.tabs{display:flex;background:#fff;border-bottom:1px solid var(--border);overflow-x:auto;}
+.tabs button{padding:.7rem 1.1rem;border:none;background:transparent;font-size:.88rem;font-weight:500;color:var(--text2);cursor:pointer;border-bottom:2.5px solid transparent;white-space:nowrap;transition:color .18s,border-color .18s;}
+.tabs button.active{color:#1a56db;border-bottom-color:#1a56db;}
+.tabs button:hover{color:#1a56db;}
+
+.main-content{flex:1;padding:1.2rem;max-width:1100px;margin:0 auto;width:100%;}
+.tab-content{display:none;}
+.tab-content.active{display:block;}
+
+.metrics-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:12px;margin-bottom:1.2rem;}
+.metric-card{background:var(--surface);border-radius:var(--radius);border:1px solid var(--border);padding:1rem 1.1rem;}
+.metric-card .label{font-size:.72rem;color:var(--text3);text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px;}
+.metric-card .value{font-size:1.5rem;font-weight:700;color:var(--text);}
+.metric-card .sub{font-size:.75rem;color:var(--text2);margin-top:2px;}
+.metric-card.accent{border-color:#a0b8f5;background:var(--accent-bg);}
+.metric-card.accent .value{color:var(--accent);}
+.metric-card.success{border-color:#7ed8b4;background:var(--success-bg);}
+.metric-card.success .value{color:var(--success);}
+
+.card{background:var(--surface);border-radius:var(--radius);border:1px solid var(--border);padding:1.2rem;margin-bottom:1rem;}
+.card-title{font-size:.95rem;font-weight:600;color:var(--text);margin-bottom:1rem;display:flex;align-items:center;gap:8px;}
+.form-row{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:.8rem;}
+.form-row .form-group{flex:1;min-width:140px;}
+.send-btn{padding:.65rem 1.4rem;font-size:1.1rem;border-radius:8px;background:#1a56db;color:#fff;border:none;cursor:pointer;display:flex;align-items:center;gap:8px;font-weight:600;transition:background .18s;white-space:nowrap;}
+.send-btn:hover{background:#1342b0;}
+.send-btn:disabled{background:#b0bcda;cursor:not-allowed;}
+
+.table-wrap{overflow-x:auto;}
+table{width:100%;border-collapse:collapse;font-size:.87rem;}
+th{text-align:left;padding:7px 10px;background:var(--surface2);color:var(--text2);font-weight:600;font-size:.75rem;text-transform:uppercase;letter-spacing:.4px;border-bottom:1px solid var(--border);}
+td{padding:7px 10px;border-bottom:1px solid #f0f2f7;color:var(--text);vertical-align:middle;}
+tr:last-child td{border-bottom:none;}
+tr:hover td{background:#f7f9ff;}
+.badge{display:inline-block;padding:2px 9px;border-radius:20px;font-size:.73rem;font-weight:600;}
+.badge-pending{background:#fef3e2;color:#b45309;}
+.badge-sent{background:var(--success-bg);color:var(--success);}
+.badge-in{background:var(--accent-bg);color:var(--accent-text);}
+.badge-out{background:#fdecea;color:#c0392b;}
+
+.pending-queue{background:#fef3e2;border:1px solid #f7c948;border-radius:var(--radius);padding:.8rem 1rem;margin-bottom:1rem;font-size:.82rem;color:#b45309;display:none;}
+.pending-queue.show{display:block;}
+
+#toast{position:fixed;bottom:20px;right:20px;background:#222;color:#fff;padding:10px 18px;border-radius:8px;font-size:.87rem;z-index:9999;opacity:0;transition:opacity .3s;pointer-events:none;max-width:320px;}
+#toast.show{opacity:1;}
+
+.section-title{font-size:1rem;font-weight:700;color:var(--text);margin-bottom:.8rem;padding-bottom:.5rem;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;}
+.edit-modal-bg{display:none;position:fixed;inset:0;background:rgba(0,0,0,.4);z-index:500;align-items:center;justify-content:center;}
+.edit-modal-bg.show{display:flex;}
+.edit-modal{background:#fff;border-radius:14px;padding:1.5rem;width:100%;max-width:420px;box-shadow:0 8px 40px rgba(0,0,0,.18);}
+.edit-modal h3{font-size:1rem;font-weight:700;margin-bottom:1rem;}
+.user-chip{display:inline-flex;align-items:center;gap:8px;background:var(--surface2);border-radius:20px;padding:4px 12px 4px 4px;margin:3px;font-size:.82rem;}
+.user-chip .av{width:22px;height:22px;border-radius:50%;background:#1a56db;color:#fff;display:flex;align-items:center;justify-content:center;font-size:.65rem;font-weight:700;}
+.user-chip .role-badge{background:var(--accent-bg);color:var(--accent-text);border-radius:10px;padding:1px 7px;font-size:.7rem;font-weight:600;}
+.user-chip .del-btn{background:none;border:none;color:#c0392b;cursor:pointer;font-size:1rem;padding:0 2px;}
+
+.accounting-tabs{display:flex;gap:4px;margin-bottom:1rem;flex-wrap:wrap;}
+.acc-tab{padding:5px 14px;border:1.5px solid var(--border);border-radius:20px;font-size:.82rem;cursor:pointer;background:transparent;color:var(--text2);font-weight:500;transition:all .18s;}
+.acc-tab.active{background:#1a56db;color:#fff;border-color:#1a56db;}
+.acc-sheet{display:none;}
+.acc-sheet.active{display:block;}
+
+@media(max-width:600px){
+  .main-content{padding:.7rem;}
+  .metrics-grid{grid-template-columns:repeat(2,1fr);}
+  .form-row{flex-direction:column;}
+  .tabs button{font-size:.78rem;padding:.6rem .7rem;}
+}
+</style>
+</head>
+<body>
+
+<!-- AUTH -->
+<div id="auth-screen">
+  <div class="auth-box">
+    <div class="auth-logo">
+      <span class="brand">BW Multiservice</span>
+      <span class="tagline">Système de gestion intégré</span>
+    </div>
+    <h2>Connexion</h2>
+    <div class="form-group">
+      <label>Nom d'utilisateur</label>
+      <input type="text" id="login-user" placeholder="utilisateur" autocomplete="username"/>
+    </div>
+    <div class="form-group">
+      <label>Mot de passe de l'application</label>
+      <input type="password" id="login-pass" placeholder="••••••••" autocomplete="current-password"/>
+    </div>
+    <button class="btn btn-primary" onclick="doLogin()">Se connecter →</button>
+    <div class="auth-err" id="auth-err"></div>
+  </div>
+</div>
+
+<!-- APP -->
+<div id="app">
+  <div class="topbar">
+    <div class="brand">BW Multiservice</div>
+    <span id="conn-status" class="status-dot" title="Connexion"></span>
+    <span style="font-size:.72rem;color:var(--text3);" id="conn-label">Connexion…</span>
+    <div class="user-pill">
+      <div class="avatar" id="top-avatar">?</div>
+      <span id="top-username">—</span>
+    </div>
+    <span id="unsaved-indicator" style="display:none;background:#fef3e2;color:#b45309;font-size:.75rem;padding:3px 10px;border-radius:12px;font-weight:600;">⚠ Non sauvegardé</span>
+    <button class="btn btn-success" style="padding:4px 12px;font-size:.8rem;" onclick="saveAllData()">💾 Sauvegarder</button>
+    <button id="btn-export-drive" class="btn btn-outline" style="display:none;padding:4px 12px;font-size:.8rem;background:#34a853;color:#fff;border:none;" onclick="exportCompletToExcel()">📥 Exporter Google Drive</button>
+    <button class="btn btn-outline" style="padding:4px 12px;font-size:.8rem;" onclick="doLogout()">Déconnexion</button>
+  </div>
+  <div class="offline-banner" id="offline-banner">⚠ Hors ligne — les transactions seront envoyées dès le retour d'internet (<span id="pending-count">0</span> en attente)</div>
+  <div class="fb-banner" id="fb-banner">✅ Connecté à Firebase — synchronisation en temps réel active sur bwmultiservice07@gmail.com</div>
+
+  <div class="tabs">
+    <button class="active" onclick="switchTab('ventes')">🧾 Ventes</button>
+    <button id="tab-credit-btn" onclick="switchTab('credit')">💳 Crédit Client</button>
+    <button id="tab-dettes-btn" onclick="switchTab('dettes')">📋 Liste des Dettes</button>
+    <button id="tab-stock-depart-btn" onclick="switchTab('stock-depart')" style="display:none;">🏁 Stock de départ</button>
+    <button id="tab-stocks-btn" onclick="switchTab('stocks')" style="display:none;">📦 Mouvements de Stocks</button>
+    <button id="tab-stock-actuel-btn" onclick="switchTab('stock-actuel')" style="display:none;">📊 Stock Actuel</button>
+    <button id="tab-tableau-btn" onclick="switchTab('tableau')" style="display:none;">📊 Tableau de bord</button>
+    <button id="tab-admin-btn" onclick="switchTab('admin')" style="display:none;">⚙ Administration</button>
+    <button id="tab-notif-btn" onclick="switchTab('notif')" style="display:none;">🔔 Notifications <span id="notif-badge" style="display:none;background:#c0392b;color:#fff;border-radius:10px;padding:1px 7px;font-size:.7rem;margin-left:4px;">0</span></button>
+    <button id="tab-compta-btn" onclick="switchTab('compta')" style="display:none;">📒 Comptabilité</button>
+  </div>
+
+  <div class="main-content">
+
+    <!-- VENTES -->
+    <div class="tab-content active" id="tab-ventes">
+      <div class="pending-queue" id="pending-queue-box">
+        📤 <strong><span id="pq-count">0</span> transaction(s)</strong> en file d'attente hors ligne — synchronisation en cours dès retour internet.
+      </div>
+      <div class="card">
+        <div class="card-title">🧾 Enregistrer une vente</div>
+        <div class="form-row">
+          <div class="form-group" style="flex:2;min-width:200px;">
+            <label>Description des marchandises</label>
+            <select id="v-desc">
+              <option value="">-- Choisir un produit --</option>
+              <option value="7up">7up</option>
+              <option value="Beller">Beller</option>
+              <option value="Couronne">Couronne</option>
+              <option value="Culligan">Culligan</option>
+              <option value="Dassani">Dassani</option>
+              <option value="Frooty">Frooty</option>
+              <option value="Generade">Generade</option>
+              <option value="Gros Frutop">Gros Frutop</option>
+              <option value="Gros Valle">Gros Valle</option>
+              <option value="Heineken">Heineken</option>
+              <option value="Kinanm">Kinanm</option>
+              <option value="Koka">Koka</option>
+              <option value="Kola Real">Kola Real</option>
+              <option value="Prestige">Prestige</option>
+              <option value="Prorade">Prorade</option>
+              <option value="Sprite">Sprite</option>
+              <option value="Tampico">Tampico</option>
+              <option value="Ti Frutop">Ti Frutop</option>
+              <option value="Ti Valle">Ti Valle</option>
+            </select>
+          </div>
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label>Quantité</label>
+            <input type="number" id="v-qty" min="1" placeholder="Ex: 10" oninput="calcMontant()"/>
+          </div>
+          <div class="form-group">
+            <label>Unité</label>
+            <select id="v-unit" onchange="calcMontant()">
+              <option value="unité">Unité</option>
+              <option value="caisse">Caisse (24 unités)</option>
+              <option value="bout">Bout (12 unités)</option>
+              <option value="caisse 1/2">Caisse 1/2 (12 unités)</option>
+              <option value="caisse+3">1 Caisse et 3 unités</option>
+              <option value="caisse+6">1 Caisse et 6 unités</option>
+              <option value="bout+3">1 Bout et 3 unités</option>
+              <option value="bout+6">1 Bout et 6 unités</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label>Prix / Caisse (HTG)</label>
+            <input type="number" id="v-prix-caisse" min="0" step="0.01" placeholder="Ex: 1200.00" oninput="calcPrixUnitaire()"/>
+          </div>
+          <div class="form-group">
+            <label>Prix unitaire (HTG) — auto</label>
+            <input type="number" id="v-prix" min="0" step="0.01" placeholder="Ex: 50.00" oninput="calcMontant()" readonly style="background:#f0f2f7;"/>
+          </div>
+          <div class="form-group">
+            <label>Montant total (HTG) — automatique</label>
+            <input type="number" id="v-amount" min="0" step="0.01" placeholder="0.00" readonly style="background:#f0f2f7;font-weight:700;color:#1a56db;" oninput="calcBalance()"/>
+          </div>
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label>Paiement cash (Gourdes HTG)</label>
+            <input type="number" id="v-cash" min="0" step="0.01" placeholder="Ex: 300.00" oninput="calcBalance()"/>
+          </div>
+          <div class="form-group">
+            <label>Crédit par client (Gourdes HTG)</label>
+            <input type="number" id="v-credit" min="0" step="0.01" placeholder="Ex: 200.00" readonly style="background:#f0f2f7;"/>
+          </div>
+          <div class="form-group">
+            <label>Balance (HTG)</label>
+            <input type="number" id="v-balance" min="0" step="0.01" placeholder="0.00" readonly style="background:#f0f2f7;font-weight:700;color:#c0392b;"/>
+          </div>
+        </div>
+        <div class="form-row">
+          <div class="form-group" style="flex:2;min-width:200px;">
+            <label>Nom du client</label>
+            <input type="text" id="v-client" placeholder="Ex: Jean Pierre" autocomplete="off" list="vente-client-list" oninput="updateVenteClientList()"/>
+            <datalist id="vente-client-list"></datalist>
+          </div>
+        </div>
+        <button class="send-btn" onclick="submitSale()">Envoyer ➤</button>
+        <button class="btn btn-outline" style="margin-top:8px;font-size:.85rem;" onclick="corrigerDerniereVente()">✏️ Corriger dernière vente</button>
+      </div>
+      <div class="card">
+        <div class="card-title" id="my-sales-title">📋 Mes transactions du jour</div>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Date</th><th>Heure</th><th>Description</th><th>Qté</th><th>Unité</th><th>Prix unit.</th><th>Montant (HTG)</th><th>Cash (HTG)</th><th>Crédit (HTG)</th><th>Balance (HTG)</th><th>Client</th><th>Statut</th></tr></thead>
+            <tbody id="my-sales-body"><tr><td colspan="12" style="text-align:center;color:var(--text3);padding:1.5rem;">Aucune vente aujourd'hui.</td></tr></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- CREDIT CLIENT -->
+    <div class="tab-content" id="tab-credit">
+      <div class="card">
+        <div class="card-title">💳 Paiement Client — Remboursement de crédit</div>
+        <div class="form-row">
+          <div class="form-group" style="flex:2;min-width:200px;">
+            <label>Nom du client</label>
+            <input type="text" id="cr-client" placeholder="Ex: Jean Pierre" oninput="loadClientBalance();updateClientList()" autocomplete="off" list="client-list"/>
+            <datalist id="client-list"></datalist>
+          </div>
+          <div class="form-group">
+            <label>Balance dette du client (HTG)</label>
+            <input type="number" id="cr-balance-due" placeholder="0.00" readonly style="background:#fdecea;font-weight:700;color:#c0392b;"/>
+          </div>
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label>Montant remboursé (HTG)</label>
+            <input type="number" id="cr-paid" min="0" step="0.01" placeholder="Ex: 500.00" oninput="calcCreditBalance()"/>
+          </div>
+          <div class="form-group">
+            <label>Balance finale (HTG)</label>
+            <input type="number" id="cr-final" placeholder="0.00" readonly style="background:#f0f2f7;font-weight:700;color:#0f7b4f;"/>
+          </div>
+        </div>
+        <button class="send-btn" onclick="submitCredit()">Enregistrer paiement ➤</button>
+      </div>
+      <div class="card">
+        <div class="card-title">📋 Historique des crédits clients</div>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Date</th><th>Heure</th><th>Client</th><th>Balance dette</th><th>Montant remboursé</th><th>Balance finale</th><th>Statut</th><th>Actions</th></tr></thead>
+            <tbody id="credit-table-body"><tr><td colspan="9" style="text-align:center;color:var(--text3);padding:1.5rem;">Aucun paiement enregistré.</td></tr></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- LISTE DES DETTES -->
+    <div class="tab-content" id="tab-dettes">
+      <div class="card">
+        <div class="card-title">📋 Liste des clients avec balance de dettes</div>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Client</th><th>Total Dû (HTG)</th><th>Total Payé (HTG)</th><th>Balance Restante (HTG)</th><th>Statut</th></tr></thead>
+            <tbody id="dettes-table-body"><tr><td colspan="5" style="text-align:center;color:var(--text3);padding:1.5rem;">Aucune dette enregistrée.</td></tr></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- STOCK DE DEPART -->
+    <div class="tab-content" id="tab-stock-depart">
+      <div class="card">
+        <div class="card-title">🏁 Enregistrer le stock de départ</div>
+        <div class="form-row">
+          <div class="form-group" style="flex:2;min-width:200px;">
+            <label>Produit</label>
+            <select id="sd-desc">
+              <option value="">-- Choisir un produit --</option>
+              <option value="7up">7up</option>
+              <option value="Beller">Beller</option>
+              <option value="Couronne">Couronne</option>
+              <option value="Culligan">Culligan</option>
+              <option value="Dassani">Dassani</option>
+              <option value="Frooty">Frooty</option>
+              <option value="Generade">Generade</option>
+              <option value="Gros Frutop">Gros Frutop</option>
+              <option value="Gros Valle">Gros Valle</option>
+              <option value="Heineken">Heineken</option>
+              <option value="Kinanm">Kinanm</option>
+              <option value="Koka">Koka</option>
+              <option value="Kola Real">Kola Real</option>
+              <option value="Prestige">Prestige</option>
+              <option value="Prorade">Prorade</option>
+              <option value="Sprite">Sprite</option>
+              <option value="Tampico">Tampico</option>
+              <option value="Ti Frutop">Ti Frutop</option>
+              <option value="Ti Valle">Ti Valle</option>
+            </select>
+          </div>
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label>Quantité (caisses)</label>
+            <input type="number" id="sd-qty" min="0" placeholder="Ex: 10"/>
+          </div>
+          <div class="form-group">
+            <label>Prix / Caisse (HTG)</label>
+            <input type="number" id="sd-prix" min="0" step="0.01" placeholder="Ex: 1200.00"/>
+          </div>
+          <div class="form-group">
+            <label>Date</label>
+            <input type="date" id="sd-date"/>
+          </div>
+        </div>
+        <button class="send-btn" onclick="submitStockDepart()">Enregistrer ➤</button>
+      </div>
+      <div class="card">
+        <div class="card-title">📋 Historique du stock de départ</div>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Date</th><th>Produit</th><th>Qté (caisses)</th><th>Prix/Caisse</th><th>Valeur totale</th></tr></thead>
+            <tbody id="stock-depart-body"><tr><td colspan="5" style="text-align:center;color:var(--text3);padding:1.5rem;">Aucun stock de départ enregistré.</td></tr></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- STOCKS (Mouvements) -->
+    <div class="tab-content" id="tab-stocks">
+      <div class="card">
+        <div class="card-title">📥 Entrée de stock</div>
+        <div class="form-row">
+          <div class="form-group" style="flex:2;min-width:200px;">
+            <label>Produit</label>
+            <select id="s-desc">
+              <option value="">-- Choisir un produit --</option>
+              <option value="7up">7up</option>
+              <option value="Beller">Beller</option>
+              <option value="Couronne">Couronne</option>
+              <option value="Culligan">Culligan</option>
+              <option value="Dassani">Dassani</option>
+              <option value="Frooty">Frooty</option>
+              <option value="Generade">Generade</option>
+              <option value="Gros Frutop">Gros Frutop</option>
+              <option value="Gros Valle">Gros Valle</option>
+              <option value="Heineken">Heineken</option>
+              <option value="Kinanm">Kinanm</option>
+              <option value="Koka">Koka</option>
+              <option value="Kola Real">Kola Real</option>
+              <option value="Prestige">Prestige</option>
+              <option value="Prorade">Prorade</option>
+              <option value="Sprite">Sprite</option>
+              <option value="Tampico">Tampico</option>
+              <option value="Ti Frutop">Ti Frutop</option>
+              <option value="Ti Valle">Ti Valle</option>
+            </select>
+          </div>
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label>Quantité reçue</label>
+            <input type="number" id="s-qty" min="1" placeholder="Ex: 10" oninput="calcStockQty()"/>
+          </div>
+          <div class="form-group">
+            <label>Unité principale</label>
+            <select id="s-unit" onchange="calcStockQty()">
+              <option value="caisse">Caisse</option>
+              <option value="bout">Bout</option>
+              <option value="unite">Unité</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label>+ Unités supplémentaires</label>
+            <input type="number" id="s-extra-units" min="0" placeholder="Ex: 3" oninput="calcStockQty()"/>
+          </div>
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label>Total en caisses (calculé)</label>
+            <input type="number" id="s-qty-caisses" step="0.01" readonly style="background:#f0f2f7;font-weight:700;color:#1a56db;"/>
+          </div>
+          <div class="form-group">
+            <label>Prix / Caisse (HTG)</label>
+            <input type="number" id="s-price" min="0" step="0.01" placeholder="Ex: 1200.00"/>
+          </div>
+          <div class="form-group">
+            <label>Fournisseur</label>
+            <input type="text" id="s-supplier" placeholder="Ex: Marché central"/>
+          </div>
+        </div>
+        <button class="send-btn" onclick="submitStock()">Enregistrer ➤</button>
+      </div>
+      <div class="metrics-grid" style="margin-top:0;">
+        <div class="metric-card success">
+          <div class="label">Valeur totale du stock</div>
+          <div class="value" id="stock-value">0 HTG</div>
+          <div class="sub">En temps réel</div>
+        </div>
+        <div class="metric-card accent">
+          <div class="label">Entrées enregistrées</div>
+          <div class="value" id="stock-items">0</div>
+          <div class="sub">Mouvements de stock</div>
+        </div>
+      </div>
+      <div class="card">
+        <div class="card-title">📦 Historique des mouvements de stock (Entrées et Sorties)</div>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Date</th><th>Type</th><th>Produit</th><th>Qté (caisses)</th><th>Prix/Caisse</th><th>Valeur</th><th>Fournisseur/Client</th></tr></thead>
+            <tbody id="stock-table-body"><tr><td colspan="7" style="text-align:center;color:var(--text3);padding:1.5rem;">Aucun mouvement.</td></tr></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- STOCK ACTUEL -->
+    <div class="tab-content" id="tab-stock-actuel">
+      <div class="card">
+        <div class="card-title">📊 Stock Actuel par Produit</div>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Produit</th><th>Stock départ</th><th>Entrées</th><th>Sorties</th><th>Stock actuel</th><th>Prix/Caisse</th><th>Valeur (HTG)</th></tr></thead>
+            <tbody id="stock-actuel-body"><tr><td colspan="5" style="text-align:center;color:var(--text3);padding:1.5rem;">Aucune donnée disponible.</td></tr></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- TABLEAU DE BORD -->
+    <div class="tab-content" id="tab-tableau">
+      <div class="metrics-grid">
+        <div class="metric-card accent">
+          <div class="label">Ventes du jour</div>
+          <div class="value" id="dash-today">0 HTG</div>
+          <div class="sub" id="dash-today-qty">0 transactions</div>
+        </div>
+        <div class="metric-card success">
+          <div class="label">Ventes du mois</div>
+          <div class="value" id="dash-month">0 HTG</div>
+          <div class="sub" id="dash-month-qty">0 transactions</div>
+        </div>
+        <div class="metric-card">
+          <div class="label">Valeur du stock</div>
+          <div class="value" id="dash-stock">0 HTG</div>
+          <div class="sub">Actuel</div>
+        </div>
+        <div class="metric-card">
+          <div class="label">Quantités vendues</div>
+          <div class="value" id="dash-qty-sold">0</div>
+          <div class="sub">Ce mois</div>
+        </div>
+      </div>
+      <div class="card">
+        <div class="card-title">📋 Toutes les transactions</div>
+        <div style="display:flex;gap:8px;margin-bottom:.8rem;flex-wrap:wrap;">
+          <input type="date" id="filter-date" style="padding:5px 8px;border:1.5px solid var(--border);border-radius:7px;font-size:.85rem;" oninput="filterTransactions()"/>
+          <button class="btn btn-outline" style="font-size:.82rem;padding:5px 12px;" onclick="clearFilter()">Tout afficher</button>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Date</th><th>Heure</th><th>Vendeur</th><th>Description</th><th>Qté</th><th>Montant (HTG)</th><th>Cash (HTG)</th><th>Crédit (HTG)</th><th>Balance (HTG)</th><th>Client</th><th>Type</th></tr></thead>
+            <tbody id="all-trans-body"><tr><td colspan="11" style="text-align:center;color:var(--text3);padding:1.5rem;">Aucune transaction.</td></tr></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- NOTIFICATIONS -->
+    <div class="tab-content" id="tab-notif">
+      <div class="card">
+        <div class="card-title">🔔 Notifications — Actions du Gestionnaire</div>
+        <div style="display:flex;gap:8px;margin-bottom:.8rem;">
+          <button class="btn btn-outline" style="font-size:.82rem;padding:5px 12px;" onclick="clearNotifications()">🗑 Effacer tout</button>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Date</th><th>Heure</th><th>Utilisateur</th><th>Action</th><th>Détails</th><th>Statut</th></tr></thead>
+            <tbody id="notif-table-body"><tr><td colspan="6" style="text-align:center;color:var(--text3);padding:1.5rem;">Aucune notification.</td></tr></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- ADMIN -->
+    <div class="tab-content" id="tab-admin">
+      <div class="card">
+        <div class="section-title">
+          👥 Gestion des utilisateurs
+          <button class="btn btn-primary" style="font-size:.82rem;padding:5px 14px;width:auto;" onclick="showAddUserModal()">+ Ajouter</button>
+        </div>
+        <div id="users-list"></div>
+      </div>
+      <div class="card">
+        <div class="section-title">✏ Corriger / Supprimer une transaction</div>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Date</th><th>Heure</th><th>Vendeur</th><th>Description</th><th>Qté</th><th>Montant</th><th>Actions</th></tr></thead>
+            <tbody id="admin-trans-body"><tr><td colspan="7" style="text-align:center;color:var(--text3);padding:1.5rem;">Aucune transaction.</td></tr></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- COMPTABILITÉ -->
+    <div class="tab-content" id="tab-compta">
+      <div class="accounting-tabs">
+        <button class="acc-tab active" onclick="switchAccTab('transactions',this)">Transactions</button>
+        <button class="acc-tab" onclick="switchAccTab('journal',this)">Journal général</button>
+        <button class="acc-tab" onclick="switchAccTab('grandlivre',this)">Grand livre</button>
+        <button class="acc-tab" onclick="switchAccTab('balance',this)">Balance</button>
+        <button class="acc-tab" onclick="switchAccTab('bilan',this)">Bilan</button>
+        <button class="acc-tab" onclick="switchAccTab('analyse',this)">Analyse financière</button>
+      </div>
+      <div style="display:flex;gap:8px;margin-bottom:1rem;flex-wrap:wrap;">
+        <button class="btn btn-success" onclick="exportAllToExcel()">📥 Exporter en Excel</button>
+        <button class="btn btn-outline" onclick="refreshAccounting()">🔄 Actualiser</button>
+      </div>
+      <div class="acc-sheet active" id="acc-transactions">
+        <div class="card">
+          <div class="card-title">📋 Feuille de transactions cumulatives</div>
+          <div class="table-wrap"><table>
+            <thead><tr><th>#</th><th>Date</th><th>Heure</th><th>Vendeur</th><th>Description</th><th>Qté</th><th>Montant HTG</th><th>Type</th><th>Cumul ventes</th></tr></thead>
+            <tbody id="sheet-trans-body"></tbody>
+            <tfoot><tr><td colspan="6" style="font-weight:700;padding:7px 10px;">Total</td><td id="trans-total" style="font-weight:700;padding:7px 10px;"></td><td colspan="2"></td></tr></tfoot>
+          </table></div>
+        </div>
+      </div>
+      <div class="acc-sheet" id="acc-journal">
+        <div class="card">
+          <div class="card-title">📖 Journal général</div>
+          <div class="table-wrap"><table>
+            <thead><tr><th>Date</th><th>N° Pièce</th><th>Compte débiteur</th><th>Compte créditeur</th><th>Libellé</th><th>Débit HTG</th><th>Crédit HTG</th></tr></thead>
+            <tbody id="journal-body"></tbody>
+            <tfoot><tr><td colspan="5" style="font-weight:700;padding:7px 10px;">Totaux</td><td id="journal-debit" style="font-weight:700;padding:7px 10px;"></td><td id="journal-credit" style="font-weight:700;padding:7px 10px;"></td></tr></tfoot>
+          </table></div>
+        </div>
+      </div>
+      <div class="acc-sheet" id="acc-grandlivre">
+        <div class="card"><div class="card-title">📚 Grand livre</div><div id="grandlivre-content"></div></div>
+      </div>
+      <div class="acc-sheet" id="acc-balance">
+        <div class="card">
+          <div class="card-title">⚖ Balance de vérification</div>
+          <div class="table-wrap"><table>
+            <thead><tr><th>N° Compte</th><th>Intitulé</th><th>Débit HTG</th><th>Crédit HTG</th></tr></thead>
+            <tbody id="balance-body"></tbody>
+            <tfoot><tr><td colspan="2" style="font-weight:700;padding:7px 10px;">Totaux</td><td id="bal-debit" style="font-weight:700;padding:7px 10px;"></td><td id="bal-credit" style="font-weight:700;padding:7px 10px;"></td></tr></tfoot>
+          </table></div>
+        </div>
+      </div>
+      <div class="acc-sheet" id="acc-bilan">
+        <div class="card">
+          <div class="card-title">🏦 Bilan</div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:1rem;" id="bilan-content"></div>
+        </div>
+      </div>
+      <div class="acc-sheet" id="acc-analyse">
+        <div class="card"><div class="card-title">📈 Analyse financière</div><div id="analyse-content"></div></div>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<!-- MODALS -->
+<div class="edit-modal-bg" id="edit-modal-bg">
+  <div class="edit-modal">
+    <h3>✏ Modifier la transaction</h3>
+    <input type="hidden" id="edit-id"/>
+    <div class="form-group"><label>Description</label><textarea id="edit-desc"></textarea></div>
+    <div class="form-row">
+      <div class="form-group"><label>Quantité</label><input type="number" id="edit-qty"/></div>
+      <div class="form-group"><label>Montant (HTG)</label><input type="number" id="edit-amount" step="0.01"/></div>
+    </div>
+    <div style="display:flex;gap:8px;margin-top:.8rem;">
+      <button class="btn btn-primary" onclick="saveEdit()" style="flex:1;">Sauvegarder</button>
+      <button class="btn btn-outline" onclick="closeEditModal()" style="flex:1;">Annuler</button>
+    </div>
+  </div>
+</div>
+
+<div class="edit-modal-bg" id="add-user-modal-bg">
+  <div class="edit-modal">
+    <h3>👤 Ajouter un utilisateur</h3>
+    <div class="form-group"><label>Nom d'utilisateur</label><input type="text" id="new-username" placeholder="vendeur01"/></div>
+    <div class="form-group"><label>Mot de passe</label><input type="password" id="new-password" placeholder="••••••••"/></div>
+    <div class="form-group"><label>Rôle</label>
+      <select id="new-role">
+        <option value="vendeur">Vendeur</option>
+        <option value="gestionnaire">Gestionnaire</option>
+        <option value="admin">Administrateur</option>
+      </select>
+    </div>
+    <div style="display:flex;gap:8px;margin-top:.8rem;">
+      <button class="btn btn-primary" onclick="addUser()" style="flex:1;">Ajouter</button>
+      <button class="btn btn-outline" onclick="closeAddUserModal()" style="flex:1;">Annuler</button>
+    </div>
+    <div class="auth-err" id="add-user-err"></div>
+  </div>
+</div>
+
+<div id="toast"></div>
+
+<script>
+// ============================================================
+// STATE (localStorage + Firebase)
+// ============================================================
+let _hasUnsavedChanges = false;
+
+function markUnsaved() {
+  _hasUnsavedChanges = true;
+  // Afficher indicateur visuel
+  const indicator = document.getElementById('unsaved-indicator');
+  if (indicator) indicator.style.display = 'inline-block';
+}
+
+function markSaved() {
+  _hasUnsavedChanges = false;
+  const indicator = document.getElementById('unsaved-indicator');
+  if (indicator) indicator.style.display = 'none';
+}
+
+// Bloquer la fermeture/navigation si modifications non sauvegardées
+window.addEventListener('beforeunload', function(e) {
+  if (_hasUnsavedChanges) {
+    e.preventDefault();
+    e.returnValue = 'Vous avez des modifications non sauvegardées. Voulez-vous vraiment quitter ?';
+    return e.returnValue;
+  }
+});
+
+let STATE = {
+  users: [
+    {username:'admin', password:'bwadmin2024', role:'admin'},
+    {username:'gestionnaire', password:'bwgest2024', role:'gestionnaire'},
+    {username:'vendeur01', password:'bwvente2024', role:'vendeur'},
+    {username:'vendeur02', password:'bwvente2025', role:'vendeur'},
+    {username:'vendeur03', password:'bwvente2026', role:'vendeur'}
+  ],
+  transactions: [],   // synced from Firestore
+  stocks: [],         // synced from Firestore
+  pendingQueue: [],   // offline queue
+  currentUser: null,
+  isOnline: navigator.onLine,
+  fbReady: false
+};
+
+let currentTab = 'ventes';
+let currentAccTab = 'transactions';
+let unsubTrans = null, unsubStocks = null, unsubUsers = null;
+
+function loadLocal() {
+  try {
+    const s = localStorage.getItem('bw_local');
+    if (s) {
+      const p = JSON.parse(s);
+      if (p.users) STATE.users = p.users;
+      if (p.pendingQueue) STATE.pendingQueue = p.pendingQueue;
+    }
+  } catch(e){}
+}
+function saveLocal() {
+  try {
+    localStorage.setItem('bw_local', JSON.stringify({
+      users: STATE.users,
+      pendingQueue: STATE.pendingQueue
+    }));
+  } catch(e){}
+}
+
+loadLocal();
+
+// ============================================================
+// FIREBASE LISTENERS
+// ============================================================
+let unsubCredits = null, unsubStockDepart = null;
+
+function startFirebaseListeners() {
+  if (!window._fbReady || !window._db) return;
+  const {collection, onSnapshot, query, orderBy} = window._fbFns;
+  const db = window._db;
+
+  // TRANSACTIONS - Synchronisation globale (tous appareils, tous utilisateurs)
+  if (unsubTrans) unsubTrans();
+  unsubTrans = onSnapshot(
+    query(collection(db, 'transactions'), orderBy('isoDate','desc'), orderBy('time','desc')),
+    snap => {
+      STATE.transactions = snap.docs.map(d => ({id: d.id, ...d.data()}));
+      // Mettre à jour TOUS les affichages
+      renderMySales();
+      renderDashboard();
+      renderStocks();
+      renderStockActuel();
+      if (currentTab === 'compta') refreshAccounting();
+      if (currentTab === 'admin') renderAdminTrans();
+    },
+    err => console.error('Trans listener:', err)
+  );
+
+  // STOCKS - Synchronisation globale
+  if (unsubStocks) unsubStocks();
+  unsubStocks = onSnapshot(
+    query(collection(db, 'stocks'), orderBy('isoDate','desc')),
+    snap => {
+      STATE.stocks = snap.docs.map(d => ({id: d.id, ...d.data()}));
+      renderStocks();
+      renderDashboard();
+      renderStockActuel();
+    },
+    err => console.error('Stock listener:', err)
+  );
+
+  // CREDITS - Synchronisation globale
+  if (unsubCredits) unsubCredits();
+  unsubCredits = onSnapshot(
+    query(collection(db, 'credits'), orderBy('isoDate','desc')),
+    snap => {
+      STATE.credits = snap.docs.map(d => ({id: d.id, ...d.data()}));
+      renderCredits();
+      renderDettes();
+      renderMySales();
+    },
+    err => console.error('Credits listener:', err)
+  );
+
+  // STOCK DEPART - Synchronisation globale
+  if (unsubStockDepart) unsubStockDepart();
+  unsubStockDepart = onSnapshot(
+    query(collection(db, 'stock_depart'), orderBy('isoDate','desc')),
+    snap => {
+      STATE.stockDepart = snap.docs.map(d => ({id: d.id, ...d.data()}));
+      if (currentTab === 'stock-depart') renderStockDepart();
+      renderStockActuel();
+    },
+    err => console.error('StockDepart listener:', err)
+  );
+
+  // USERS - Synchronisation globale
+  if (unsubUsers) unsubUsers();
+  unsubUsers = onSnapshot(collection(db, 'users'), snap => {
+    if (!snap.empty) {
+      const fbUsers = snap.docs.map(d => ({id: d.id, ...d.data()}));
+      const base = STATE.users.filter(u => u.role === 'admin' && u.username === 'admin');
+      const extra = fbUsers.filter(u => !base.find(b => b.username === u.username));
+      STATE.users = [...base, ...extra];
+      saveLocal();
+      if (currentTab === 'admin') renderUsers();
+    }
+  }, err => console.error('Users listener:', err));
+
+  STATE.fbReady = true;
+  document.getElementById('fb-banner').classList.add('show');
+  showToast('🔥 Firebase connecté — synchronisation globale activée sur tous les appareils.');
+  markSaved();
+
+  // Flush pending queue
+  flushPendingQueue();
+}
+
+window.addEventListener('fb-ready', () => {
+  startFirebaseListeners();
+});
+if (window._fbReady) startFirebaseListeners();
+
+// ============================================================
+// CONNECTIVITY
+// ============================================================
+function updateConnStatus() {
+  STATE.isOnline = navigator.onLine;
+  const dot = document.getElementById('conn-status');
+  const lbl = document.getElementById('conn-label');
+  const banner = document.getElementById('offline-banner');
+  if (STATE.isOnline) {
+    dot.className = 'status-dot online';
+    lbl.textContent = 'En ligne';
+    banner.classList.remove('show');
+    flushPendingQueue();
+  } else {
+    dot.className = 'status-dot';
+    lbl.textContent = 'Hors ligne';
+    banner.classList.add('show');
+    document.getElementById('fb-banner').classList.remove('show');
+  }
+  updatePendingUI();
+}
+window.addEventListener('online', updateConnStatus);
+window.addEventListener('offline', updateConnStatus);
+setTimeout(updateConnStatus, 500);
+
+function updatePendingUI() {
+  const c = STATE.pendingQueue.length;
+  const box = document.getElementById('pending-queue-box');
+  if (c > 0) box.classList.add('show'); else box.classList.remove('show');
+  const pqc = document.getElementById('pq-count');
+  const pc = document.getElementById('pending-count');
+  if (pqc) pqc.textContent = c;
+  if (pc) pc.textContent = c;
+}
+
+async function flushPendingQueue() {
+  if (!STATE.isOnline || !STATE.fbReady || STATE.pendingQueue.length === 0) return;
+  const {collection, addDoc} = window._fbFns;
+  const db = window._db;
+  const toFlush = [...STATE.pendingQueue];
+  STATE.pendingQueue = [];
+  saveLocal();
+  let count = 0;
+  for (const item of toFlush) {
+    try {
+      const col = item.type === 'vente' ? 'transactions' : 'stocks';
+      delete item.id;
+      await addDoc(collection(db, col), item);
+      count++;
+    } catch(e) {
+      STATE.pendingQueue.push(item);
+    }
+  }
+  saveLocal();
+  updatePendingUI();
+  if (count > 0) showToast(`✅ ${count} transaction(s) synchronisée(s) avec Firebase.`);
+}
+
+// ============================================================
+// AUTH
+// ============================================================
+function doLogin() {
+  const u = document.getElementById('login-user').value.trim();
+  const p = document.getElementById('login-pass').value;
+  const user = STATE.users.find(x => x.username === u && x.password === p);
+  if (!user) { document.getElementById('auth-err').textContent = 'Identifiants incorrects.'; return; }
+  STATE.currentUser = user;
+  document.getElementById('auth-screen').style.display = 'none';
+  document.getElementById('app').style.display = 'flex';
+  document.getElementById('app').style.flexDirection = 'column';
+  document.getElementById('top-username').textContent = user.username;
+  document.getElementById('top-avatar').textContent = user.username[0].toUpperCase();
+  if (user.role === 'admin' || user.role === 'gestionnaire') {
+    // Admin voit tout + Notifications
+    document.getElementById('tab-admin-btn').style.display = user.role === 'admin' ? 'block' : 'none';
+    document.getElementById('tab-notif-btn').style.display = user.role === 'admin' ? 'block' : 'none';
+    document.getElementById('btn-export-drive').style.display = user.role === 'admin' ? 'block' : 'none';
+    document.getElementById('tab-compta-btn').style.display = 'block';
+    document.getElementById('tab-stock-depart-btn').style.display = 'block';
+    document.getElementById('tab-stocks-btn').style.display = 'block';
+    document.getElementById('tab-stock-actuel-btn').style.display = 'block';
+    document.getElementById('tab-tableau-btn').style.display = 'block';
+    document.getElementById('tab-credit-btn').style.display = 'block';
+    document.getElementById('tab-dettes-btn').style.display = 'block';
+  } else {
+    // Vendeur : onglets Ventes, Crédit Client, Liste des Dettes
+    document.getElementById('tab-admin-btn').style.display = 'none';
+    document.getElementById('tab-notif-btn').style.display = 'none';
+    document.getElementById('tab-compta-btn').style.display = 'none';
+    document.getElementById('tab-stock-depart-btn').style.display = 'none';
+    document.getElementById('tab-stocks-btn').style.display = 'none';
+    document.getElementById('tab-stock-actuel-btn').style.display = 'none';
+    document.getElementById('tab-tableau-btn').style.display = 'none';
+    document.getElementById('tab-credit-btn').style.display = 'block';
+    document.getElementById('tab-dettes-btn').style.display = 'block';
+  }
+  updateConnStatus();
+  renderAll();
+  renderUsers();
+  // Mettre à jour le titre des transactions selon le rôle
+  const titleEl = document.getElementById('my-sales-title');
+  if (titleEl) {
+    if (user.role === 'admin' || user.role === 'gestionnaire') {
+      titleEl.textContent = '📋 Toutes les transactions (tous vendeurs)';
+    } else {
+      titleEl.textContent = '📋 Mes transactions du jour';
+    }
+  }
+}
+async function saveAllData() {
+  if (!STATE.isOnline || !STATE.fbReady) {
+    showToast('⚠ Hors ligne — impossible de sauvegarder maintenant.','warn');
+    return;
+  }
+  // Envoyer la file d'attente si elle existe
+  if (STATE.pendingQueue.length > 0) {
+    await flushPendingQueue();
+  }
+  markSaved();
+  showToast('✅ Toutes les données sont sauvegardées sur Firebase.');
+}
+
+function doLogout() {
+  if (_hasUnsavedChanges) {
+    const confirm = window.confirm('⚠ Vous avez des modifications non sauvegardées. Voulez-vous sauvegarder avant de quitter ?');
+    if (confirm) {
+      saveAllData().then(() => {
+        performLogout();
+      });
+      return;
+    }
+  }
+  performLogout();
+}
+
+function performLogout() {
+  if (unsubTrans) unsubTrans();
+  if (unsubStocks) unsubStocks();
+  if (unsubUsers) unsubUsers();
+  if (unsubCredits) unsubCredits();
+  if (unsubStockDepart) unsubStockDepart();
+  STATE.currentUser = null;
+  document.getElementById('auth-screen').style.display = 'flex';
+  document.getElementById('app').style.display = 'none';
+  document.getElementById('login-user').value = '';
+  document.getElementById('login-pass').value = '';
+  document.getElementById('auth-err').textContent = '';
+  document.getElementById('tab-admin-btn').style.display = 'none';
+  document.getElementById('tab-compta-btn').style.display = 'none';
+  document.getElementById('tab-stocks-btn').style.display = 'none';
+  document.getElementById('tab-tableau-btn').style.display = 'none';
+  document.getElementById('fb-banner').classList.remove('show');
+}
+document.getElementById('login-pass').addEventListener('keydown', e => { if (e.key==='Enter') doLogin(); });
+
+// ============================================================
+// TABS
+// ============================================================
+function switchTab(tab) {
+  currentTab = tab;
+  document.querySelectorAll('.tab-content').forEach(el => el.classList.remove('active'));
+  document.querySelectorAll('.tabs button').forEach(el => el.classList.remove('active'));
+  document.getElementById('tab-'+tab).classList.add('active');
+  const names = ['ventes','credit','stocks','tableau','admin','compta'];
+  document.querySelectorAll('.tabs button').forEach((b,i) => { if(names[i]===tab) b.classList.add('active'); });
+  if (tab==='compta') refreshAccounting();
+  if (tab==='admin') { renderAdminTrans(); renderUsers(); }
+  if (tab==='tableau') renderDashboard();
+  if (tab==='stocks') renderStocks();
+  if (tab==='credit') renderCredits();
+  if (tab==='dettes') renderDettes();
+  if (tab==='stock-depart') renderStockDepart();
+  if (tab==='stock-actuel') renderStockActuel();
+  if (tab==='notif') renderNotifications();
+  if (tab==='ventes') { renderMySales(); }
+}
+function switchAccTab(name, btn) {
+  currentAccTab = name;
+  document.querySelectorAll('.acc-tab').forEach(el => el.classList.remove('active'));
+  document.querySelectorAll('.acc-sheet').forEach(el => el.classList.remove('active'));
+  document.getElementById('acc-'+name).classList.add('active');
+  if (btn) btn.classList.add('active');
+  refreshAccounting();
+}
+
+// ============================================================
+// HELPERS
+// ============================================================
+function todayStr() { return new Date().toLocaleDateString('fr-FR'); }
+function isoDate() { return new Date().toISOString().split('T')[0]; }
+function nowStr() { return new Date().toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit',second:'2-digit'}); }
+function fmtHTG(n) {
+  if (isNaN(n)||n===undefined) return '0 HTG';
+  return n.toLocaleString('fr-FR',{minimumFractionDigits:2,maximumFractionDigits:2})+' HTG';
+}
+function esc(str) { return String(str||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+function showToast(msg, type) {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.style.background = type==='warn'?'#b45309':'#1a3a8a';
+  t.classList.add('show');
+  setTimeout(()=>t.classList.remove('show'), 3500);
+}
+
+// ============================================================
+// SALES
+// ============================================================
+function calcPrixUnitaire() {
+  const prixCaisse = parseFloat(document.getElementById('v-prix-caisse').value) || 0;
+  const produit = document.getElementById('v-desc').value;
+  const isBeller = (produit||'').toLowerCase().includes('beller');
+  const casseSize = isBeller ? 48 : 24;
+  // Prix unitaire = prix caisse / nombre d'unités dans une caisse
+  const prixUnit = prixCaisse > 0 ? prixCaisse / casseSize : 0;
+  document.getElementById('v-prix').value = prixUnit.toFixed(2);
+  calcMontant();
+}
+
+function calcMontant() {
+  const qty = parseFloat(document.getElementById('v-qty').value) || 0;
+  const prixCaisse = parseFloat(document.getElementById('v-prix-caisse').value) || 0;
+  const prixUnit = parseFloat(document.getElementById('v-prix').value) || 0;
+  const unit = document.getElementById('v-unit').value;
+  const produit = document.getElementById('v-desc').value;
+  const isBeller = (produit||'').toLowerCase().includes('beller');
+  const casseSize = isBeller ? 48 : 24;
+  const boutSize = casseSize / 2;
+
+  let montant = 0;
+
+  // Règles de calcul:
+  // - caisse ou bout : quantite × prix caisse HTG
+  // - caisse+X ou bout+X : (quantite × prix caisse) + (X unites × prix unitaire)
+  // - unité seule : quantite × prix unitaire
+
+  switch(unit) {
+    case 'caisse':
+      // Quantité × Prix caisse
+      montant = qty * prixCaisse;
+      break;
+    case 'bout':
+    case 'caisse 1/2':
+      // Quantité × Prix bout (= prix caisse / 2)
+      montant = qty * (prixCaisse / 2);
+      break;
+    case 'caisse+3':
+      // (Quantité × Prix caisse) + (3 × Prix unitaire)
+      montant = (qty * prixCaisse) + (3 * prixUnit);
+      break;
+    case 'caisse+6':
+      montant = (qty * prixCaisse) + (6 * prixUnit);
+      break;
+    case 'bout+3':
+      montant = (qty * (prixCaisse / 2)) + (3 * prixUnit);
+      break;
+    case 'bout+6':
+      montant = (qty * (prixCaisse / 2)) + (6 * prixUnit);
+      break;
+    case 'unité':
+    default:
+      // Quantité × Prix unitaire
+      montant = qty * prixUnit;
+      break;
+  }
+
+  document.getElementById('v-amount').value = montant.toFixed(2);
+  calcBalance();
+}
+
+async function corrigerDerniereVente() {
+  // Trouver la dernière vente du vendeur connecté
+  const myVentes = STATE.transactions.filter(t => t.type==='vente' && t.seller===STATE.currentUser.username)
+    .sort((a,b) => (b.isoDate||'').localeCompare(a.isoDate||'')||(b.time||'').localeCompare(a.time||''));
+  if (!myVentes.length) { showToast('⚠ Aucune vente à corriger.','warn'); return; }
+  const last = myVentes[0];
+  // Pré-remplir le formulaire avec la dernière vente
+  document.getElementById('v-desc').value = last.description || '';
+  document.getElementById('v-qty').value = last.quantity || '';
+  document.getElementById('v-unit').value = last.unit || 'unité';
+  document.getElementById('v-prix').value = last.unitPrice || '';
+  document.getElementById('v-amount').value = last.amount || '';
+  document.getElementById('v-cash').value = last.cash || '';
+  document.getElementById('v-credit').value = last.credit || '';
+  document.getElementById('v-balance').value = last.balance || '';
+  document.getElementById('v-client').value = last.client || '';
+  // Supprimer la dernière vente pour la remplacer
+  if (STATE.isOnline && STATE.fbReady && last.id) {
+    try {
+      const {doc, deleteDoc} = window._fbFns;
+      await deleteDoc(doc(window._db,'transactions',last.id));
+      showToast('✏️ Dernière vente chargée — corrigez et renvoyez.');
+    } catch(e) { showToast('⚠ Erreur: '+e.message,'warn'); }
+  }
+}
+
+function calcBalance() {
+  const amount = parseFloat(document.getElementById('v-amount').value) || 0;
+  const cash = parseFloat(document.getElementById('v-cash').value) || 0;
+  const balance = amount - cash;
+  const bal = balance >= 0 ? balance.toFixed(2) : '0.00';
+  document.getElementById('v-balance').value = bal;
+  document.getElementById('v-credit').value = bal;
+}
+
+function updateVenteClientList() {
+  const input = document.getElementById('v-client').value.trim().toLowerCase();
+  const datalist = document.getElementById('vente-client-list');
+  if (!datalist) return;
+  const clients = new Set();
+  (STATE.transactions||[]).forEach(t => { if(t.client) clients.add(t.client); });
+  (STATE.credits||[]).forEach(c => { if(c.client) clients.add(c.client); });
+  datalist.innerHTML = [...clients]
+    .filter(c => c.toLowerCase().includes(input))
+    .map(c => `<option value="${esc(c)}">`).join('');
+}
+
+async function submitSale() {
+  const desc = document.getElementById('v-desc').value.trim();
+  const qty = parseFloat(document.getElementById('v-qty').value);
+  const unit = document.getElementById('v-unit').value;
+  const amount = parseFloat(document.getElementById('v-amount').value);
+  const cash = parseFloat(document.getElementById('v-cash').value) || 0;
+  const balance = parseFloat(document.getElementById('v-balance').value) || 0;
+  const client = document.getElementById('v-client').value.trim();
+  const prix = parseFloat(document.getElementById('v-prix').value) || 0;
+  const clientCheck = document.getElementById('v-client').value.trim();
+  if (!desc||isNaN(qty)||qty<=0||prix<=0||isNaN(amount)||amount<=0) {
+    showToast('⚠ Veuillez remplir tous les champs obligatoires (produit, quantité, prix, montant).','warn'); return;
+  }
+  if (balance > 0 && !client) {
+    showToast('⚠ Le nom du client est obligatoire pour une vente à crédit.','warn'); return;
+  }
+  const tx = {
+    type:'vente', date:todayStr(), isoDate:isoDate(), time:nowStr(),
+    seller:STATE.currentUser.username, description:desc, unit:unit||'unité',
+    quantity:qty, unitPrice:prix, prixCaisse:parseFloat(document.getElementById('v-prix-caisse').value)||0, amount:amount, cash:cash, credit:balance, balance:balance,
+    client:client||'', status:'sent', createdAt: new Date().toISOString()
+  };
+  // Si vente à crédit (balance > 0), auto-créer une entrée dans credits
+  if (balance > 0 && client) {
+    const cr = {
+      type:'credit', date:todayStr(), isoDate:isoDate(), time:nowStr(),
+      seller:STATE.currentUser.username, client:client, due:balance, paid:0, finalBalance:balance,
+      status:'partiel', source:'vente', createdAt: new Date().toISOString()
+    };
+    if (STATE.isOnline && STATE.fbReady) {
+      try {
+        const {collection, addDoc} = window._fbFns;
+        await addDoc(collection(window._db,'credits'), cr);
+      } catch(e) { console.error('Credit auto:', e); }
+    } else {
+      if (!STATE.credits) STATE.credits = [];
+      STATE.credits.push(cr);
+    }
+  }
+  if (STATE.isOnline && STATE.fbReady) {
+    try {
+      const {collection, addDoc} = window._fbFns;
+      await addDoc(collection(window._db,'transactions'), tx);
+      showToast('✅ Vente transmise en temps réel sur Firebase / bwmultiservice07@gmail.com');
+    } catch(e) {
+      STATE.pendingQueue.push({...tx, status:'pending'});
+      saveLocal();
+      showToast('⚠ Erreur Firebase — transaction en file d\'attente.','warn');
+    }
+  } else {
+    tx.status = 'pending';
+    STATE.pendingQueue.push(tx);
+    saveLocal();
+    showToast('📤 Hors ligne — transaction en file d\'attente.','warn');
+  }
+  updatePendingUI();
+  markUnsaved();
+  document.getElementById('v-desc').value='';
+  document.getElementById('v-qty').value='';
+  document.getElementById('v-unit').value='unité';
+  document.getElementById('v-prix-caisse').value='';
+  document.getElementById('v-prix').value='';
+  document.getElementById('v-amount').value='';
+  document.getElementById('v-cash').value='';
+  document.getElementById('v-credit').value='';
+  document.getElementById('v-balance').value='';
+  document.getElementById('v-client').value='';
+}
+
+function getIsoFromTx(t) {
+  // Retourne isoDate (YYYY-MM-DD) depuis une transaction
+  if (t.isoDate && t.isoDate.match(/^\d{4}-\d{2}-\d{2}$/)) return t.isoDate;
+  if (t.date && t.date.match(/^\d{2}\/\d{2}\/\d{4}$/)) {
+    const [d,m,y] = t.date.split('/');
+    return `${y}-${m}-${d}`;
+  }
+  return t.isoDate || t.date || '';
+}
+
+function formatGroupLabel(isoDate) {
+  if (!isoDate) return 'Date inconnue';
+  const [y, m, d] = isoDate.split('-');
+  const months = ['Janvier','Février','Mars','Avril','Mai','Juin','Juillet','Août','Septembre','Octobre','Novembre','Décembre'];
+  return `📅 ${d} ${months[parseInt(m)-1]} ${y}`;
+}
+
+function renderMySales() {
+  if (!STATE.currentUser) return;
+  const body = document.getElementById('my-sales-body');
+  
+  const now = new Date();
+  const todayIso = now.toISOString().split('T')[0];
+  const todayFR = now.toLocaleDateString('fr-FR');
+  const todayEN = now.toLocaleDateString('en-US');
+  
+  const isAdminOrGest = STATE.currentUser.role === 'admin' || STATE.currentUser.role === 'gestionnaire';
+  
+  function isToday(t) {
+    const d = t.isoDate || '';
+    const d2 = t.date || '';
+    return d === todayIso || d2 === todayFR || d2 === todayEN || d2 === todayIso;
+  }
+  
+  // Toutes les ventes du vendeur (pas seulement aujourd'hui)
+  const mine = [...STATE.transactions, ...STATE.pendingQueue]
+    .filter(t => {
+      const matchSeller = isAdminOrGest ? true : t.seller === STATE.currentUser.username;
+      return matchSeller && t.type === 'vente';
+    })
+    .sort((a,b) => {
+      const da = getIsoFromTx(a), db = getIsoFromTx(b);
+      if (db !== da) return db.localeCompare(da); // plus récent en haut
+      return (b.time||'').localeCompare(a.time||'');
+    });
+    
+  const allCredits = (STATE.credits||[]).filter(c => {
+    const matchSeller = isAdminOrGest ? true : c.seller === STATE.currentUser.username;
+    return matchSeller && c.source !== 'vente';
+  });
+
+  // Combiner ventes et crédits
+  const allRows = [
+    ...mine,
+    ...allCredits.map(c => ({...c, _isCredit:true}))
+  ].sort((a,b) => {
+    const da = getIsoFromTx(a), db = getIsoFromTx(b);
+    if (db !== da) return db.localeCompare(da);
+    return (b.time||'').localeCompare(a.time||'');
+  });
+
+  if (!allRows.length) {
+    body.innerHTML='<tr><td colspan="12" style="text-align:center;color:var(--text3);padding:1.5rem;">Aucune transaction.</td></tr>';
+    return;
+  }
+
+  // Grouper par jour
+  const groups = {};
+  allRows.forEach(t => {
+    const iso = getIsoFromTx(t);
+    if (!groups[iso]) groups[iso] = [];
+    groups[iso].push(t);
+  });
+
+  // Trier les groupes du plus récent au plus ancien
+  const sortedDates = Object.keys(groups).sort((a,b) => b.localeCompare(a));
+
+  let html = '';
+  sortedDates.forEach(iso => {
+    const rows = groups[iso];
+    const ventes = rows.filter(t => !t._isCredit);
+    const credits = rows.filter(t => t._isCredit);
+    
+    // Totaux du groupe
+    const totMontant = ventes.reduce((a,t) => a+(t.amount||0), 0);
+    const totCash = ventes.reduce((a,t) => a+(t.cash||0), 0);
+    const totCredit = ventes.reduce((a,t) => a+(t.credit||0), 0);
+    const totBalance = ventes.reduce((a,t) => a+(t.balance||0), 0);
+    const totPaiements = credits.reduce((a,c) => a+(c.paid||0), 0);
+    
+    // Ligne de séparation par jour
+    const isCurrentDay = iso === todayIso;
+    const label = isCurrentDay ? `📅 AUJOURD'HUI — ${formatGroupLabel(iso)}` : formatGroupLabel(iso);
+    
+    html += `<tr style="background:${isCurrentDay?'#1a56db':'#5a6282'};color:#fff;font-weight:700;">
+      <td colspan="12" style="padding:8px 10px;font-size:.9rem;">
+        ${label} &nbsp;|&nbsp; ${ventes.length} vente(s) &nbsp;|&nbsp; ${credits.length} paiement(s) crédit
+      </td>
+    </tr>`;
+    
+    // Lignes des transactions du groupe
+    rows.forEach(t => {
+      if (t._isCredit) {
+        html += `<tr style="background:#e6f6ef;">
+          <td>${t.date}</td><td>${t.time}</td><td>💳 Paiement client</td><td>—</td><td>—</td><td>—</td>
+          <td>—</td><td>${fmtHTG(t.paid||0)}</td>
+          <td>—</td><td>${fmtHTG(t.finalBalance||0)}</td>
+          <td style="color:#0f7b4f;font-weight:600;">${esc(t.client||'')}</td>
+          <td><span class="badge badge-sent">💳 Crédit</span></td>
+        </tr>`;
+      } else {
+        html += `<tr>
+          <td>${t.date}</td><td>${t.time}</td><td>${esc(t.description)}</td><td>${t.quantity}</td>
+          <td>${esc(t.unit||'')}</td><td>${fmtHTG(t.unitPrice||0)}</td>
+          <td>${fmtHTG(t.amount)}</td><td>${fmtHTG(t.cash||0)}</td>
+          <td>${fmtHTG(t.credit||0)}</td><td>${fmtHTG(t.balance||0)}</td>
+          <td style="color:${(t.balance||0)>0?'#c0392b':'#0f7b4f'};font-weight:600;">${esc(t.client||'')}</td>
+          <td><span class="badge ${t.status==='sent'?'badge-sent':'badge-pending'}">${t.status==='sent'?'✓ Envoyé':'⏳ En attente'}</span></td>
+        </tr>`;
+      }
+    });
+    
+    // Totaux du jour
+    html += `<tr style="background:var(--surface2);font-weight:700;border-top:2px solid var(--border);">
+      <td colspan="6">📊 Totaux — ${formatGroupLabel(iso)}</td>
+      <td>${fmtHTG(totMontant)}</td>
+      <td>${fmtHTG(totCash + totPaiements)}</td>
+      <td>${fmtHTG(totCredit)}</td>
+      <td>${fmtHTG(totBalance)}</td>
+      <td colspan="2">${ventes.length} vente(s) | ${credits.length} crédit(s)</td>
+    </tr>`;
+  });
+
+  body.innerHTML = html;
+}
+
+// ============================================================
+// STOCKS
+// ============================================================
+function calcStockQty() {
+  const qty = parseFloat(document.getElementById('s-qty').value) || 0;
+  const unit = document.getElementById('s-unit').value;
+  const extra = parseFloat(document.getElementById('s-extra-units').value) || 0;
+  const produit = document.getElementById('s-desc').value;
+  const isBeller = produit.toLowerCase().includes('beller');
+  const casseSize = isBeller ? 48 : 24;
+  
+  let totalCaisses = 0;
+  if (unit === 'caisse') totalCaisses = qty + extra/casseSize;
+  else if (unit === 'bout') totalCaisses = qty*0.5 + extra/casseSize;
+  else if (unit === 'unite') totalCaisses = qty/casseSize + extra/casseSize;
+  
+  document.getElementById('s-qty-caisses').value = totalCaisses.toFixed(2);
+}
+
+async function submitStock() {
+  const desc = document.getElementById('s-desc').value;
+  const qty = parseFloat(document.getElementById('s-qty').value) || 0;
+  const unit = document.getElementById('s-unit').value;
+  const extra = parseFloat(document.getElementById('s-extra-units').value) || 0;
+  const qtyCaisses = parseFloat(document.getElementById('s-qty-caisses').value) || 0;
+  const price = parseFloat(document.getElementById('s-price').value) || 0;
+  const supplier = document.getElementById('s-supplier').value.trim();
+  if (!desc||qty<=0||price<=0) {
+    showToast('⚠ Veuillez remplir tous les champs obligatoires.','warn'); return;
+  }
+  const entry = {
+    type:'stock-in', date:todayStr(), isoDate:isoDate(), time:nowStr(),
+    seller:STATE.currentUser.username, description:desc, supplier:supplier||'',
+    quantity:qty, unit:unit, extraUnits:extra, quantityCaisses:qtyCaisses,
+    unitPrice:price, amount:qtyCaisses*price, createdAt: new Date().toISOString()
+  };
+  if (STATE.isOnline && STATE.fbReady) {
+    try {
+      const {collection, addDoc} = window._fbFns;
+      await addDoc(collection(window._db,'stocks'), entry);
+      // Also log in transactions
+      await addDoc(collection(window._db,'transactions'), {
+        ...entry, description:`[ENTRÉE STOCK] ${desc}`, product:'Stock', status:'sent'
+      });
+      showToast('✅ Entrée de stock enregistrée sur Firebase.');
+    } catch(e) {
+      showToast('⚠ Erreur Firebase: '+e.message,'warn');
+    }
+  } else {
+    STATE.pendingQueue.push({...entry, colTarget:'stocks'});
+    saveLocal();
+    showToast('📤 Hors ligne — entrée en file d\'attente.','warn');
+    updatePendingUI();
+  }
+  document.getElementById('s-desc').value='';
+  document.getElementById('s-qty').value='';
+  document.getElementById('s-unit').value='caisse';
+  document.getElementById('s-extra-units').value='';
+  document.getElementById('s-qty-caisses').value='';
+  document.getElementById('s-price').value='';
+  document.getElementById('s-supplier').value='';
+}
+
+function renderStocks() {
+  const body = document.getElementById('stock-table-body');
+  
+  // Entrées de stock
+  const entrees = STATE.stocks.map(s => ({
+    ...s, _type:'entree',
+    qtyCaisses: s.quantityCaisses || s.quantity,
+    prixCaisse: s.unitPrice || 0
+  }));
+  
+  // Sorties (ventes)
+  const sorties = (STATE.transactions||[]).filter(t=>t.type==='vente').map(t => {
+    const isBeller = (t.description||'').toLowerCase().includes('beller');
+    const casseSize = isBeller ? 48 : 24;
+    let qtyCaisses = 0;
+    switch(t.unit) {
+      case 'caisse': qtyCaisses = t.quantity; break;
+      case 'bout': case 'caisse 1/2': qtyCaisses = t.quantity*0.5; break;
+      case 'caisse+3': qtyCaisses = t.quantity + 3/casseSize; break;
+      case 'caisse+6': qtyCaisses = t.quantity + 6/casseSize; break;
+      case 'bout+3': qtyCaisses = t.quantity*0.5 + 3/casseSize; break;
+      case 'bout+6': qtyCaisses = t.quantity*0.5 + 6/casseSize; break;
+      default: qtyCaisses = t.quantity/casseSize; break;
+    }
+    return {...t, _type:'sortie', qtyCaisses, prixCaisse:t.prixCaisse||t.unitPrice||0};
+  });
+  
+  // Combiner et trier du plus récent au plus ancien
+  const all = [...entrees, ...sorties].sort((a,b) => {
+    if (b.isoDate !== a.isoDate) return (b.isoDate||'').localeCompare(a.isoDate||'');
+    return (b.time||'').localeCompare(a.time||'');
+  });
+  
+  if (!all.length) {
+    body.innerHTML='<tr><td colspan="7" style="text-align:center;color:var(--text3);padding:1.5rem;">Aucun mouvement.</td></tr>';
+  } else {
+    body.innerHTML=all.map(s=> s._type==='entree' ? `<tr style="background:#e6f6ef;">
+      <td>${s.date}</td>
+      <td><span class="badge badge-in">📥 Entrée</span></td>
+      <td>${esc(s.description)}</td>
+      <td style="color:#0f7b4f;font-weight:600;">+${(s.qtyCaisses||0).toFixed(2)}</td>
+      <td>${fmtHTG(s.prixCaisse)}</td>
+      <td>${fmtHTG(s.amount)}</td>
+      <td>${esc(s.supplier||'')}</td>
+    </tr>` : `<tr style="background:#fdecea;">
+      <td>${s.date}</td>
+      <td><span class="badge badge-out">📤 Sortie</span></td>
+      <td>${esc(s.description)}</td>
+      <td style="color:#c0392b;font-weight:600;">-${(s.qtyCaisses||0).toFixed(2)}</td>
+      <td>${fmtHTG(s.prixCaisse||0)}</td>
+      <td>${fmtHTG(s.amount||0)}</td>
+      <td>${esc(s.client||s.seller||'')}</td>
+    </tr>`).join('') + `<tr style="background:var(--surface2);font-weight:700;border-top:2px solid var(--border);">
+      <td colspan="3">📊 TOTAUX</td>
+      <td>Entrées: ${entrees.reduce((a,s)=>a+(s.qtyCaisses||0),0).toFixed(2)} | Sorties: ${sorties.reduce((a,s)=>a+(s.qtyCaisses||0),0).toFixed(2)}</td>
+      <td colspan="3">Valeur entrées: ${fmtHTG(entrees.reduce((a,s)=>a+s.amount,0))}</td>
+    </tr>`;
+  }
+  const stockVal = STATE.stocks.reduce((a,s)=>a+s.amount,0);
+  document.getElementById('stock-value').textContent = fmtHTG(stockVal);
+  document.getElementById('stock-items').textContent = STATE.stocks.length;
+}
+
+// ============================================================
+// DASHBOARD
+// ============================================================
+function renderDashboard() {
+  const today = todayStr();
+  const now = new Date();
+  const curMonth = String(now.getMonth()+1).padStart(2,'0')+'/'+now.getFullYear();
+  const sales = STATE.transactions.filter(t=>t.type==='vente');
+  const todaySales = sales.filter(t=>t.date===today);
+  const monthSales = sales.filter(t=>{
+    const parts = (t.date||'').split('/');
+    return parts.length===3 && parts[1]+'/'+parts[2]===curMonth;
+  });
+  document.getElementById('dash-today').textContent = fmtHTG(todaySales.reduce((a,t)=>a+t.amount,0));
+  document.getElementById('dash-today-qty').textContent = todaySales.length+' transaction(s)';
+  document.getElementById('dash-month').textContent = fmtHTG(monthSales.reduce((a,t)=>a+t.amount,0));
+  document.getElementById('dash-month-qty').textContent = monthSales.length+' transaction(s)';
+  document.getElementById('dash-stock').textContent = fmtHTG(STATE.stocks.reduce((a,s)=>a+s.amount,0));
+  document.getElementById('dash-qty-sold').textContent = monthSales.reduce((a,t)=>a+t.quantity,0);
+  renderAllTrans(STATE.transactions);
+}
+
+function renderAllTrans(data) {
+  const body = document.getElementById('all-trans-body');
+  const sorted = [...data].sort((a,b)=>(b.isoDate||'').localeCompare(a.isoDate||'')||(b.time||'').localeCompare(a.time||''));
+  if (!sorted.length) {
+    body.innerHTML='<tr><td colspan="7" style="text-align:center;color:var(--text3);padding:1.5rem;">Aucune transaction.</td></tr>';
+    return;
+  }
+  // Ajouter les credits dans la liste
+  const allWithCredits = [...sorted, ...(STATE.credits||[]).map(c=>({...c, _isCredit:true}))].sort((a,b)=>(b.isoDate||'').localeCompare(a.isoDate||'')||(b.time||'').localeCompare(a.time||''));
+  body.innerHTML=allWithCredits.map(t=> t._isCredit ? `<tr style="background:#e6f6ef;">
+    <td>${t.date}</td><td>${t.time}</td><td>${esc(t.seller||'')}</td><td>💳 Paiement client</td>
+    <td>—</td><td>—</td>
+    <td>${fmtHTG(t.paid||0)}</td><td>—</td><td>${fmtHTG(t.finalBalance||0)}</td><td>${esc(t.client||'')}</td>
+    <td><span class="badge badge-sent">💳 Crédit</span></td>
+  </tr>` : `<tr>
+    <td>${t.date}</td><td>${t.time}</td><td>${esc(t.seller)}</td><td>${esc(t.description)}</td>
+    <td>${t.quantity} ${esc(t.unit||'')}</td><td>${fmtHTG(t.amount)}</td>
+    <td>${fmtHTG(t.cash||0)}</td><td>${fmtHTG(t.credit||0)}</td><td>${fmtHTG(t.balance||0)}</td><td>${esc(t.client||'')}</td>
+    <td><span class="badge ${t.type==='vente'?'badge-out':'badge-in'}">${t.type==='vente'?'📤 Vente':'📥 Stock'}</span></td>
+  </tr>`).join('');
+}
+
+function filterTransactions() {
+  const d = document.getElementById('filter-date').value;
+  if (!d) { renderAllTrans(STATE.transactions); return; }
+  const parts = d.split('-');
+  const iso = parts[2]+'/'+parts[1]+'/'+parts[0];
+  renderAllTrans(STATE.transactions.filter(t=>t.date===iso));
+}
+function clearFilter() { document.getElementById('filter-date').value=''; renderAllTrans(STATE.transactions); }
+
+// ============================================================
+// ADMIN
+// ============================================================
+function renderAdminTrans() {
+  const body = document.getElementById('admin-trans-body');
+  const sorted = [...STATE.transactions].sort((a,b) => {
+    if ((b.isoDate||'') !== (a.isoDate||'')) return (b.isoDate||'').localeCompare(a.isoDate||'');
+    return (b.time||'').localeCompare(a.time||'');
+  });
+  if (!sorted.length) {
+    body.innerHTML='<tr><td colspan="7" style="text-align:center;color:var(--text3);padding:1.5rem;">Aucune transaction.</td></tr>';
+    return;
+  }
+  // Admin et Gestionnaire peuvent modifier/supprimer
+  const canEdit = STATE.currentUser && (STATE.currentUser.role==='admin' || STATE.currentUser.role==='gestionnaire');
+  body.innerHTML=sorted.map(t=>`<tr>
+    <td>${t.date}</td><td>${t.time}</td><td>${esc(t.seller)}</td><td>${esc(t.description)}</td>
+    <td>${t.quantity}</td><td>${fmtHTG(t.amount)}</td>
+    <td style="white-space:nowrap;">
+      ${canEdit ? `<button class="btn btn-outline" style="font-size:.75rem;padding:3px 10px;" onclick="openEditModal('${t.id}')">✏</button>
+      <button class="btn" style="font-size:.75rem;padding:3px 10px;background:var(--danger-bg);color:var(--danger);border:1px solid #f5b7b1;margin-left:4px;" onclick="deleteTransaction('${t.id}')">🗑</button>` : '—'}
+    </td>
+  </tr>`).join('');
+}
+
+function renderUsers() {
+  const container = document.getElementById('users-list');
+  if (!container) return;
+  container.innerHTML = STATE.users.map(u=>`
+    <div class="user-chip">
+      <div class="av">${u.username[0].toUpperCase()}</div>
+      <span>${esc(u.username)}</span>
+      <span class="role-badge">${u.role}</span>
+      ${u.username!=='admin'?`<button class="del-btn" onclick="deleteUser('${u.username}','${u.id||''}')">×</button>`:''}
+    </div>`).join('');
+}
+
+function showAddUserModal() { document.getElementById('add-user-modal-bg').classList.add('show'); }
+function closeAddUserModal() {
+  document.getElementById('add-user-modal-bg').classList.remove('show');
+  document.getElementById('new-username').value='';
+  document.getElementById('new-password').value='';
+  document.getElementById('add-user-err').textContent='';
+}
+
+async function addUser() {
+  const u = document.getElementById('new-username').value.trim();
+  const p = document.getElementById('new-password').value;
+  const r = document.getElementById('new-role').value;
+  if (!u||!p) { document.getElementById('add-user-err').textContent='Tous les champs sont requis.'; return; }
+  if (STATE.users.find(x=>x.username===u)) { document.getElementById('add-user-err').textContent='Nom déjà utilisé.'; return; }
+  const newUser = {username:u, password:p, role:r};
+  if (STATE.isOnline && STATE.fbReady) {
+    try {
+      const {collection, addDoc} = window._fbFns;
+      await addDoc(collection(window._db,'users'), newUser);
+    } catch(e){}
+  }
+  STATE.users.push(newUser);
+  saveLocal();
+  renderUsers();
+  closeAddUserModal();
+  showToast(`✅ Utilisateur "${u}" ajouté.`);
+}
+
+async function deleteUser(username, fbId) {
+  if (!confirm(`Supprimer l'utilisateur "${username}" ?`)) return;
+  if (fbId && STATE.isOnline && STATE.fbReady) {
+    try {
+      const {doc, deleteDoc} = window._fbFns;
+      await deleteDoc(doc(window._db,'users',fbId));
+    } catch(e){}
+  }
+  STATE.users = STATE.users.filter(u=>u.username!==username);
+  saveLocal();
+  renderUsers();
+  showToast(`Utilisateur "${username}" supprimé.`,'warn');
+}
+
+function openEditModal(id) {
+  const tx = STATE.transactions.find(t=>t.id===id);
+  if (!tx) return;
+  document.getElementById('edit-id').value = id;
+  document.getElementById('edit-desc').value = tx.description;
+  document.getElementById('edit-qty').value = tx.quantity;
+  document.getElementById('edit-amount').value = tx.amount;
+  document.getElementById('edit-modal-bg').classList.add('show');
+}
+function closeEditModal() { document.getElementById('edit-modal-bg').classList.remove('show'); }
+
+async function logNotification(action, details) {
+  if (!STATE.isOnline || !STATE.fbReady) return;
+  try {
+    const {collection, addDoc} = window._fbFns;
+    await addDoc(collection(window._db, 'notifications'), {
+      date: todayStr(),
+      isoDate: isoDate(),
+      time: nowStr(),
+      user: STATE.currentUser.username,
+      role: STATE.currentUser.role,
+      action: action,
+      details: details,
+      createdAt: new Date().toISOString(),
+      read: false
+    });
+  } catch(e) { console.error('Notification error:', e); }
+}
+
+async function saveEdit() {
+  const id = document.getElementById('edit-id').value;
+  const desc = document.getElementById('edit-desc').value.trim();
+  const qty = parseFloat(document.getElementById('edit-qty').value);
+  const amount = parseFloat(document.getElementById('edit-amount').value);
+  if (STATE.isOnline && STATE.fbReady) {
+    try {
+      const {doc, updateDoc} = window._fbFns;
+      // Obtenir l'ancienne transaction pour le log
+      const oldTx = STATE.transactions.find(t=>t.id===id);
+      await updateDoc(doc(window._db,'transactions',id), {
+        description:desc, quantity:qty, amount:amount,
+        editedBy:STATE.currentUser.username, editedAt:new Date().toISOString()
+      });
+      // Logger la notification
+      await logNotification('✏️ Modification transaction', 
+        `Vendeur: ${oldTx?.seller||'?'} | Produit: ${desc} | Qté: ${qty} | Montant: ${fmtHTG(amount)} | Date orig: ${oldTx?.date||'?'}`);
+      showToast('✅ Transaction modifiée sur Firebase.');
+      markUnsaved();
+    } catch(e) { showToast('⚠ Erreur: '+e.message,'warn'); }
+  }
+  closeEditModal();
+}
+
+async function deleteTransaction(id) {
+  if (!confirm('Supprimer définitivement cette transaction ?')) return;
+  if (STATE.isOnline && STATE.fbReady) {
+    try {
+      const {doc, deleteDoc} = window._fbFns;
+      const oldTx = STATE.transactions.find(t=>t.id===id);
+      await deleteDoc(doc(window._db,'transactions',id));
+      // Logger la notification
+      await logNotification('🗑 Suppression transaction',
+        `Vendeur: ${oldTx?.seller||'?'} | Produit: ${oldTx?.description||'?'} | Montant: ${fmtHTG(oldTx?.amount||0)} | Date: ${oldTx?.date||'?'}`);
+      showToast('🗑 Transaction supprimée de Firebase.','warn');
+      markUnsaved();
+    } catch(e) { showToast('⚠ Erreur: '+e.message,'warn'); }
+  }
+}
+
+// ============================================================
+// ACCOUNTING
+// ============================================================
+function refreshAccounting() {
+  buildTransSheet();
+  buildJournal();
+  buildGrandLivre();
+  buildBalance();
+  buildBilan();
+  buildAnalyse();
+}
+
+function buildTransSheet() {
+  const body = document.getElementById('sheet-trans-body');
+  const total = document.getElementById('trans-total');
+  const sales = STATE.transactions.filter(t=>t.type==='vente')
+    .sort((a,b)=>(a.isoDate||'').localeCompare(b.isoDate||'')||(a.time||'').localeCompare(b.time||''));
+  let cum=0;
+  body.innerHTML = sales.map((t,i)=>{
+    cum+=t.amount;
+    return `<tr><td>${i+1}</td><td>${t.date}</td><td>${t.time}</td><td>${esc(t.seller)}</td>
+      <td>${esc(t.description)}</td><td>${t.quantity}</td><td>${fmtHTG(t.amount)}</td>
+      <td>Vente</td><td>${fmtHTG(cum)}</td></tr>`;
+  }).join('') || '<tr><td colspan="9" style="text-align:center;color:var(--text3);padding:1rem;">Aucune transaction.</td></tr>';
+  total.textContent = fmtHTG(sales.reduce((a,t)=>a+t.amount,0));
+}
+
+function buildJournal() {
+  const body = document.getElementById('journal-body');
+  const dTot = document.getElementById('journal-debit');
+  const cTot = document.getElementById('journal-credit');
+  const txns = [...STATE.transactions].sort((a,b)=>(a.isoDate||'').localeCompare(b.isoDate||''));
+  let rows=[],dSum=0,cSum=0,pce=1;
+  txns.forEach(t=>{
+    if(t.type==='vente'){
+      rows.push({date:t.date,pce:`PC-${String(pce).padStart(4,'0')}`,debit:'5100 – Caisse',credit:'7000 – Ventes',label:t.description,dAmt:t.amount,cAmt:t.amount});
+      dSum+=t.amount; cSum+=t.amount;
+    } else {
+      rows.push({date:t.date,pce:`PC-${String(pce).padStart(4,'0')}`,debit:'3100 – Stocks',credit:'4010 – Fournisseurs',label:t.description,dAmt:t.amount,cAmt:t.amount});
+      dSum+=t.amount; cSum+=t.amount;
+    }
+    pce++;
+  });
+  body.innerHTML=rows.map(r=>`<tr>
+    <td>${r.date}</td><td>${r.pce}</td><td>${r.debit}</td><td>${r.credit}</td>
+    <td>${esc(r.label)}</td><td>${fmtHTG(r.dAmt)}</td><td>${fmtHTG(r.cAmt)}</td>
+  </tr>`).join('') || '<tr><td colspan="7" style="text-align:center;color:var(--text3);padding:1rem;">Aucune écriture.</td></tr>';
+  dTot.textContent=fmtHTG(dSum); cTot.textContent=fmtHTG(cSum);
+}
+
+function buildGrandLivre() {
+  const cont = document.getElementById('grandlivre-content');
+  const accs={'5100 – Caisse':[],'7000 – Ventes':[],'3100 – Stocks marchandises':[],'4010 – Fournisseurs':[]};
+  STATE.transactions.forEach(t=>{
+    if(t.type==='vente'){
+      accs['5100 – Caisse'].push({date:t.date,label:t.description,d:t.amount,c:0});
+      accs['7000 – Ventes'].push({date:t.date,label:t.description,d:0,c:t.amount});
+    } else {
+      accs['3100 – Stocks marchandises'].push({date:t.date,label:t.description,d:t.amount,c:0});
+      accs['4010 – Fournisseurs'].push({date:t.date,label:t.description,d:0,c:t.amount});
+    }
+  });
+  cont.innerHTML=Object.entries(accs).map(([acc,ents])=>{
+    const totD=ents.reduce((a,e)=>a+e.d,0), totC=ents.reduce((a,e)=>a+e.c,0);
+    let sol=0;
+    return `<div style="margin-bottom:1.5rem;">
+      <div style="font-weight:600;font-size:.9rem;background:var(--accent-bg);color:var(--accent-text);padding:6px 10px;border-radius:7px 7px 0 0;border:1px solid var(--border);">${acc}</div>
+      <div class="table-wrap"><table style="border:1px solid var(--border);border-top:none;">
+        <thead><tr><th>Date</th><th>Libellé</th><th>Débit</th><th>Crédit</th><th>Solde</th></tr></thead>
+        <tbody>${ents.length?ents.map(e=>{sol+=e.d-e.c;return`<tr><td>${e.date}</td><td>${esc(e.label)}</td><td>${e.d?fmtHTG(e.d):''}</td><td>${e.c?fmtHTG(e.c):''}</td><td>${fmtHTG(sol)}</td></tr>`;}).join(''):'<tr><td colspan="5" style="text-align:center;color:var(--text3);">Aucun mouvement</td></tr>'}
+        <tr style="font-weight:700;background:var(--surface2);"><td colspan="2">Totaux</td><td>${fmtHTG(totD)}</td><td>${fmtHTG(totC)}</td><td>${fmtHTG(totD-totC)}</td></tr>
+        </tbody>
+      </table></div></div>`;
+  }).join('');
+}
+
+function buildBalance() {
+  const body=document.getElementById('balance-body');
+  const bd=document.getElementById('bal-debit'), bc=document.getElementById('bal-credit');
+  const vt=STATE.transactions.filter(t=>t.type==='vente').reduce((a,t)=>a+t.amount,0);
+  const st=STATE.stocks.reduce((a,s)=>a+s.amount,0);
+  const rows=[
+    {num:'3100',label:'Stocks marchandises',d:st,c:0},
+    {num:'4010',label:'Fournisseurs',d:0,c:st},
+    {num:'5100',label:'Caisse',d:vt,c:0},
+    {num:'7000',label:'Ventes',d:0,c:vt}
+  ];
+  body.innerHTML=rows.map(r=>`<tr><td>${r.num}</td><td>${r.label}</td><td>${r.d?fmtHTG(r.d):''}</td><td>${r.c?fmtHTG(r.c):''}</td></tr>`).join('');
+  bd.textContent=fmtHTG(st+vt); bc.textContent=fmtHTG(st+vt);
+}
+
+function buildBilan() {
+  const cont=document.getElementById('bilan-content');
+  const vt=STATE.transactions.filter(t=>t.type==='vente').reduce((a,t)=>a+t.amount,0);
+  const st=STATE.stocks.reduce((a,s)=>a+s.amount,0);
+  cont.innerHTML=`
+  <div>
+    <div style="font-weight:700;font-size:.9rem;background:var(--accent-bg);color:var(--accent-text);padding:8px 12px;border-radius:7px 7px 0 0;border:1px solid var(--border);">ACTIF</div>
+    <div style="border:1px solid var(--border);border-top:none;border-radius:0 0 7px 7px;overflow:hidden;">
+      <table style="width:100%;"><tbody>
+        <tr><td style="padding:7px 12px;">Stocks</td><td style="padding:7px 12px;text-align:right;font-weight:500;">${fmtHTG(st)}</td></tr>
+        <tr><td style="padding:7px 12px;">Caisse</td><td style="padding:7px 12px;text-align:right;font-weight:500;">${fmtHTG(vt)}</td></tr>
+        <tr style="background:var(--surface2);font-weight:700;"><td style="padding:7px 12px;">Total Actif</td><td style="padding:7px 12px;text-align:right;">${fmtHTG(st+vt)}</td></tr>
+      </tbody></table></div></div>
+  <div>
+    <div style="font-weight:700;font-size:.9rem;background:var(--success-bg);color:var(--success);padding:8px 12px;border-radius:7px 7px 0 0;border:1px solid var(--border);">PASSIF & CAPITAUX</div>
+    <div style="border:1px solid var(--border);border-top:none;border-radius:0 0 7px 7px;overflow:hidden;">
+      <table style="width:100%;"><tbody>
+        <tr><td style="padding:7px 12px;">Fournisseurs</td><td style="padding:7px 12px;text-align:right;font-weight:500;">${fmtHTG(st)}</td></tr>
+        <tr><td style="padding:7px 12px;">Résultat (ventes)</td><td style="padding:7px 12px;text-align:right;font-weight:500;">${fmtHTG(vt)}</td></tr>
+        <tr style="background:var(--surface2);font-weight:700;"><td style="padding:7px 12px;">Total Passif</td><td style="padding:7px 12px;text-align:right;">${fmtHTG(st+vt)}</td></tr>
+      </tbody></table></div></div>`;
+}
+
+function buildAnalyse() {
+  const cont=document.getElementById('analyse-content');
+  const vt=STATE.transactions.filter(t=>t.type==='vente').reduce((a,t)=>a+t.amount,0);
+  const st=STATE.stocks.reduce((a,s)=>a+s.amount,0);
+  const nbV=STATE.transactions.filter(t=>t.type==='vente').length;
+  const avg=nbV?vt/nbV:0;
+  const today=todayStr();
+  const todayV=STATE.transactions.filter(t=>t.type==='vente'&&t.date===today).reduce((a,t)=>a+t.amount,0);
+  const mg=st>0?(vt-st)/st*100:0;
+  cont.innerHTML=`
+  <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px;margin-bottom:1.2rem;">
+    <div class="metric-card accent"><div class="label">Chiffre d'affaires total</div><div class="value">${fmtHTG(vt)}</div></div>
+    <div class="metric-card"><div class="label">Ventes du jour</div><div class="value">${fmtHTG(todayV)}</div></div>
+    <div class="metric-card"><div class="label">Panier moyen</div><div class="value">${fmtHTG(avg)}</div></div>
+    <div class="metric-card success"><div class="label">Valeur du stock</div><div class="value">${fmtHTG(st)}</div></div>
+    <div class="metric-card"><div class="label">Nombre de ventes</div><div class="value">${nbV}</div></div>
+    <div class="metric-card ${mg>=0?'success':''}"><div class="label">Marge brute estimée</div><div class="value">${mg.toFixed(1)}%</div></div>
+  </div>
+  <div class="card" style="background:var(--surface2);">
+    <div style="font-size:.85rem;color:var(--text2);">
+      Chiffre d'affaires total : <strong>${fmtHTG(vt)}</strong> | Valeur stock : <strong>${fmtHTG(st)}</strong> |
+      Panier moyen : <strong>${fmtHTG(avg)}</strong> | Marge brute estimée : <strong>${mg.toFixed(1)}%</strong>
+    </div>
+  </div>`;
+}
+
+// ============================================================
+// GOOGLE DRIVE INTEGRATION (export automatique vers Drive)
+// ============================================================
+const GOOGLE_CLIENT_ID = '965323239313-t6ku4152ceadekaja782j5e5hol6gho0.apps.googleusercontent.com';
+const GOOGLE_DRIVE_SCOPE = 'https://www.googleapis.com/auth/drive.file';
+
+let _gDriveTokenClient = null;
+let _gDriveAccessToken = null;
+let _gDriveTokenExpiry = 0;
+
+function initGDriveTokenClient() {
+  if (_gDriveTokenClient) return true;
+  if (typeof google === 'undefined' || !google.accounts || !google.accounts.oauth2) return false;
+  _gDriveTokenClient = google.accounts.oauth2.initTokenClient({
+    client_id: GOOGLE_CLIENT_ID,
+    scope: GOOGLE_DRIVE_SCOPE,
+    callback: () => {} // redéfini à chaque appel dans getGDriveAccessToken()
+  });
+  return true;
+}
+
+function getGDriveAccessToken() {
+  return new Promise((resolve, reject) => {
+    if (!initGDriveTokenClient()) {
+      reject(new Error("Le service d'authentification Google n'a pas pu se charger. Vérifiez votre connexion et réessayez."));
+      return;
+    }
+    const now = Date.now();
+    if (_gDriveAccessToken && now < _gDriveTokenExpiry) {
+      resolve(_gDriveAccessToken);
+      return;
+    }
+    _gDriveTokenClient.callback = (resp) => {
+      if (resp.error) { reject(new Error(resp.error)); return; }
+      _gDriveAccessToken = resp.access_token;
+      _gDriveTokenExpiry = Date.now() + (resp.expires_in * 1000) - 60000;
+      resolve(_gDriveAccessToken);
+    };
+    _gDriveTokenClient.requestAccessToken({ prompt: _gDriveAccessToken ? '' : 'consent' });
+  });
+}
+
+async function uploadFileToDrive(blob, filename, mimeType) {
+  const token = await getGDriveAccessToken();
+  const metadata = { name: filename, mimeType };
+  // L'API Drive exige un vrai multipart/related (RFC 2387) avec une frontière
+  // (boundary) définie manuellement — un simple FormData (multipart/form-data)
+  // n'est PAS accepté par cet endpoint.
+  const boundary = 'bwms_' + Math.abs(hashCode(filename + '_' + metadata.mimeType + '_' + blob.size)).toString(16);
+  const delimiter = `\r\n--${boundary}\r\n`;
+  const closeDelimiter = `\r\n--${boundary}--`;
+  const metadataPart = delimiter + 'Content-Type: application/json; charset=UTF-8\r\n\r\n' + JSON.stringify(metadata);
+  const mediaHeader = delimiter + `Content-Type: ${mimeType}\r\n\r\n`;
+  const bodyBlob = new Blob([metadataPart, mediaHeader, blob, closeDelimiter]);
+
+  const res = await fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id,name,webViewLink', {
+    method: 'POST',
+    headers: {
+      Authorization: 'Bearer ' + token,
+      'Content-Type': `multipart/related; boundary=${boundary}`
+    },
+    body: bodyBlob
+  });
+  if (!res.ok) {
+    let detail = '';
+    try { detail = (await res.json()).error?.message || ''; } catch (e) {}
+    throw new Error(`Erreur Drive (${res.status}) ${detail}`);
+  }
+  return res.json();
+}
+
+function hashCode(str) {
+  let hash = 0;
+  for (let i = 0; i < str.length; i++) {
+    hash = ((hash << 5) - hash) + str.charCodeAt(i);
+    hash |= 0;
+  }
+  return hash;
+}
+
+// ============================================================
+// EXCEL EXPORT
+// ============================================================
+function exportAllToExcel() {
+  if (typeof XLSX === 'undefined') { showToast('⚠ Bibliothèque Excel non disponible.','warn'); return; }
+  const wb = XLSX.utils.book_new();
+  const vt=STATE.transactions.filter(t=>t.type==='vente').reduce((a,t)=>a+t.amount,0);
+  const st=STATE.stocks.reduce((a,s)=>a+s.amount,0);
+
+  // Transactions
+  let cum=0;
+  const sales=STATE.transactions.filter(t=>t.type==='vente').sort((a,b)=>(a.isoDate||'').localeCompare(b.isoDate||''));
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([
+    ['#','Date','Heure','Vendeur','Description','Quantité','Montant HTG','Type','Cumul ventes'],
+    ...sales.map((t,i)=>{cum+=t.amount;return[i+1,t.date,t.time,t.seller,t.description,t.quantity,t.amount,'Vente',cum];})
+  ]),'Transactions');
+
+  // Journal
+  let pce=1;
+  const jRows=[['Date','N° Pièce','Compte débiteur','Compte créditeur','Libellé','Débit HTG','Crédit HTG']];
+  STATE.transactions.sort((a,b)=>(a.isoDate||'').localeCompare(b.isoDate||'')).forEach(t=>{
+    if(t.type==='vente') jRows.push([t.date,`PC-${String(pce).padStart(4,'0')}`,'5100 – Caisse','7000 – Ventes',t.description,t.amount,t.amount]);
+    else jRows.push([t.date,`PC-${String(pce).padStart(4,'0')}`,'3100 – Stocks','4010 – Fournisseurs',t.description,t.amount,t.amount]);
+    pce++;
+  });
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(jRows),'Journal général');
+
+  // Grand livre
+  const glRows=[['Compte','Date','Libellé','Débit','Crédit','Solde']];
+  const accs={'5100 – Caisse':[],'7000 – Ventes':[],'3100 – Stocks':[],'4010 – Fournisseurs':[]};
+  STATE.transactions.forEach(t=>{
+    if(t.type==='vente'){accs['5100 – Caisse'].push({d:t.date,l:t.description,db:t.amount,cr:0});accs['7000 – Ventes'].push({d:t.date,l:t.description,db:0,cr:t.amount});}
+    else{accs['3100 – Stocks'].push({d:t.date,l:t.description,db:t.amount,cr:0});accs['4010 – Fournisseurs'].push({d:t.date,l:t.description,db:0,cr:t.amount});}
+  });
+  Object.entries(accs).forEach(([acc,ents])=>{let s=0;ents.forEach(e=>{s+=e.db-e.cr;glRows.push([acc,e.d,e.l,e.db||'',e.cr||'',s]);});});
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(glRows),'Grand livre');
+
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([
+    ['N° Compte','Intitulé','Débit HTG','Crédit HTG'],
+    ['3100','Stocks',st,0],['4010','Fournisseurs',0,st],
+    ['5100','Caisse',vt,0],['7000','Ventes',0,vt],['','Totaux',st+vt,st+vt]
+  ]),'Balance de vérification');
+
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([
+    ['ACTIF','Montant HTG','PASSIF','Montant HTG'],
+    ['Stocks',st,'Fournisseurs',st],['Caisse',vt,'Résultat',vt],['Total Actif',st+vt,'Total Passif',st+vt]
+  ]),'Bilan');
+
+  const nbV=STATE.transactions.filter(t=>t.type==='vente').length;
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([
+    ['Indicateur','Valeur'],
+    ['Chiffre d\'affaires total',vt],['Panier moyen',nbV?vt/nbV:0],
+    ['Valeur du stock',st],['Nombre de ventes',nbV],
+    ['Marge brute estimée (%)',st>0?parseFloat(((vt-st)/st*100).toFixed(2)):0]
+  ]),'Analyse financière');
+
+  XLSX.writeFile(wb,`BW_Multiservice_${isoDate()}.xlsx`);
+  showToast('📥 Fichier Excel téléchargé.');
+}
+
+function buildFullWorkbook() {
+  const wb = XLSX.utils.book_new();
+  const sales = (STATE.transactions||[]).filter(t=>t.type==='vente')
+    .sort((a,b)=>(a.isoDate||'').localeCompare(b.isoDate||'')||(a.time||'').localeCompare(b.time||''));
+  const stockVal = (STATE.stocks||[]).reduce((a,s)=>a+(s.amount||0),0);
+
+  // 1. Ventes
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([
+    ['Date','Heure','Vendeur','Produit','Unité','Quantité','Prix unit.','Montant','Cash','Crédit','Balance','Client','Statut'],
+    ...sales.map(t=>[t.date,t.time,t.seller,t.description,t.unit,t.quantity,t.unitPrice||0,t.amount||0,t.cash||0,t.credit||0,t.balance||0,t.client||'',t.balance>0?(t.balance===t.credit?'Non soldé':'Partiel'):'Soldé'])
+  ]), '📋 Ventes');
+
+  // 2. Crédits Clients
+  const credits = [...(STATE.credits||[])].sort((a,b)=>(b.isoDate||'').localeCompare(a.isoDate||'')||(b.time||'').localeCompare(a.time||''));
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([
+    ['Date','Heure','Client','Vendeur','Dû','Payé','Balance finale','Statut','Source'],
+    ...credits.map(c=>[c.date,c.time,c.client,c.seller||'',c.due||0,c.paid||0,c.finalBalance||0,c.status||'',c.source||''])
+  ]), '💳 Crédits Clients');
+
+  // 3. Liste des Dettes (clients avec balance restante > 0)
+  const clientsSet = new Set();
+  sales.forEach(t=>{ if (t.client) clientsSet.add(t.client); });
+  (STATE.credits||[]).forEach(c=>{ if (c.client) clientsSet.add(c.client); });
+  const debtors = [...clientsSet].map(client=>{
+    const name = client.toLowerCase();
+    const totalDu = sales.filter(t=>(t.client||'').toLowerCase()===name && (t.balance||0)>0).reduce((a,t)=>a+(t.balance||0),0);
+    const totalPaye = (STATE.credits||[]).filter(c=>(c.client||'').toLowerCase()===name && c.source!=='vente').reduce((a,c)=>a+(c.paid||0),0);
+    return { client, totalDu, totalPaye, balanceRestante: Math.max(0, totalDu-totalPaye) };
+  }).filter(d=>d.balanceRestante>0).sort((a,b)=>b.balanceRestante-a.balanceRestante);
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([
+    ['Client','Total Dû','Total Payé','Balance Restante','Statut'],
+    ...debtors.map(d=>[d.client,d.totalDu,d.totalPaye,d.balanceRestante,'En cours']),
+    ['TOTAL', debtors.reduce((a,d)=>a+d.totalDu,0), debtors.reduce((a,d)=>a+d.totalPaye,0), debtors.reduce((a,d)=>a+d.balanceRestante,0), '']
+  ]), '📋 Liste des Dettes');
+
+  // 4. Mouvements Stocks (entrées + sorties)
+  const entrees = (STATE.stocks||[]).map(s=>({
+    date:s.date, type:'Entrée', description:s.description,
+    qtyCaisses: s.quantityCaisses||s.quantity||0, prixCaisse: s.unitPrice||0,
+    amount: s.amount||0, tiers: s.supplier||''
+  }));
+  const sorties = sales.map(t=>({
+    date:t.date, type:'Sortie', description:t.description,
+    qtyCaisses: getQtyCaisses(t), prixCaisse: t.prixCaisse||t.unitPrice||0,
+    amount: t.amount||0, tiers: t.client||t.seller||''
+  }));
+  const mouvements = [...entrees, ...sorties].sort((a,b)=>(b.date||'').localeCompare(a.date||''));
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([
+    ['Date','Type','Description','Qté (caisses)','Prix caisse','Montant','Fournisseur / Client'],
+    ...mouvements.map(m=>[m.date,m.type,m.description,m.qtyCaisses,m.prixCaisse,m.amount,m.tiers])
+  ]), '📦 Mouvements Stocks');
+
+  // 5. Stock de Départ
+  const stockDepart = [...(STATE.stockDepart||[])].sort((a,b)=>(b.isoDate||'').localeCompare(a.isoDate||''));
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([
+    ['Date','Description','Quantité','Prix caisse','Valeur'],
+    ...stockDepart.map(s=>[s.date,s.description,s.quantity,s.prixCaisse||0,s.valeur||0])
+  ]), '🏁 Stock de Départ');
+
+  // 6. Stock Actuel (départ + entrées - sorties)
+  const departMap = {}, entreesMap = {}, sortiesMap = {};
+  (STATE.stockDepart||[]).forEach(s=>{
+    if (!departMap[s.description]) departMap[s.description] = {qty:0, prix:0};
+    departMap[s.description].qty += parseFloat(s.quantity)||0;
+    departMap[s.description].prix = s.prixCaisse||0;
+  });
+  (STATE.stocks||[]).forEach(s=>{
+    entreesMap[s.description] = (entreesMap[s.description]||0) + (parseFloat(s.quantityCaisses||s.quantity)||0);
+  });
+  sales.forEach(t=>{
+    sortiesMap[t.description] = (sortiesMap[t.description]||0) + getQtyCaisses(t);
+  });
+  const allProducts = new Set([...Object.keys(departMap), ...Object.keys(entreesMap), ...Object.keys(sortiesMap)]);
+  const stockActuelRows = [...allProducts].map(p=>{
+    const depart = departMap[p]?.qty||0, ent = entreesMap[p]||0, sor = sortiesMap[p]||0;
+    const actuel = Math.max(0, depart+ent-sor);
+    const prix = departMap[p]?.prix||0;
+    return [p, depart, ent, sor, actuel, prix, actuel*prix];
+  }).sort((a,b)=>String(a[0]).localeCompare(String(b[0])));
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([
+    ['Produit','Stock départ','Entrées','Sorties','Stock actuel','Prix caisse','Valeur'],
+    ...stockActuelRows
+  ]), '📊 Stock Actuel');
+
+  // 7. Tableau de Bord
+  const today = todayStr();
+  const now = new Date();
+  const curMonth = String(now.getMonth()+1).padStart(2,'0')+'/'+now.getFullYear();
+  const todaySales = sales.filter(t=>t.date===today);
+  const monthSales = sales.filter(t=>{ const p=(t.date||'').split('/'); return p.length===3 && p[1]+'/'+p[2]===curMonth; });
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([
+    ['Indicateur','Valeur'],
+    ['Ventes du jour (HTG)', todaySales.reduce((a,t)=>a+(t.amount||0),0)],
+    ['Transactions du jour', todaySales.length],
+    ['Ventes du mois (HTG)', monthSales.reduce((a,t)=>a+(t.amount||0),0)],
+    ['Transactions du mois', monthSales.length],
+    ['Quantité vendue ce mois', monthSales.reduce((a,t)=>a+(t.quantity||0),0)],
+    ['Valeur du stock (entrées, HTG)', stockVal],
+    ['Total dettes en cours (HTG)', debtors.reduce((a,d)=>a+d.balanceRestante,0)],
+    ['Date d\'export', isoDate()]
+  ]), '📊 Tableau de Bord');
+
+  // 8. Journal Général + Analyse Financière
+  let pce=1;
+  const jRows=[['Date','N° Pièce','Compte débiteur','Compte créditeur','Libellé','Débit HTG','Crédit HTG']];
+  [...(STATE.transactions||[])].sort((a,b)=>(a.isoDate||'').localeCompare(b.isoDate||'')).forEach(t=>{
+    if(t.type==='vente') jRows.push([t.date,`PC-${String(pce).padStart(4,'0')}`,'5100 – Caisse','7000 – Ventes',t.description,t.amount,t.amount]);
+    else jRows.push([t.date,`PC-${String(pce).padStart(4,'0')}`,'3100 – Stocks','4010 – Fournisseurs',t.description,t.amount,t.amount]);
+    pce++;
+  });
+  const vt = sales.reduce((a,t)=>a+(t.amount||0),0);
+  const nbV = sales.length;
+  jRows.push([]);
+  jRows.push(['ANALYSE FINANCIÈRE']);
+  jRows.push(['Indicateur','Valeur']);
+  jRows.push(["Chiffre d'affaires total", vt]);
+  jRows.push(['Panier moyen', nbV?vt/nbV:0]);
+  jRows.push(['Valeur du stock', stockVal]);
+  jRows.push(['Nombre de ventes', nbV]);
+  jRows.push(['Marge brute estimée (%)', stockVal>0?parseFloat(((vt-stockVal)/stockVal*100).toFixed(2)):0]);
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(jRows), '📒 Journal + Analyse');
+
+  return wb;
+}
+
+async function exportCompletToExcel() {
+  if (typeof XLSX === 'undefined') { showToast('⚠ Bibliothèque Excel non disponible.','warn'); return; }
+  const btn = document.getElementById('btn-export-drive');
+  if (btn) btn.disabled = true;
+  try {
+    showToast('⏳ Génération du fichier Excel complet...');
+    const wb = buildFullWorkbook();
+    const wbArray = XLSX.write(wb, { bookType:'xlsx', type:'array' });
+    const blob = new Blob([wbArray], { type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+    const filename = `BW_Multiservice_${isoDate()}.xlsx`;
+    showToast('🔐 Connexion à Google Drive...');
+    const file = await uploadFileToDrive(blob, filename, 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    showToast(`✅ Exporté vers Google Drive : ${file.name}`);
+    if (file.webViewLink) window.open(file.webViewLink, '_blank');
+  } catch (e) {
+    console.error('Export Drive:', e);
+    showToast('⚠ Échec de l\'envoi vers Drive : ' + e.message, 'warn');
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+}
+
+function updateClientList() {
+  const input = document.getElementById('cr-client').value.trim().toLowerCase();
+  const datalist = document.getElementById('client-list');
+  if (!datalist) return;
+  // Collecter tous les noms de clients uniques des ventes et credits
+  const clients = new Set();
+  (STATE.transactions||[]).forEach(t => { if(t.client) clients.add(t.client); });
+  (STATE.credits||[]).forEach(c => { if(c.client) clients.add(c.client); });
+  datalist.innerHTML = [...clients]
+    .filter(c => c.toLowerCase().includes(input))
+    .map(c => `<option value="${esc(c)}">`).join('');
+}
+
+function loadClientBalance() {
+  const clientInput = document.getElementById('cr-client').value.trim();
+  if (!clientInput) { document.getElementById('cr-balance-due').value = ''; return; }
+  const remaining = getClientDebt(clientInput);
+  document.getElementById('cr-balance-due').value = remaining.toFixed(2);
+  calcCreditBalance();
+}
+
+function calcCreditBalance() {
+  const due = parseFloat(document.getElementById('cr-balance-due').value) || 0;
+  const paid = parseFloat(document.getElementById('cr-paid').value) || 0;
+  const final = Math.max(0, due - paid);
+  document.getElementById('cr-final').value = final.toFixed(2);
+}
+
+async function submitCredit() {
+  const client = document.getElementById('cr-client').value.trim();
+  const due = parseFloat(document.getElementById('cr-balance-due').value) || 0;
+  const paid = parseFloat(document.getElementById('cr-paid').value) || 0;
+  const final = parseFloat(document.getElementById('cr-final').value) || 0;
+  if (!client || paid <= 0) { showToast('⚠ Veuillez remplir tous les champs.','warn'); return; }
+  const cr = {
+    type:'credit', date:todayStr(), isoDate:isoDate(), time:nowStr(),
+    seller:STATE.currentUser.username, client:client, due:due, paid:paid, finalBalance:final,
+    status: final === 0 ? 'soldé' : 'partiel', createdAt: new Date().toISOString()
+  };
+  if (!STATE.credits) STATE.credits = [];
+  if (STATE.isOnline && STATE.fbReady) {
+    try {
+      const {collection, addDoc} = window._fbFns;
+      await addDoc(collection(window._db,'credits'), cr);
+      showToast('✅ Paiement enregistré sur Firebase.');
+    } catch(e) {
+      STATE.credits.push(cr);
+      showToast('⚠ Erreur Firebase — paiement en attente.','warn');
+    }
+  } else {
+    STATE.credits.push(cr);
+    showToast("📤 Hors ligne — paiement en file d'attente.","warn");
+  }
+  // Si balance finale > 0, reporter automatiquement
+  if (final > 0) {
+    showToast(`⚠ Balance restante de ${fmtHTG(final)} reportée pour ${client}.`,'warn');
+  }
+  renderCredits();
+  document.getElementById('cr-client').value = '';
+  document.getElementById('cr-balance-due').value = '';
+  document.getElementById('cr-paid').value = '';
+  document.getElementById('cr-final').value = '';
+}
+
+function getClientDebt(clientName) {
+  // Calculer la dette totale d'un client: somme des balances de ventes - somme des paiements
+  const name = (clientName||'').toLowerCase();
+  const salesBalance = (STATE.transactions||[])
+    .filter(t => t.type==='vente' && (t.client||'').toLowerCase()===name)
+    .reduce((a,t) => a + (t.balance||0), 0);
+  const paymentsDone = (STATE.credits||[])
+    .filter(c => (c.client||'').toLowerCase()===name && c.source!=='vente')
+    .reduce((a,c) => a + (c.paid||0), 0);
+  return Math.max(0, salesBalance - paymentsDone);
+}
+
+function renderCredits() {
+  if (!STATE.credits) STATE.credits = [];
+  const body = document.getElementById('credit-table-body');
+  if (!body) return;
+  const sorted = [...STATE.credits].sort((a,b) => {
+    const da = getIsoFromTx ? getIsoFromTx(a) : (a.isoDate||a.date||'');
+    const db = getIsoFromTx ? getIsoFromTx(b) : (b.isoDate||b.date||'');
+    if (db !== da) return db.localeCompare(da);
+    return (b.time||'').localeCompare(a.time||'');
+  });
+  if (!sorted.length) {
+    body.innerHTML = '<tr><td colspan="9" style="text-align:center;color:var(--text3);padding:1.5rem;">Aucun paiement enregistré.</td></tr>';
+    return;
+  }
+  let rows = [];
+  sorted.forEach(c => {
+    const hasDebt = c.finalBalance > 0;
+    const clientColor = hasDebt ? 'color:#c0392b;font-weight:700;' : 'color:#0f7b4f;font-weight:700;';
+    rows.push(`<tr>
+      <td>${c.date}</td><td>${c.time}</td>
+      <td style="${clientColor}">${esc(c.client)}</td>
+      <td>${fmtHTG(c.due)}</td><td>${fmtHTG(c.paid||0)}</td>
+      <td style="${clientColor}">${fmtHTG(c.finalBalance||0)}</td>
+      <td><span class="badge ${hasDebt?'badge-pending':'badge-sent'}">${hasDebt?'⏳ Partiel':'✅ Soldé'}</span></td>
+      <td style="white-space:nowrap;">${STATE.currentUser&&(STATE.currentUser.role==='admin'||STATE.currentUser.role==='gestionnaire')?`<button class="btn btn-outline" style="font-size:.75rem;padding:3px 10px;" onclick="openEditCredit('${c.id||''}','${esc(c.client)}',${c.due||0},${c.paid||0},${c.finalBalance||0})">✏</button><button class="btn" style="font-size:.75rem;padding:3px 10px;background:var(--danger-bg);color:var(--danger);border:1px solid #f5b7b1;margin-left:4px;" onclick="deleteCredit('${c.id||''}')">🗑</button>`:'—'}</td>
+    </tr>`);
+    if (hasDebt) {
+      rows.push(`<tr style="background:#fef3e2;">
+        <td colspan="2" style="color:#b45309;font-style:italic;">↩ Report</td>
+        <td style="color:#c0392b;font-weight:700;">${esc(c.client)}</td>
+        <td colspan="2" style="color:#b45309;font-style:italic;">Balance reportée</td>
+        <td style="color:#c0392b;font-weight:700;">${fmtHTG(c.finalBalance)}</td>
+        <td><span class="badge badge-pending">⚠ À payer</span></td>
+        <td></td>
+      </tr>`);
+    }
+  });
+  body.innerHTML = rows.join('');
+}
+
+function openEditCredit(id, client, due, paid, finalBalance) {
+  const newPaid = prompt(`Modifier le montant remboursé pour ${client} (actuel: ${paid} HTG):`, paid);
+  if (newPaid === null) return;
+  const paidNum = parseFloat(newPaid) || 0;
+  const newFinal = Math.max(0, due - paidNum);
+  if (STATE.isOnline && STATE.fbReady && id) {
+    const {doc, updateDoc} = window._fbFns;
+    updateDoc(doc(window._db,'credits',id), {paid:paidNum, finalBalance:newFinal, status:newFinal===0?'soldé':'partiel'})
+      .then(async () => {
+        await logNotification('✏️ Modification crédit', `Client: ${client} | Ancien paiement: ${fmtHTG(paid)} | Nouveau: ${fmtHTG(paidNum)} | Balance finale: ${fmtHTG(newFinal)}`);
+        showToast('✅ Paiement modifié.');
+        markUnsaved();
+        // Mise à jour locale immédiate dans STATE.credits
+        if (!STATE.credits) STATE.credits = [];
+        const idx = STATE.credits.findIndex(c=>c.id===id);
+        if (idx>=0) { 
+          STATE.credits[idx] = {...STATE.credits[idx], paid:paidNum, finalBalance:newFinal, status:newFinal===0?'soldé':'partiel'};
+        }
+        // Forcer le rafraîchissement des deux onglets
+        renderCredits();
+        renderDettes();
+        // Si l'onglet dettes est actif, basculer et revenir pour forcer l'affichage
+        if (currentTab === 'dettes') {
+          const body = document.getElementById('dettes-table-body');
+          if (body) body.innerHTML = '<tr><td colspan="5" style="text-align:center;">Mise à jour...</td></tr>';
+          setTimeout(() => renderDettes(), 100);
+        }
+      })
+      .catch(e => showToast('⚠ Erreur: '+e.message,'warn'));
+  }
+}
+
+async function deleteCredit(id) {
+  if (!confirm('Supprimer ce paiement de crédit ?')) return;
+  if (STATE.isOnline && STATE.fbReady && id) {
+    try {
+      const {doc, deleteDoc} = window._fbFns;
+      const oldCredit = (STATE.credits||[]).find(c=>c.id===id);
+      await deleteDoc(doc(window._db,'credits',id));
+      await logNotification('🗑 Suppression crédit', `Client: ${oldCredit?.client||'?'} | Montant: ${fmtHTG(oldCredit?.paid||0)} | Date: ${oldCredit?.date||'?'}`);
+      showToast('🗑 Paiement supprimé.','warn');
+      markUnsaved();
+      // Mise à jour locale immédiate
+      STATE.credits = (STATE.credits||[]).filter(c => c.id !== id);
+      // Forcer le rafraîchissement immédiat
+      renderCredits();
+      renderDettes();
+      setTimeout(() => renderDettes(), 200);
+    } catch(e) { showToast('⚠ Erreur: '+e.message,'warn'); }
+  } else {
+    STATE.credits = (STATE.credits||[]).filter(c => c.id !== id);
+    renderCredits();
+    renderDettes();
+  }
+}
+
+// Credits listener intégré dans startFirebaseListeners
+
+function renderDettes() {
+  const body = document.getElementById('dettes-table-body');
+  if (!body) { console.log('dettes-table-body not found'); return; }
+  
+  // Collecter tous les clients uniques
+  const clients = new Set();
+  (STATE.transactions||[]).forEach(t => { if(t.client && t.type==='vente') clients.add(t.client); });
+  (STATE.credits||[]).forEach(c => { if(c.client) clients.add(c.client); });
+  
+  if (!clients.size) {
+    body.innerHTML = '<tr><td colspan="5" style="text-align:center;color:var(--text3);padding:1.5rem;">Aucune dette enregistrée.</td></tr>';
+    return;
+  }
+  
+  const isAdminOrGest = STATE.currentUser && (STATE.currentUser.role==='admin' || STATE.currentUser.role==='gestionnaire');
+  
+  // Calculer la dette de chaque client
+  const clientData = [];
+  clients.forEach(client => {
+    const name = client.toLowerCase();
+    // Total dû = somme des balances de ventes à crédit
+    const totalDu = (STATE.transactions||[])
+      .filter(t => t.type==='vente' && (t.client||'').toLowerCase()===name && (t.balance||0) > 0)
+      .reduce((a,t) => a+(t.balance||0), 0);
+    // Total payé = somme des paiements effectués (hors source vente)
+    const totalPaye = (STATE.credits||[])
+      .filter(c => (c.client||'').toLowerCase()===name && c.source!=='vente')
+      .reduce((a,c) => a+(c.paid||0), 0);
+    const balanceRestante = Math.max(0, totalDu - totalPaye);
+    if (totalDu > 0 || totalPaye > 0) {
+      clientData.push({ client, totalDu, totalPaye, balanceRestante });
+    }
+  });
+  
+  // Trier par balance restante décroissante (plus grosse dette en haut)
+  clientData.sort((a,b) => b.balanceRestante - a.balanceRestante);
+  
+  if (!clientData.length) {
+    body.innerHTML = '<tr><td colspan="5" style="text-align:center;color:var(--text3);padding:1.5rem;">Aucune dette enregistrée.</td></tr>';
+    return;
+  }
+  
+  // Filtrer seulement les clients avec balance > 0
+  const debtors = clientData.filter(d => d.balanceRestante > 0);
+  
+  if (!debtors.length) {
+    body.innerHTML = '<tr><td colspan="5" style="text-align:center;color:#0f7b4f;padding:1.5rem;">✅ Aucune dette en cours — tous les clients sont à jour !</td></tr>';
+    return;
+  }
+  
+  body.innerHTML = debtors.map(d => `<tr>
+    <td style="font-weight:700;color:#c0392b;">${esc(d.client)}</td>
+    <td>${fmtHTG(d.totalDu)}</td>
+    <td>${fmtHTG(d.totalPaye)}</td>
+    <td style="font-weight:700;color:#c0392b;">${fmtHTG(d.balanceRestante)}</td>
+    <td><span class="badge badge-pending">⚠ En cours</span></td>
+  </tr>`).join('') + `<tr style="background:var(--surface2);font-weight:700;border-top:2px solid var(--border);">
+    <td>📊 TOTAL (${debtors.length} client(s))</td>
+    <td>${fmtHTG(debtors.reduce((a,d)=>a+d.totalDu,0))}</td>
+    <td>${fmtHTG(debtors.reduce((a,d)=>a+d.totalPaye,0))}</td>
+    <td style="color:#c0392b;">${fmtHTG(debtors.reduce((a,d)=>a+d.balanceRestante,0))}</td>
+    <td></td>
+  </tr>`;
+}
+
+async function submitStockDepart() {
+  const desc = document.getElementById('sd-desc').value;
+  const qty = parseFloat(document.getElementById('sd-qty').value) || 0;
+  const prix = parseFloat(document.getElementById('sd-prix').value) || 0;
+  const date = document.getElementById('sd-date').value || isoDate();
+  if (!desc || qty <= 0 || prix <= 0) {
+    showToast('⚠ Veuillez remplir tous les champs.','warn'); return;
+  }
+  const entry = {
+    type:'stock-depart', description:desc, quantity:qty, prixCaisse:prix,
+    valeur:qty*prix, isoDate:date, date:date, createdAt:new Date().toISOString(),
+    seller:STATE.currentUser.username
+  };
+  if (STATE.isOnline && STATE.fbReady) {
+    try {
+      const {collection, addDoc} = window._fbFns;
+      await addDoc(collection(window._db,'stock_depart'), entry);
+      showToast('✅ Stock de départ enregistré.');
+    } catch(e) { showToast('⚠ Erreur: '+e.message,'warn'); }
+  }
+  document.getElementById('sd-desc').value='';
+  document.getElementById('sd-qty').value='';
+  document.getElementById('sd-prix').value='';
+  document.getElementById('sd-date').value='';
+}
+
+function renderStockDepart() {
+  const body = document.getElementById('stock-depart-body');
+  if (!body) return;
+  const items = (STATE.stockDepart||[]).sort((a,b)=>(b.isoDate||'').localeCompare(a.isoDate||''));
+  if (!items.length) {
+    body.innerHTML='<tr><td colspan="5" style="text-align:center;color:var(--text3);padding:1.5rem;">Aucun stock de départ enregistré.</td></tr>';
+    return;
+  }
+  body.innerHTML = items.map(s=>`<tr>
+    <td>${s.date}</td><td>${esc(s.description)}</td><td>${s.quantity}</td>
+    <td>${fmtHTG(s.prixCaisse)}</td><td>${fmtHTG(s.valeur)}</td>
+  </tr>`).join('');
+}
+
+function getQtyCaisses(t) {
+  const isBeller = (t.description||'').toLowerCase().includes('beller');
+  const casseSize = isBeller ? 48 : 24;
+  let qtyCaisses = 0;
+  switch(t.unit) {
+    case 'caisse': qtyCaisses = t.quantity; break;
+    case 'bout': case 'caisse 1/2': qtyCaisses = t.quantity*0.5; break;
+    case 'caisse+3': qtyCaisses = t.quantity + 3/casseSize; break;
+    case 'caisse+6': qtyCaisses = t.quantity + 6/casseSize; break;
+    case 'bout+3': qtyCaisses = t.quantity*0.5 + 3/casseSize; break;
+    case 'bout+6': qtyCaisses = t.quantity*0.5 + 6/casseSize; break;
+    default: qtyCaisses = t.quantity/casseSize; break;
+  }
+  return qtyCaisses;
+}
+
+function renderStockActuel() {
+  const body = document.getElementById('stock-actuel-body');
+  if (!body) return;
+  
+  // 1. Stock de départ par produit
+  const departMap = {};
+  (STATE.stockDepart||[]).forEach(s => {
+    const key = s.description;
+    if (!departMap[key]) departMap[key] = {qty:0, prix:0};
+    departMap[key].qty += parseFloat(s.quantity) || 0;
+    departMap[key].prix = s.prixCaisse || 0;
+  });
+  
+  // 2. Entrées de stock par produit (en caisses)
+  const entreesMap = {};
+  STATE.stocks.forEach(s => {
+    const key = s.description;
+    if (!entreesMap[key]) entreesMap[key] = 0;
+    entreesMap[key] += parseFloat(s.quantityCaisses || s.quantity) || 0;
+  });
+  
+  // 3. Sorties (ventes) par produit (en caisses)
+  const sortiesMap = {};
+  (STATE.transactions||[]).filter(t=>t.type==='vente').forEach(t => {
+    const key = t.description;
+    if (!sortiesMap[key]) sortiesMap[key] = 0;
+    sortiesMap[key] += getQtyCaisses(t);
+  });
+  
+  const allProducts = new Set([
+    ...Object.keys(departMap),
+    ...Object.keys(entreesMap),
+    ...Object.keys(sortiesMap)
+  ]);
+  
+  if (!allProducts.size) {
+    body.innerHTML='<tr><td colspan="7" style="text-align:center;color:var(--text3);padding:1.5rem;">Aucune donnée disponible.</td></tr>';
+    return;
+  }
+  
+  const rows = [...allProducts].map(p => {
+    const depart = departMap[p]?.qty || 0;
+    const entrees = entreesMap[p] || 0;
+    const sorties = sortiesMap[p] || 0;
+    const actuel = Math.max(0, depart + entrees - sorties);
+    const prix = departMap[p]?.prix || 0;
+    const valeur = actuel * prix;
+    return { p, depart, entrees, sorties, actuel, prix, valeur };
+  }).sort((a,b) => a.p.localeCompare(b.p));
+  
+  body.innerHTML = rows.map(r=>`<tr>
+    <td style="font-weight:600;">${esc(r.p)}</td>
+    <td>${r.depart.toFixed(2)}</td>
+    <td style="color:#0f7b4f;font-weight:600;">+${r.entrees.toFixed(2)}</td>
+    <td style="color:#c0392b;font-weight:600;">-${r.sorties.toFixed(2)}</td>
+    <td style="font-weight:700;color:${r.actuel>0?'#0f7b4f':'#c0392b'};">${r.actuel.toFixed(2)}</td>
+    <td>${fmtHTG(r.prix)}</td>
+    <td>${fmtHTG(r.valeur)}</td>
+  </tr>`).join('') + `<tr style="background:var(--surface2);font-weight:700;border-top:2px solid var(--border);">
+    <td>📊 TOTAL</td>
+    <td>${rows.reduce((a,r)=>a+r.depart,0).toFixed(2)}</td>
+    <td style="color:#0f7b4f;">+${rows.reduce((a,r)=>a+r.entrees,0).toFixed(2)}</td>
+    <td style="color:#c0392b;">-${rows.reduce((a,r)=>a+r.sorties,0).toFixed(2)}</td>
+    <td>${rows.reduce((a,r)=>a+r.actuel,0).toFixed(2)}</td>
+    <td></td>
+    <td>${fmtHTG(rows.reduce((a,r)=>a+r.valeur,0))}</td>
+  </tr>`;
+}
+
+// StockDepart listener intégré dans startFirebaseListeners
+
+function renderNotifications() {
+  const body = document.getElementById('notif-table-body');
+  if (!body) return;
+  const notifs = (STATE.notifications||[]).sort((a,b) => {
+    if (b.isoDate !== a.isoDate) return (b.isoDate||'').localeCompare(a.isoDate||'');
+    return (b.time||'').localeCompare(a.time||'');
+  });
+  if (!notifs.length) {
+    body.innerHTML='<tr><td colspan="6" style="text-align:center;color:var(--text3);padding:1.5rem;">Aucune notification.</td></tr>';
+    return;
+  }
+  body.innerHTML = notifs.map(n => `<tr style="background:${n.read?'':'#fef3e2'};">
+    <td>${n.date}</td>
+    <td>${n.time}</td>
+    <td style="font-weight:600;color:#1a56db;">${esc(n.user)} (${n.role})</td>
+    <td>${n.action}</td>
+    <td style="font-size:.82rem;">${esc(n.details)}</td>
+    <td><span class="badge ${n.read?'badge-sent':'badge-pending'}">${n.read?'✓ Lu':'🔔 Nouveau'}</span></td>
+  </tr>`).join('');
+  // Mettre à jour le badge
+  const unread = notifs.filter(n=>!n.read).length;
+  const badge = document.getElementById('notif-badge');
+  if (badge) {
+    badge.textContent = unread;
+    badge.style.display = unread > 0 ? 'inline-block' : 'none';
+  }
+}
+
+async function clearNotifications() {
+  if (!confirm('Effacer toutes les notifications ?')) return;
+  if (STATE.isOnline && STATE.fbReady) {
+    try {
+      const {collection, getDocs, deleteDoc, doc} = window._fbFns;
+      // Supprimer toutes les notifications
+      const snap = await getDocs(collection(window._db, 'notifications'));
+      for (const d of snap.docs) {
+        await deleteDoc(doc(window._db, 'notifications', d.id));
+      }
+      STATE.notifications = [];
+      renderNotifications();
+      showToast('🗑 Notifications effacées.','warn');
+    } catch(e) { showToast('⚠ Erreur: '+e.message,'warn'); }
+  }
+}
+
+// Firebase listener pour notifications
+function startNotifListener() {
+  if (!window._fbReady || !window._db) return;
+  const {collection, onSnapshot, query, orderBy, getDocs} = window._fbFns;
+  onSnapshot(
+    query(collection(window._db,'notifications'), orderBy('isoDate','desc')),
+    snap => {
+      STATE.notifications = snap.docs.map(d=>({id:d.id,...d.data()}));
+      // Badge notification pour admin
+      const unread = STATE.notifications.filter(n=>!n.read).length;
+      const badge = document.getElementById('notif-badge');
+      if (badge) {
+        badge.textContent = unread;
+        badge.style.display = unread > 0 ? 'inline-block' : 'none';
+      }
+      if (currentTab === 'notif') renderNotifications();
+    },
+    err => console.error('Notif listener:', err)
+  );
+}
+window.addEventListener('fb-ready', () => { startNotifListener(); });
+if (window._fbReady) startNotifListener();
+
+function renderAll() {
+  if (!STATE.currentUser) return;
+  renderMySales();
+  renderStocks();
+  renderDashboard();
+  renderCredits();
+  renderDettes();
+  if (currentTab === 'stock-actuel') renderStockActuel();
+  if (currentTab === 'stock-depart') renderStockDepart();
+}
+
+// Appel automatique de renderMySales toutes les 30 secondes pour s'assurer de la synchronisation
+setInterval(() => {
+  if (STATE.currentUser && currentTab === 'ventes') renderMySales();
+}, 30000);
+</script>
+</body>
+</html>
