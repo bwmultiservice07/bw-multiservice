@@ -404,11 +404,11 @@ tr:hover td{background:#f7f9ff;}
             </select>
           </div>
           <div class="form-group">
-            <label>Prix / Caisse ou Bout (HTG)</label>
+            <label>Prix de vente Caisse/Bout (HTG)</label>
             <input type="number" id="sd-prix-caisse" min="0" step="0.01" placeholder="Ex: 1200.00" oninput="calcStockDepartPrixUnitaire()"/>
           </div>
           <div class="form-group">
-            <label>Prix unitaire (HTG) — auto</label>
+            <label>Prix de vente unitaire (HTG) — auto</label>
             <input type="number" id="sd-prix-unitaire" min="0" step="0.01" placeholder="Ex: 50.00" readonly style="background:#f0f2f7;"/>
           </div>
           <div class="form-group">
@@ -432,7 +432,7 @@ tr:hover td{background:#f7f9ff;}
         <div class="card-title">📋 Historique du stock de départ</div>
         <div class="table-wrap">
           <table>
-            <thead><tr><th>Date</th><th>Produit</th><th>Quantité</th><th>Unité</th><th>Prix caisse/bout</th><th>Prix unitaire</th><th>Nombre d'unité</th><th>Valeur totale</th></tr></thead>
+            <thead><tr><th>Date</th><th>Produit</th><th>Quantité</th><th>Unité</th><th>Prix de vente caisse/bout</th><th>Prix de vente unitaire</th><th>Nombre d'unité</th><th>Valeur totale</th></tr></thead>
             <tbody id="stock-depart-body"><tr><td colspan="8" style="text-align:center;color:var(--text3);padding:1.5rem;">Aucun stock de départ enregistré.</td></tr></tbody>
           </table>
         </div>
@@ -490,11 +490,11 @@ tr:hover td{background:#f7f9ff;}
         </div>
         <div class="form-row">
           <div class="form-group">
-            <label>Prix / Caisse (HTG)</label>
+            <label>Prix d'achat / Caisse (HTG)</label>
             <input type="number" id="s-price" min="0" step="0.01" placeholder="Ex: 1200.00" oninput="calcStockPrixUnitaire()"/>
           </div>
           <div class="form-group">
-            <label>Prix unitaire (HTG) — auto</label>
+            <label>Prix d'achat unitaire (HTG) — auto</label>
             <input type="number" id="s-prix-unitaire" step="0.01" readonly style="background:#f0f2f7;"/>
           </div>
           <div class="form-group">
@@ -524,7 +524,7 @@ tr:hover td{background:#f7f9ff;}
         <div class="card-title">📦 Historique des mouvements de stock (Entrées et Sorties)</div>
         <div class="table-wrap">
           <table>
-            <thead><tr><th>Date</th><th>Type</th><th>Produit</th><th>Qté</th><th>Prix/Caisse</th><th>Prix unitaire</th><th>Valeur</th><th>Fournisseur/Client</th></tr></thead>
+            <thead><tr><th>Date</th><th>Type</th><th>Produit</th><th>Qté</th><th>Prix d'achat/Caisse</th><th>Prix d'achat unitaire</th><th>Valeur</th><th>Fournisseur/Client</th></tr></thead>
             <tbody id="stock-table-body"><tr><td colspan="8" style="text-align:center;color:var(--text3);padding:1.5rem;">Aucun mouvement.</td></tr></tbody>
           </table>
         </div>
@@ -1170,6 +1170,15 @@ function getCasseSize(produit, unit) {
   const isBellerProduit = (produit||'').toLowerCase().includes('beller');
   const isBellerUnit = unit === 'caisse-beller';
   return (isBellerProduit || isBellerUnit) ? 48 : 24;
+}
+
+// Nombre d'unités individuelles représentées par le choix "Prix caisse/bout"
+// (ex: un Bout = 12 unités, une Caisse et 1/2 = 36 unités). Le prix de vente
+// unitaire = prix de vente d'une seule unité = Prix caisse/bout ÷ ce nombre.
+function getUnitsPerSelection(produit, unit) {
+  const casseSize = getCasseSize(produit, unit);
+  const factor = UNIT_FACTORS[unit] !== undefined ? UNIT_FACTORS[unit] : 1;
+  return casseSize * factor;
 }
 
 // Libellé lisible pour un code d'unité (affichage dans les tableaux).
@@ -2723,8 +2732,11 @@ function calcStockDepartPrixUnitaire() {
   const prixCaisse = parseFloat(document.getElementById('sd-prix-caisse').value) || 0;
   const produit = document.getElementById('sd-desc').value;
   const unit = document.getElementById('sd-unit').value;
-  const casseSize = getCasseSize(produit, unit);
-  const prixUnit = prixCaisse > 0 ? prixCaisse / casseSize : 0;
+  // Prix de vente unitaire = prix de vente d'une unité = Prix caisse/bout
+  // divisé par le nombre d'unités que représente réellement le choix fait
+  // (ex: un Bout = 12 unités, pas 24).
+  const divisor = getUnitsPerSelection(produit, unit);
+  const prixUnit = prixCaisse > 0 ? prixCaisse / divisor : 0;
   document.getElementById('sd-prix-unitaire').value = prixUnit.toFixed(2);
   calcStockDepartValeur();
 }
@@ -2801,7 +2813,7 @@ function renderStockDepart() {
     <td>${s.date}</td><td>${esc(s.description)}</td><td>${s.quantity}</td>
     <td>${esc(formatUnitLabel(s.unit))}</td>
     <td>${fmtHTG(s.prixCaisse||0)}</td>
-    <td>${fmtHTG(s.prixUnitaire || (s.prixCaisse ? s.prixCaisse/getCasseSize(s.description,null) : 0))}</td>
+    <td>${fmtHTG(s.prixUnitaire || (s.prixCaisse ? s.prixCaisse/getUnitsPerSelection(s.description, s.unit) : 0))}</td>
     <td>${s.nombreUnite||0}</td>
     <td>${fmtHTG(s.valeur)}</td>
   </tr>`).join('');
@@ -2846,7 +2858,7 @@ function renderStockActuel() {
     departMap[key].qty += qc;
     if (s.prixCaisse) {
       departMap[key].prix = s.prixCaisse;
-      departMap[key].prixUnitaire = s.prixUnitaire || (s.prixCaisse / getCasseSize(s.description, s.unit));
+      departMap[key].prixUnitaire = s.prixUnitaire || (s.prixCaisse / getUnitsPerSelection(s.description, s.unit));
     }
   });
 
