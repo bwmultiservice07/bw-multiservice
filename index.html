@@ -2051,11 +2051,17 @@ function computeProductMarginRates() {
     }
   });
   const achatAgg = {};
-  (STATE.stocks||[]).filter(s=>s.prixUnitaire).forEach(s => {
+  (STATE.stocks||[]).forEach(s => {
     const key = s.description;
     const qty = parseFloat(s.quantityCaisses || s.quantity) || 0;
+    if (qty <= 0) return;
+    // Repli : si le champ prixUnitaire n'a pas été enregistré (anciennes
+    // entrées créées avant l'ajout de ce champ), on le déduit du prix par
+    // caisse/bout saisi (unitPrice) et de la taille de la caisse du produit.
+    const pu = s.prixUnitaire || (s.unitPrice ? s.unitPrice / getCasseSize(s.description, s.unit) : 0);
+    if (!pu) return;
     if (!achatAgg[key]) achatAgg[key] = {sumPrixQty:0, sumQty:0};
-    achatAgg[key].sumPrixQty += (s.prixUnitaire||0) * qty;
+    achatAgg[key].sumPrixQty += pu * qty;
     achatAgg[key].sumQty += qty;
   });
   const prixAchatMap = {};
