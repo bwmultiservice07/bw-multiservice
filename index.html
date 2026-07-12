@@ -189,6 +189,8 @@ tr:hover td{background:#f7f9ff;}
     <button id="tab-credit-btn" onclick="switchTab('credit')">💳 Crédit Client</button>
     <button id="tab-dettes-btn" onclick="switchTab('dettes')">📋 Liste des Dettes</button>
     <button id="tab-caisse-btn" onclick="switchTab('caisse')" style="display:none;">💰 Mouvement Caisse</button>
+    <button id="tab-apport-btn" onclick="switchTab('apport')" style="display:none;">🪙 Apport</button>
+    <button id="tab-autres-charges-btn" onclick="switchTab('autres-charges')" style="display:none;">💸 Autres Charges</button>
     <button id="tab-stock-depart-btn" onclick="switchTab('stock-depart')" style="display:none;">🏁 Stock de départ</button>
     <button id="tab-stocks-btn" onclick="switchTab('stocks')" style="display:none;">📦 Mouvements de Stocks</button>
     <button id="tab-stock-actuel-btn" onclick="switchTab('stock-actuel')" style="display:none;">📊 Stock Actuel</button>
@@ -408,6 +410,62 @@ tr:hover td{background:#f7f9ff;}
           <table>
             <thead><tr><th>Date</th><th>Montant d'ouverture (HTG)</th><th>Ventes cash (HTG)</th><th>Remboursements crédit (HTG)</th><th>Retraits (HTG)</th><th>Total encaissé (HTG)</th><th>Montant de fermeture (HTG)</th></tr></thead>
             <tbody id="caisse-table-body"><tr><td colspan="7" style="text-align:center;color:var(--text3);padding:1.5rem;">Aucun mouvement de caisse enregistré.</td></tr></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- APPORT -->
+    <div class="tab-content" id="tab-apport">
+      <div class="card">
+        <div class="card-title">🪙 Enregistrer un apport</div>
+        <div class="form-row">
+          <div class="form-group">
+            <label>Date</label>
+            <input type="date" id="ap-date"/>
+          </div>
+          <div class="form-group">
+            <label>Montant (Gourdes HTG)</label>
+            <input type="number" id="ap-montant" min="0" step="0.01" placeholder="Ex: 10000.00"/>
+          </div>
+          <div class="form-group" style="flex:2;min-width:200px;">
+            <label>Source / Note (optionnel)</label>
+            <input type="text" id="ap-note" placeholder="Ex: Apport personnel du propriétaire"/>
+          </div>
+        </div>
+        <button class="send-btn" onclick="submitApport()">Enregistrer ➤</button>
+        <div class="table-wrap" style="margin-top:1rem;">
+          <table>
+            <thead><tr><th>Date</th><th>Montant (HTG)</th><th>Source / Note</th><th>Actions</th></tr></thead>
+            <tbody id="apport-body"><tr><td colspan="4" style="text-align:center;color:var(--text3);padding:1.5rem;">Aucun apport enregistré.</td></tr></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- AUTRES CHARGES -->
+    <div class="tab-content" id="tab-autres-charges">
+      <div class="card">
+        <div class="card-title">💸 Enregistrer une charge</div>
+        <div class="form-row">
+          <div class="form-group">
+            <label>Date</label>
+            <input type="date" id="ch-date"/>
+          </div>
+          <div class="form-group">
+            <label>Montant (Gourdes HTG)</label>
+            <input type="number" id="ch-montant" min="0" step="0.01" placeholder="Ex: 500.00"/>
+          </div>
+          <div class="form-group" style="flex:2;min-width:200px;">
+            <label>Note (optionnel)</label>
+            <input type="text" id="ch-note" placeholder="Ex: Transport marchandise du 10 juillet"/>
+          </div>
+        </div>
+        <button class="send-btn" onclick="submitCharge()">Enregistrer ➤</button>
+        <div class="table-wrap" style="margin-top:1rem;">
+          <table>
+            <thead><tr><th>Date</th><th>Montant (HTG)</th><th>Note</th><th>Actions</th></tr></thead>
+            <tbody id="charges-body"><tr><td colspan="4" style="text-align:center;color:var(--text3);padding:1.5rem;">Aucune charge enregistrée.</td></tr></tbody>
           </table>
         </div>
       </div>
@@ -736,39 +794,6 @@ tr:hover td{background:#f7f9ff;}
         </div>
       </div>
       <div class="acc-sheet" id="acc-analyse">
-        <div class="card">
-          <div class="card-title">💸 Enregistrer une charge</div>
-          <div class="form-row">
-            <div class="form-group">
-              <label>Date</label>
-              <input type="date" id="ch-date"/>
-            </div>
-            <div class="form-group">
-              <label>Type</label>
-              <select id="ch-type">
-                <option value="transport">Coût transport</option>
-                <option value="manutention">Coût manutention</option>
-                <option value="charges">Charges diverses</option>
-                <option value="impot">Impôt</option>
-              </select>
-            </div>
-            <div class="form-group">
-              <label>Montant (Gourdes HTG)</label>
-              <input type="number" id="ch-montant" min="0" step="0.01" placeholder="Ex: 500.00"/>
-            </div>
-            <div class="form-group" style="flex:2;min-width:200px;">
-              <label>Note (optionnel)</label>
-              <input type="text" id="ch-note" placeholder="Ex: Transport marchandise du 10 juillet"/>
-            </div>
-          </div>
-          <button class="send-btn" onclick="submitCharge()">Enregistrer ➤</button>
-          <div class="table-wrap" style="margin-top:1rem;">
-            <table>
-              <thead><tr><th>Date</th><th>Type</th><th>Montant (HTG)</th><th>Note</th><th>Actions</th></tr></thead>
-              <tbody id="charges-body"><tr><td colspan="5" style="text-align:center;color:var(--text3);padding:1.5rem;">Aucune charge enregistrée.</td></tr></tbody>
-            </table>
-          </div>
-        </div>
         <div class="card"><div class="card-title">📈 Analyse financière</div><div id="analyse-content"></div></div>
       </div>
     </div>
@@ -867,7 +892,8 @@ let STATE = {
   stocks: [],         // synced from Firestore
   caisse: [],         // synced from Firestore (ouvertures de caisse par jour)
   caisseRetraits: [], // synced from Firestore (retraits de caisse)
-  charges: [],        // synced from Firestore (coûts transport/manutention, charges diverses, impôt)
+  charges: [],        // synced from Firestore (autres charges : transport, manutention, charges diverses, impôt...)
+  apports: [],        // synced from Firestore (apports / injections de capital)
   pendingQueue: [],   // offline queue
   currentUser: null,
   isOnline: navigator.onLine,
@@ -914,7 +940,7 @@ loadLocal();
 // ============================================================
 // FIREBASE LISTENERS
 // ============================================================
-let unsubCredits = null, unsubStockDepart = null, unsubCaisse = null, unsubCaisseRetraits = null, unsubCharges = null;
+let unsubCredits = null, unsubStockDepart = null, unsubCaisse = null, unsubCaisseRetraits = null, unsubCharges = null, unsubApports = null;
 
 function startFirebaseListeners() {
   if (!window._fbReady || !window._db) return;
@@ -1003,15 +1029,28 @@ function startFirebaseListeners() {
     err => console.error('CaisseRetraits listener:', err)
   );
 
-  // CHARGES - Synchronisation globale (coûts transport/manutention, charges diverses, impôt)
+  // AUTRES CHARGES - Synchronisation globale
   if (unsubCharges) unsubCharges();
   unsubCharges = onSnapshot(
     query(collection(db, 'charges'), orderBy('isoDate','desc')),
     snap => {
       STATE.charges = snap.docs.map(d => ({id: d.id, ...d.data()}));
-      if (currentTab === 'compta') { renderChargesHistory(); buildAnalyse(); }
+      if (currentTab === 'autres-charges') renderChargesHistory();
+      if (currentTab === 'compta') buildAnalyse();
     },
     err => console.error('Charges listener:', err)
+  );
+
+  // APPORT - Synchronisation globale
+  if (unsubApports) unsubApports();
+  unsubApports = onSnapshot(
+    query(collection(db, 'apports'), orderBy('isoDate','desc')),
+    snap => {
+      STATE.apports = snap.docs.map(d => ({id: d.id, ...d.data()}));
+      if (currentTab === 'apport') renderApports();
+      if (currentTab === 'compta') buildAnalyse();
+    },
+    err => console.error('Apports listener:', err)
   );
 
   // USERS - Synchronisation globale
@@ -1126,6 +1165,8 @@ function doLogin() {
     document.getElementById('tab-credit-btn').style.display = 'block';
     document.getElementById('tab-dettes-btn').style.display = 'block';
     document.getElementById('tab-caisse-btn').style.display = 'block';
+    document.getElementById('tab-apport-btn').style.display = 'block';
+    document.getElementById('tab-autres-charges-btn').style.display = 'block';
     // Seuls admin et gestionnaire peuvent corriger une vente déjà envoyée
     document.getElementById('btn-corriger-vente').style.display = 'inline-flex';
   } else {
@@ -1140,6 +1181,8 @@ function doLogin() {
     document.getElementById('tab-credit-btn').style.display = 'block';
     document.getElementById('tab-dettes-btn').style.display = 'block';
     document.getElementById('tab-caisse-btn').style.display = 'none';
+    document.getElementById('tab-apport-btn').style.display = 'none';
+    document.getElementById('tab-autres-charges-btn').style.display = 'none';
     // Le vendeur ne peut plus corriger/supprimer lui-même ses ventes :
     // seuls admin et gestionnaire en ont le droit désormais.
     document.getElementById('btn-corriger-vente').style.display = 'none';
@@ -1218,6 +1261,7 @@ function performLogout() {
   if (unsubCaisse) unsubCaisse();
   if (unsubCaisseRetraits) unsubCaisseRetraits();
   if (unsubCharges) unsubCharges();
+  if (unsubApports) unsubApports();
   STATE.currentUser = null;
   document.getElementById('auth-screen').style.display = 'flex';
   document.getElementById('app').style.display = 'none';
@@ -1249,6 +1293,8 @@ function switchTab(tab) {
   if (tab==='credit') renderCredits();
   if (tab==='dettes') renderDettes();
   if (tab==='caisse') { renderCaisse(); renderCaisseRetraits(); }
+  if (tab==='apport') renderApports();
+  if (tab==='autres-charges') renderChargesHistory();
   if (tab==='stock-depart') renderStockDepart();
   if (tab==='stock-actuel') renderStockActuel();
   if (tab==='notif') renderNotifications();
@@ -2209,19 +2255,12 @@ function refreshAccounting() {
 }
 
 // ============================================================
-// CHARGES (Coûts transport, Coûts manutention, Charges diverses, Impôt)
+// AUTRES CHARGES (regroupe tout ce qui n'est ni un achat de marchandise,
+// ni un retrait de caisse : transport, manutention, charges diverses, impôt...)
 // ============================================================
-const CHARGE_TYPE_LABELS = {
-  transport: 'Coût transport',
-  manutention: 'Coût manutention',
-  charges: 'Charges diverses',
-  impot: 'Impôt'
-};
-
 async function submitCharge() {
   if (!requireAdminOrGest()) return;
   const date = document.getElementById('ch-date').value || isoDate();
-  const type = document.getElementById('ch-type').value;
   const montant = parseFloat(document.getElementById('ch-montant').value);
   const note = document.getElementById('ch-note').value.trim();
   if (isNaN(montant) || montant <= 0) {
@@ -2232,7 +2271,7 @@ async function submitCharge() {
   }
   try {
     const {collection, addDoc} = window._fbFns;
-    const entry = { date:date, isoDate:date, type:type, montant:montant, note:note,
+    const entry = { date:date, isoDate:date, montant:montant, note:note,
       seller:STATE.currentUser.username, createdAt:new Date().toISOString() };
     const ref = await addDoc(collection(window._db,'charges'), entry);
     if (!STATE.charges) STATE.charges = [];
@@ -2240,7 +2279,7 @@ async function submitCharge() {
     showToast('✅ Charge enregistrée.');
   } catch(e) { showToast('⚠ Erreur: '+e.message,'warn'); }
   renderChargesHistory();
-  buildAnalyse();
+  if (currentTab === 'compta') buildAnalyse();
   document.getElementById('ch-date').value='';
   document.getElementById('ch-montant').value='';
   document.getElementById('ch-note').value='';
@@ -2258,7 +2297,7 @@ async function deleteCharge(id) {
     } catch(e) { showToast('⚠ Erreur: '+e.message,'warn'); }
   }
   renderChargesHistory();
-  buildAnalyse();
+  if (currentTab === 'compta') buildAnalyse();
 }
 
 function renderChargesHistory() {
@@ -2266,16 +2305,77 @@ function renderChargesHistory() {
   if (!body) return;
   const items = [...(STATE.charges||[])].sort((a,b)=>(b.isoDate||'').localeCompare(a.isoDate||''));
   if (!items.length) {
-    body.innerHTML = '<tr><td colspan="5" style="text-align:center;color:var(--text3);padding:1.5rem;">Aucune charge enregistrée.</td></tr>';
+    body.innerHTML = '<tr><td colspan="4" style="text-align:center;color:var(--text3);padding:1.5rem;">Aucune charge enregistrée.</td></tr>';
     return;
   }
   const canEdit = STATE.currentUser && (STATE.currentUser.role==='admin' || STATE.currentUser.role==='gestionnaire');
   body.innerHTML = items.map(c=>`<tr>
     <td>${c.date}</td>
-    <td>${esc(CHARGE_TYPE_LABELS[c.type]||c.type||'')}</td>
     <td>${fmtHTG(c.montant||0)}</td>
     <td>${esc(c.note||'')}</td>
     <td>${canEdit ? `<button class="btn" style="font-size:.75rem;padding:3px 10px;background:var(--danger-bg);color:var(--danger);border:1px solid #f5b7b1;" onclick="deleteCharge('${c.id||''}')">🗑</button>` : '—'}</td>
+  </tr>`).join('');
+}
+
+// ============================================================
+// APPORT (injections de capital / dépôts du propriétaire dans l'entreprise)
+// ============================================================
+async function submitApport() {
+  if (!requireAdminOrGest()) return;
+  const date = document.getElementById('ap-date').value || isoDate();
+  const montant = parseFloat(document.getElementById('ap-montant').value);
+  const note = document.getElementById('ap-note').value.trim();
+  if (isNaN(montant) || montant <= 0) {
+    showToast('⚠ Veuillez indiquer un montant valide.','warn'); return;
+  }
+  if (!STATE.isOnline || !STATE.fbReady) {
+    showToast('⚠ Hors ligne — impossible d\'enregistrer maintenant.','warn'); return;
+  }
+  try {
+    const {collection, addDoc} = window._fbFns;
+    const entry = { date:date, isoDate:date, montant:montant, note:note,
+      seller:STATE.currentUser.username, createdAt:new Date().toISOString() };
+    const ref = await addDoc(collection(window._db,'apports'), entry);
+    if (!STATE.apports) STATE.apports = [];
+    if (!STATE.apports.find(a=>a.id===ref.id)) STATE.apports = [{id:ref.id, ...entry}, ...STATE.apports];
+    showToast('✅ Apport enregistré.');
+  } catch(e) { showToast('⚠ Erreur: '+e.message,'warn'); }
+  renderApports();
+  if (currentTab === 'compta') buildAnalyse();
+  document.getElementById('ap-date').value='';
+  document.getElementById('ap-montant').value='';
+  document.getElementById('ap-note').value='';
+}
+
+async function deleteApport(id) {
+  if (!requireAdminOrGest()) return;
+  if (!confirm('Supprimer cet apport ?')) return;
+  if (STATE.isOnline && STATE.fbReady && id) {
+    try {
+      const {doc, deleteDoc} = window._fbFns;
+      await deleteDoc(doc(window._db,'apports',id));
+      STATE.apports = (STATE.apports||[]).filter(a=>a.id!==id);
+      showToast('🗑 Apport supprimé.','warn');
+    } catch(e) { showToast('⚠ Erreur: '+e.message,'warn'); }
+  }
+  renderApports();
+  if (currentTab === 'compta') buildAnalyse();
+}
+
+function renderApports() {
+  const body = document.getElementById('apport-body');
+  if (!body) return;
+  const items = [...(STATE.apports||[])].sort((a,b)=>(b.isoDate||'').localeCompare(a.isoDate||''));
+  if (!items.length) {
+    body.innerHTML = '<tr><td colspan="4" style="text-align:center;color:var(--text3);padding:1.5rem;">Aucun apport enregistré.</td></tr>';
+    return;
+  }
+  const canEdit = STATE.currentUser && (STATE.currentUser.role==='admin' || STATE.currentUser.role==='gestionnaire');
+  body.innerHTML = items.map(a=>`<tr>
+    <td>${a.date}</td>
+    <td>${fmtHTG(a.montant||0)}</td>
+    <td>${esc(a.note||'')}</td>
+    <td>${canEdit ? `<button class="btn" style="font-size:.75rem;padding:3px 10px;background:var(--danger-bg);color:var(--danger);border:1px solid #f5b7b1;" onclick="deleteApport('${a.id||''}')">🗑</button>` : '—'}</td>
   </tr>`).join('');
 }
 
@@ -2383,60 +2483,67 @@ function buildBilan() {
 
 // Analyse financière cumulée jour après jour et par mois.
 // Formules :
-//   Produits          = Chiffre d'affaires (total des ventes)
-//   Coûts produits    = total des achats de stock (prix d'achat)
-//   Valeur Ajoutée    = Produits - Coûts produits - Coûts transport - Coûts manutention
-//   Bénéfice Brut     = Valeur Ajoutée - Charges (toutes les autres dépenses)
-//   Bénéfice Net      = Bénéfice Brut - Impôt
+//   Produits          = Ventes cash (par jour) + Apport
+//   Achats marchandises = total des achats de stock (prix d'achat)
+//   Valeur Ajoutée    = Produits - Achats marchandises
+//   Autres charges    = transport, manutention, charges diverses, impôt... (onglet Autres Charges)
+//   Bénéfice Brut     = Valeur Ajoutée - Autres charges
+//   Retraits          = retraits de caisse (onglet Mouvement Caisse)
+//   Bénéfice Net      = Bénéfice Brut - Retraits  (équivalent à Produits - Charges,
+//                        avec Charges = Achats marchandises + Autres charges + Retraits)
 // Calcul partagé entre l'affichage (buildAnalyse) et les exports Excel/Drive,
 // pour garantir que les mêmes chiffres apparaissent partout.
 function computeFinancialAnalysis() {
-  const produitsMap = {}, coutsProduitsMap = {}, transportMap = {}, manutentionMap = {}, chargesMap = {}, impotMap = {};
+  const ventesCashMap = {}, apportMap = {}, achatsMap = {}, autresChargesMap = {}, retraitsMap = {};
   STATE.transactions.filter(t=>t.type==='vente').forEach(t => {
     const day = getIsoFromTx(t);
-    produitsMap[day] = (produitsMap[day]||0) + (t.amount||0);
+    ventesCashMap[day] = (ventesCashMap[day]||0) + (t.cash||0);
+  });
+  (STATE.apports||[]).forEach(a => {
+    const day = a.isoDate || a.date || '';
+    apportMap[day] = (apportMap[day]||0) + (a.montant||0);
   });
   STATE.transactions.filter(t=>t.type==='stock-in').forEach(t => {
     const day = getIsoFromTx(t);
-    coutsProduitsMap[day] = (coutsProduitsMap[day]||0) + (t.amount||0);
+    achatsMap[day] = (achatsMap[day]||0) + (t.amount||0);
   });
   (STATE.charges||[]).forEach(c => {
     const day = c.isoDate || c.date || '';
-    const montant = c.montant||0;
-    if (c.type==='transport') transportMap[day] = (transportMap[day]||0) + montant;
-    else if (c.type==='manutention') manutentionMap[day] = (manutentionMap[day]||0) + montant;
-    else if (c.type==='impot') impotMap[day] = (impotMap[day]||0) + montant;
-    else chargesMap[day] = (chargesMap[day]||0) + montant;
+    autresChargesMap[day] = (autresChargesMap[day]||0) + (c.montant||0);
+  });
+  (STATE.caisseRetraits||[]).forEach(r => {
+    const day = r.isoDate || r.date || '';
+    retraitsMap[day] = (retraitsMap[day]||0) + (r.montant||0);
   });
 
   const allDays = new Set([
-    ...Object.keys(produitsMap), ...Object.keys(coutsProduitsMap),
-    ...Object.keys(transportMap), ...Object.keys(manutentionMap),
-    ...Object.keys(chargesMap), ...Object.keys(impotMap)
+    ...Object.keys(ventesCashMap), ...Object.keys(apportMap), ...Object.keys(achatsMap),
+    ...Object.keys(autresChargesMap), ...Object.keys(retraitsMap)
   ].filter(Boolean));
 
   const sortedAsc = [...allDays].sort((a,b)=>a.localeCompare(b));
   const cumulMap = {};
   let running = 0;
   const days = sortedAsc.map(day => {
-    const produits = produitsMap[day]||0, coutsProduits = coutsProduitsMap[day]||0;
-    const transport = transportMap[day]||0, manutention = manutentionMap[day]||0;
-    const va = produits - coutsProduits - transport - manutention;
-    const charges = chargesMap[day]||0;
-    const benBrut = va - charges;
-    const impot = impotMap[day]||0;
-    const benNet = benBrut - impot;
+    const ventesCash = ventesCashMap[day]||0, apport = apportMap[day]||0;
+    const produits = ventesCash + apport;
+    const achats = achatsMap[day]||0;
+    const va = produits - achats;
+    const autresCharges = autresChargesMap[day]||0;
+    const benBrut = va - autresCharges;
+    const retraits = retraitsMap[day]||0;
+    const benNet = benBrut - retraits;
     running += benNet;
     cumulMap[day] = running;
-    return {day, produits, coutsProduits, transport, manutention, va, charges, benBrut, impot, benNet, cumul:running};
+    return {day, ventesCash, apport, produits, achats, va, autresCharges, benBrut, retraits, benNet, cumul:running};
   });
 
   const totals = days.reduce((a,d) => ({
-    produits: a.produits+d.produits, coutsProduits: a.coutsProduits+d.coutsProduits,
-    transport: a.transport+d.transport, manutention: a.manutention+d.manutention,
-    va: a.va+d.va, charges: a.charges+d.charges, benBrut: a.benBrut+d.benBrut,
-    impot: a.impot+d.impot, benNet: a.benNet+d.benNet
-  }), {produits:0,coutsProduits:0,transport:0,manutention:0,va:0,charges:0,benBrut:0,impot:0,benNet:0});
+    ventesCash: a.ventesCash+d.ventesCash, apport: a.apport+d.apport, produits: a.produits+d.produits,
+    achats: a.achats+d.achats, va: a.va+d.va, autresCharges: a.autresCharges+d.autresCharges,
+    benBrut: a.benBrut+d.benBrut, retraits: a.retraits+d.retraits, benNet: a.benNet+d.benNet
+  }), {ventesCash:0,apport:0,produits:0,achats:0,va:0,autresCharges:0,benBrut:0,retraits:0,benNet:0});
+  totals.charges = totals.achats + totals.autresCharges + totals.retraits;
 
   return {days, cumulMap, totals};
 }
@@ -2447,7 +2554,7 @@ function buildAnalyse() {
   const st=STATE.stocks.reduce((a,s)=>a+s.amount,0);
   const mg=st>0?(vt-st)/st*100:0;
 
-  const {days, cumulMap, totals} = computeFinancialAnalysis();
+  const {days, totals} = computeFinancialAnalysis();
 
   let html = `
   <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px;margin-bottom:1.2rem;">
@@ -2455,7 +2562,7 @@ function buildAnalyse() {
     <div class="metric-card success"><div class="label">Valeur du stock</div><div class="value">${fmtHTG(st)}</div></div>
     <div class="metric-card ${mg>=0?'success':''}"><div class="label">Marge brute estimée</div><div class="value">${mg.toFixed(1)}%</div></div>
     <div class="metric-card accent"><div class="label">Produits (total)</div><div class="value">${fmtHTG(totals.produits)}</div></div>
-    <div class="metric-card"><div class="label">Charges (total)</div><div class="value">${fmtHTG(totals.charges+totals.transport+totals.manutention+totals.impot)}</div></div>
+    <div class="metric-card"><div class="label">Charges (total)</div><div class="value">${fmtHTG(totals.charges)}</div></div>
     <div class="metric-card ${totals.va>=0?'success':''}"><div class="label">Valeur Ajoutée</div><div class="value">${fmtHTG(totals.va)}</div></div>
     <div class="metric-card ${totals.benBrut>=0?'success':''}"><div class="label">Bénéfice Brut</div><div class="value">${fmtHTG(totals.benBrut)}</div></div>
     <div class="metric-card ${totals.benNet>=0?'success':''}"><div class="label">Bénéfice Net</div><div class="value">${fmtHTG(totals.benNet)}</div></div>
@@ -2478,7 +2585,7 @@ function buildAnalyse() {
   const sortedMonths = Object.keys(monthGroups).sort((a,b)=>b.localeCompare(a));
 
   html += `<div class="table-wrap"><table>
-    <thead><tr><th>Date</th><th>Produits</th><th>Coûts produits</th><th>Coûts transport</th><th>Coûts manutention</th><th>Valeur Ajoutée</th><th>Charges</th><th>Bénéfice Brut</th><th>Impôt</th><th>Bénéfice Net</th><th>Cumul Bénéfice Net</th></tr></thead>
+    <thead><tr><th>Date</th><th>Ventes cash</th><th>Apport</th><th>Produits</th><th>Achats marchandises</th><th>Valeur Ajoutée</th><th>Autres charges</th><th>Bénéfice Brut</th><th>Retraits</th><th>Bénéfice Net</th><th>Cumul Bénéfice Net</th></tr></thead>
     <tbody>`;
 
   sortedMonths.forEach(month => {
@@ -2489,20 +2596,20 @@ function buildAnalyse() {
       <td colspan="11" style="padding:8px 10px;font-size:.9rem;">${label}</td>
     </tr>`;
 
-    let mProduits=0, mCoutsProduits=0, mTransport=0, mManutention=0, mVA=0, mCharges=0, mBenBrut=0, mImpot=0, mBenNet=0;
+    let mVentesCash=0, mApport=0, mProduits=0, mAchats=0, mVA=0, mAutresCharges=0, mBenBrut=0, mRetraits=0, mBenNet=0;
     mDays.forEach(d => {
-      mProduits+=d.produits; mCoutsProduits+=d.coutsProduits; mTransport+=d.transport; mManutention+=d.manutention;
-      mVA+=d.va; mCharges+=d.charges; mBenBrut+=d.benBrut; mImpot+=d.impot; mBenNet+=d.benNet;
+      mVentesCash+=d.ventesCash; mApport+=d.apport; mProduits+=d.produits; mAchats+=d.achats;
+      mVA+=d.va; mAutresCharges+=d.autresCharges; mBenBrut+=d.benBrut; mRetraits+=d.retraits; mBenNet+=d.benNet;
       html += `<tr>
         <td>${formatGroupLabel(d.day)}</td>
-        <td>${fmtHTG(d.produits)}</td>
-        <td>${fmtHTG(d.coutsProduits)}</td>
-        <td>${fmtHTG(d.transport)}</td>
-        <td>${fmtHTG(d.manutention)}</td>
+        <td>${fmtHTG(d.ventesCash)}</td>
+        <td>${fmtHTG(d.apport)}</td>
+        <td style="font-weight:600;">${fmtHTG(d.produits)}</td>
+        <td>${fmtHTG(d.achats)}</td>
         <td style="font-weight:600;">${fmtHTG(d.va)}</td>
-        <td>${fmtHTG(d.charges)}</td>
+        <td>${fmtHTG(d.autresCharges)}</td>
         <td style="font-weight:600;">${fmtHTG(d.benBrut)}</td>
-        <td>${fmtHTG(d.impot)}</td>
+        <td style="color:#c0392b;">${d.retraits>0?'-':''}${fmtHTG(d.retraits)}</td>
         <td style="font-weight:700;color:${d.benNet>=0?'#1a7a4c':'#c0392b'};">${fmtHTG(d.benNet)}</td>
         <td style="font-weight:600;color:#1a56db;">${fmtHTG(d.cumul)}</td>
       </tr>`;
@@ -2510,14 +2617,14 @@ function buildAnalyse() {
 
     html += `<tr style="background:var(--surface2);font-weight:700;border-top:2px solid var(--border);">
       <td>📊 Total — ${formatMonthLabel(month)}</td>
+      <td>${fmtHTG(mVentesCash)}</td>
+      <td>${fmtHTG(mApport)}</td>
       <td>${fmtHTG(mProduits)}</td>
-      <td>${fmtHTG(mCoutsProduits)}</td>
-      <td>${fmtHTG(mTransport)}</td>
-      <td>${fmtHTG(mManutention)}</td>
+      <td>${fmtHTG(mAchats)}</td>
       <td>${fmtHTG(mVA)}</td>
-      <td>${fmtHTG(mCharges)}</td>
+      <td>${fmtHTG(mAutresCharges)}</td>
       <td>${fmtHTG(mBenBrut)}</td>
-      <td>${fmtHTG(mImpot)}</td>
+      <td style="color:#c0392b;">${mRetraits>0?'-':''}${fmtHTG(mRetraits)}</td>
       <td style="color:${mBenNet>=0?'#1a7a4c':'#c0392b'};">${fmtHTG(mBenNet)}</td>
       <td style="color:#1a56db;">${fmtHTG(mDays[0].cumul)}</td>
     </tr>`;
@@ -2673,16 +2780,16 @@ function buildAnalyseSheetRows(vt, st) {
     ['Valeur du stock', st],
     ['Marge brute estimée (%)', st>0?parseFloat(mg.toFixed(2)):0],
     ['Produits (total)', totals.produits],
-    ['Charges (total)', totals.charges+totals.transport+totals.manutention+totals.impot],
+    ['Charges (total)', totals.charges],
     ['Valeur Ajoutée', totals.va],
     ['Bénéfice Brut', totals.benBrut],
     ['Bénéfice Net', totals.benNet],
     [],
     ['Cumul jour après jour'],
-    ['Date','Produits','Coûts produits','Coûts transport','Coûts manutention','Valeur Ajoutée','Charges','Bénéfice Brut','Impôt','Bénéfice Net','Cumul Bénéfice Net']
+    ['Date','Ventes cash','Apport','Produits','Achats marchandises','Valeur Ajoutée','Autres charges','Bénéfice Brut','Retraits','Bénéfice Net','Cumul Bénéfice Net']
   ];
   days.forEach(d => {
-    rows.push([d.day, d.produits, d.coutsProduits, d.transport, d.manutention, d.va, d.charges, d.benBrut, d.impot, d.benNet, d.cumul]);
+    rows.push([d.day, d.ventesCash, d.apport, d.produits, d.achats, d.va, d.autresCharges, d.benBrut, d.retraits, d.benNet, d.cumul]);
   });
   return rows;
 }
