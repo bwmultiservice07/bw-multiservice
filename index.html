@@ -2037,11 +2037,12 @@ function prevMonthStr(monthStr) {
 }
 
 // Calcule le taux de marge par produit vendu et la moyenne pondérée globale.
-// Taux de marge produit = ((Prix de vente unitaire - Prix d'achat unitaire) /
-// Prix d'achat unitaire). Moyenne pondérée = somme des (taux × quota), le
-// quota étant la part du produit dans le total des quantités vendues
-// (reflète son taux de vente). Réutilisé par Data Analyse ET Analyse
-// financière (+ export Excel) pour garantir des chiffres cohérents partout.
+// Taux moyen de marge produit = ((Prix de vente unitaire - Prix d'achat
+// unitaire) / Prix d'achat unitaire) × Quota vente, le quota étant la part
+// du produit dans le total des quantités vendues (reflète son taux de
+// vente). La moyenne pondérée globale = somme de ces taux par produit
+// (chaque produit contribue déjà sa part pondérée). Réutilisé par Data
+// Analyse ET Analyse financière (+ export Excel) pour des chiffres cohérents.
 function computeProductMarginRates() {
   const ventes = (STATE.transactions||[]).filter(t=>t.type==='vente');
   const prixVenteMap = {};
@@ -2083,12 +2084,15 @@ function computeProductMarginRates() {
     const quota = totalQtyVendu > 0 ? qtyVendu / totalQtyVendu : 0;
     const donneesOk = prixAchat > 0;
     const ratioMarge = donneesOk ? (prixVente - prixAchat) / prixAchat : null; // ratio brut (0.5 = 50%)
-    const contribution = donneesOk ? ratioMarge * quota : 0; // contribution pondérée à la moyenne globale
-    const tauxMarge = donneesOk ? ratioMarge * 100 : null; // pour affichage en %
-    return {produit:p, prixVente, prixAchat, qtyVendu, quota, tauxMarge, contribution, donneesOk};
+    // Taux moyen de marge produit = ((Prix de vente unitaire − Prix d'achat unitaire)
+    // / Prix d'achat unitaire) × Quota vente — formule demandée, calculée pour chaque produit.
+    const tauxMarge = donneesOk ? ratioMarge * quota * 100 : null;
+    return {produit:p, prixVente, prixAchat, qtyVendu, quota, tauxMarge, donneesOk};
   }).filter(r => r.qtyVendu > 0 || r.prixVente > 0 || r.prixAchat > 0)
     .sort((a,b) => b.qtyVendu - a.qtyVendu);
-  const tauxMoyenPondere = margeRows.reduce((a,r)=>a+r.contribution, 0) * 100;
+  // La moyenne globale pondérée est simplement la somme des taux moyens par
+  // produit ci-dessus (chaque produit contribue déjà sa part pondérée par son quota).
+  const tauxMoyenPondere = margeRows.reduce((a,r)=>a+(r.tauxMarge||0), 0);
   return {margeRows, tauxMoyenPondere};
 }
 
@@ -2207,12 +2211,12 @@ function renderDataAnalyse() {
   // --- Carte Taux de marge par produit ---
   html += `<div class="card"><div class="card-title">📊 Taux de marge par produit</div>
     <div class="metric-card ${tauxMoyenPondere>=0?'success':''}" style="margin-bottom:1rem;max-width:280px;">
-      <div class="label">Taux moyen de marge sur les produits</div><div class="value">${tauxMoyenPondere.toFixed(1)}%</div>
+      <div class="label">Moyenne taux de marge par produit vendu</div><div class="value">${tauxMoyenPondere.toFixed(1)}%</div>
     </div>`;
   if (!margeRows.length) {
     html += `<div style="color:var(--text3);padding:.5rem 0;">Pas assez de données (prix de vente et prix d'achat) pour calculer les taux de marge.</div>`;
   } else {
-    html += `<div class="table-wrap"><table><thead><tr><th>Produit</th><th>Prix de vente unitaire</th><th>Prix d'achat unitaire</th><th>Quota (part des ventes)</th><th>Taux de marge</th></tr></thead><tbody>` +
+    html += `<div class="table-wrap"><table><thead><tr><th>Produit</th><th>Prix de vente unitaire</th><th>Prix d'achat unitaire</th><th>Quota (part des ventes)</th><th>Taux moyen de marge produit</th></tr></thead><tbody>` +
       margeRows.map(r=>`<tr>
         <td>${esc(r.produit)}</td>
         <td>${fmtHTG(r.prixVente)}</td>
