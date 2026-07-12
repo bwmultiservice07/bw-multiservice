@@ -597,7 +597,7 @@ tr:hover td{background:#f7f9ff;}
         <div class="card-title">📊 Stock Actuel par Produit</div>
         <div class="table-wrap">
           <table>
-            <thead><tr><th>Produit</th><th>Stock départ</th><th>Entrées</th><th>Sorties</th><th>Stock actuel</th><th>Prix de vente caisse/bout</th><th>Prix de vente unitaire</th><th>Valeur (HTG)</th></tr></thead>
+            <thead><tr><th>Produit</th><th>Stock départ</th><th>Entrées/Achats</th><th>Sorties</th><th>Stock actuel</th><th>Prix de vente caisse/bout</th><th>Prix de vente unitaire</th><th>Valeur (HTG)</th></tr></thead>
             <tbody id="stock-actuel-body"><tr><td colspan="8" style="text-align:center;color:var(--text3);padding:1.5rem;">Aucune donnée disponible.</td></tr></tbody>
           </table>
         </div>
@@ -964,6 +964,7 @@ function startFirebaseListeners() {
     snap => {
       STATE.caisseRetraits = snap.docs.map(d => ({id: d.id, ...d.data()}));
       if (currentTab === 'caisse') { renderCaisseRetraits(); renderCaisse(); }
+      if (currentTab === 'tableau') renderDashboard();
     },
     err => console.error('CaisseRetraits listener:', err)
   );
@@ -1800,7 +1801,7 @@ function renderStocks() {
   } else {
     body.innerHTML=all.map(s=> s._type==='entree' ? `<tr style="background:#e6f6ef;">
       <td>${s.date}</td>
-      <td><span class="badge badge-in">📥 Achat</span></td>
+      <td><span class="badge badge-in">📥 Entrées/Achats</span></td>
       <td>${esc(s.description)}</td>
       <td style="color:#0f7b4f;font-weight:600;">+${formatCaissesDisplay(s.qtyCaisses, s.casseSize)}</td>
       <td>${fmtHTG(s.prixCaisse)}</td>
@@ -1846,39 +1847,126 @@ function renderDashboard() {
   document.getElementById('dash-month-qty').textContent = monthSales.length+' transaction(s)';
   document.getElementById('dash-stock').textContent = fmtHTG(STATE.stocks.reduce((a,s)=>a+s.amount,0));
   document.getElementById('dash-qty-sold').textContent = monthSales.reduce((a,t)=>a+t.quantity,0);
-  renderAllTrans(STATE.transactions);
+  renderAllTrans();
 }
 
-function renderAllTrans(data) {
+// "Toutes les transactions" du Tableau de bord : ventes, achats (entrées de
+// stock), remboursements de crédit et retraits de caisse, groupés par mois
+// puis par jour (le plus récent en haut), avec un total par jour et par mois.
+function renderAllTrans(filterIso) {
   const body = document.getElementById('all-trans-body');
-  const sorted = [...data].sort((a,b)=>(b.isoDate||'').localeCompare(a.isoDate||'')||(b.time||'').localeCompare(a.time||''));
-  if (!sorted.length) {
-    body.innerHTML='<tr><td colspan="7" style="text-align:center;color:var(--text3);padding:1.5rem;">Aucune transaction.</td></tr>';
+  const matchIso = (isoD) => !filterIso || isoD === filterIso;
+
+  const ventesEtAchats = (STATE.transactions||[]).filter(t => matchIso(getIsoFromTx(t)));
+  const credits = (STATE.credits||[]).filter(c => matchIso(getIsoFromTx(c))).map(c => ({...c, _isCredit:true}));
+  const retraits = (STATE.caisseRetraits||[]).filter(r => matchIso(r.isoDate||r.date||'')).map(r => ({...r, _isRetrait:true}));
+
+  const allRows = [...ventesEtAchats, ...credits, ...retraits].sort((a,b) => {
+    const da = getIsoFromTx(a), db = getIsoFromTx(b);
+    if (db !== da) return db.localeCompare(da);
+    return (b.time||'').localeCompare(a.time||'');
+  });
+
+  if (!allRows.length) {
+    body.innerHTML='<tr><td colspan="11" style="text-align:center;color:var(--text3);padding:1.5rem;">Aucune transaction.</td></tr>';
     return;
   }
-  // Ajouter les credits dans la liste
-  const allWithCredits = [...sorted, ...(STATE.credits||[]).map(c=>({...c, _isCredit:true}))].sort((a,b)=>(b.isoDate||'').localeCompare(a.isoDate||'')||(b.time||'').localeCompare(a.time||''));
-  body.innerHTML=allWithCredits.map(t=> t._isCredit ? `<tr style="background:#e6f6ef;">
-    <td>${t.date}</td><td>${t.time}</td><td>${esc(t.seller||'')}</td><td>💳 Paiement client</td>
-    <td>—</td><td>—</td>
-    <td>${fmtHTG(t.paid||0)}</td><td>—</td><td>${fmtHTG(t.finalBalance||0)}</td><td>${esc(t.client||'')}</td>
-    <td><span class="badge badge-sent">💳 Crédit</span></td>
-  </tr>` : `<tr>
-    <td>${t.date}</td><td>${t.time}</td><td>${esc(t.seller)}</td><td>${esc(t.description)}</td>
-    <td>${t.quantity} ${esc(formatUnitLabel(t.unit))}</td><td>${fmtHTG(t.amount)}</td>
-    <td>${fmtHTG(t.cash||0)}</td><td>${fmtHTG(t.credit||0)}</td><td>${fmtHTG(t.balance||0)}</td><td>${esc(t.client||'')}</td>
-    <td><span class="badge ${t.type==='vente'?'badge-out':'badge-in'}">${t.type==='vente'?'📤 Vente':'📥 Stock'}</span></td>
-  </tr>`).join('');
+
+  function rowHtml(t) {
+    if (t._isCredit) {
+      return `<tr style="background:#e6f6ef;">
+        <td>${t.date}</td><td>${t.time}</td><td>${esc(t.seller||'')}</td><td>💳 Paiement client</td>
+        <td>—</td><td>—</td>
+        <td>${fmtHTG(t.paid||0)}</td><td>—</td><td>${fmtHTG(t.finalBalance||0)}</td><td>${esc(t.client||'')}</td>
+        <td><span class="badge badge-sent">💳 Crédit</span></td>
+      </tr>`;
+    }
+    if (t._isRetrait) {
+      return `<tr style="background:#fdecea;">
+        <td>${t.date}</td><td>${t.time||''}</td><td>${esc(t.personne||'')}</td><td>💸 Retrait — ${esc(t.objet||'')}</td>
+        <td>—</td><td style="color:#c0392b;font-weight:600;">-${fmtHTG(t.montant||0)}</td>
+        <td>—</td><td>—</td><td>—</td><td>—</td>
+        <td><span class="badge badge-out">💸 Retrait</span></td>
+      </tr>`;
+    }
+    return `<tr>
+      <td>${t.date}</td><td>${t.time}</td><td>${esc(t.seller)}</td><td>${esc(t.description)}</td>
+      <td>${t.quantity} ${esc(formatUnitLabel(t.unit))}</td><td>${fmtHTG(t.amount)}</td>
+      <td>${fmtHTG(t.cash||0)}</td><td>${fmtHTG(t.credit||0)}</td><td>${fmtHTG(t.balance||0)}</td><td>${esc(t.client||'')}</td>
+      <td><span class="badge ${t.type==='vente'?'badge-out':'badge-in'}">${t.type==='vente'?'📤 Vente':'📥 Entrées/Achats'}</span></td>
+    </tr>`;
+  }
+
+  const currentMonth = localMonthStr();
+  const groups = {};
+  allRows.forEach(t => {
+    const month = getIsoFromTx(t).slice(0,7);
+    if (!groups[month]) groups[month] = [];
+    groups[month].push(t);
+  });
+  const sortedMonths = Object.keys(groups).sort((a,b) => b.localeCompare(a));
+
+  let html = '';
+  sortedMonths.forEach(month => {
+    const rows = groups[month];
+    const isCurrentMonth = month === currentMonth;
+    const label = isCurrentMonth ? `📅 CE MOIS-CI — ${formatMonthLabel(month)}` : formatMonthLabel(month);
+    html += `<tr style="background:${isCurrentMonth?'#1a56db':'#5a6282'};color:#fff;font-weight:700;">
+      <td colspan="11" style="padding:8px 10px;font-size:.9rem;">${label}</td>
+    </tr>`;
+
+    const dayGroups = {};
+    rows.forEach(t => {
+      const day = getIsoFromTx(t);
+      if (!dayGroups[day]) dayGroups[day] = [];
+      dayGroups[day].push(t);
+    });
+    const sortedDays = Object.keys(dayGroups).sort((a,b) => b.localeCompare(a));
+
+    let monthVentes=0, monthAchats=0, monthRemb=0, monthRetraits=0;
+    sortedDays.forEach(day => {
+      const dayRows = dayGroups[day];
+      html += `<tr style="background:#eef1f8;font-weight:600;">
+        <td colspan="11" style="padding:6px 10px;font-size:.82rem;color:#3a4260;">${formatGroupLabel(day)}</td>
+      </tr>`;
+
+      dayRows.forEach(t => { html += rowHtml(t); });
+
+      const dayVentes = dayRows.filter(t=>!t._isCredit && !t._isRetrait && t.type==='vente').reduce((a,t)=>a+(t.amount||0),0);
+      const dayAchats = dayRows.filter(t=>!t._isCredit && !t._isRetrait && t.type!=='vente').reduce((a,t)=>a+(t.amount||0),0);
+      const dayRemb = dayRows.filter(t=>t._isCredit).reduce((a,t)=>a+(t.paid||0),0);
+      const dayRetrait = dayRows.filter(t=>t._isRetrait).reduce((a,t)=>a+(t.montant||0),0);
+      monthVentes += dayVentes; monthAchats += dayAchats; monthRemb += dayRemb; monthRetraits += dayRetrait;
+
+      html += `<tr style="background:#f6f7fb;font-weight:600;border-top:1px solid var(--border);">
+        <td colspan="5" style="font-size:.82rem;">📊 Total jour — ${formatGroupLabel(day)}</td>
+        <td>Ventes: ${fmtHTG(dayVentes)}</td>
+        <td>Achats: ${fmtHTG(dayAchats)}</td>
+        <td>Remb.: ${fmtHTG(dayRemb)}</td>
+        <td>Retraits: ${fmtHTG(dayRetrait)}</td>
+        <td colspan="2" style="font-size:.8rem;">${dayRows.length} mvt(s)</td>
+      </tr>`;
+    });
+
+    // Total du mois
+    html += `<tr style="background:var(--surface2);font-weight:700;border-top:2px solid var(--border);">
+      <td colspan="5">📊 Totaux — ${formatMonthLabel(month)}</td>
+      <td>Ventes: ${fmtHTG(monthVentes)}</td>
+      <td>Achats: ${fmtHTG(monthAchats)}</td>
+      <td>Remb.: ${fmtHTG(monthRemb)}</td>
+      <td>Retraits: ${fmtHTG(monthRetraits)}</td>
+      <td colspan="2">${rows.length} mvt(s)</td>
+    </tr>`;
+  });
+
+  body.innerHTML = html;
 }
 
 function filterTransactions() {
-  const d = document.getElementById('filter-date').value;
-  if (!d) { renderAllTrans(STATE.transactions); return; }
-  const parts = d.split('-');
-  const iso = parts[2]+'/'+parts[1]+'/'+parts[0];
-  renderAllTrans(STATE.transactions.filter(t=>t.date===iso));
+  const d = document.getElementById('filter-date').value; // déjà au format YYYY-MM-DD
+  renderAllTrans(d || null);
 }
-function clearFilter() { document.getElementById('filter-date').value=''; renderAllTrans(STATE.transactions); }
+function clearFilter() { document.getElementById('filter-date').value=''; renderAllTrans(); }
 
 // ============================================================
 // ADMIN
@@ -3102,7 +3190,7 @@ async function submitRetraitCaisse() {
   }
   try {
     const {collection, addDoc} = window._fbFns;
-    const entry = { date:date, isoDate:date, montant:montant, personne:personne, objet:objet,
+    const entry = { date:date, isoDate:date, time:nowStr(), montant:montant, personne:personne, objet:objet,
       seller:STATE.currentUser.username, createdAt:new Date().toISOString() };
     const ref = await addDoc(collection(window._db,'caisse_retraits'), entry);
     if (!STATE.caisseRetraits) STATE.caisseRetraits = [];
@@ -3111,6 +3199,7 @@ async function submitRetraitCaisse() {
   } catch(e) { showToast('⚠ Erreur: '+e.message,'warn'); }
   renderCaisseRetraits();
   renderCaisse();
+  renderDashboard();
   document.getElementById('cxr-date').value='';
   document.getElementById('cxr-montant').value='';
   document.getElementById('cxr-personne').value='';
@@ -3130,6 +3219,7 @@ async function deleteCaisseRetrait(id) {
   }
   renderCaisseRetraits();
   renderCaisse();
+  renderDashboard();
 }
 
 function renderCaisseRetraits() {
