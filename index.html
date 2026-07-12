@@ -188,6 +188,7 @@ tr:hover td{background:#f7f9ff;}
     <button class="active" onclick="switchTab('ventes')">🧾 Ventes</button>
     <button id="tab-credit-btn" onclick="switchTab('credit')">💳 Crédit Client</button>
     <button id="tab-dettes-btn" onclick="switchTab('dettes')">📋 Liste des Dettes</button>
+    <button id="tab-caisse-btn" onclick="switchTab('caisse')" style="display:none;">💰 Mouvement Caisse</button>
     <button id="tab-stock-depart-btn" onclick="switchTab('stock-depart')" style="display:none;">🏁 Stock de départ</button>
     <button id="tab-stocks-btn" onclick="switchTab('stocks')" style="display:none;">📦 Mouvements de Stocks</button>
     <button id="tab-stock-actuel-btn" onclick="switchTab('stock-actuel')" style="display:none;">📊 Stock Actuel</button>
@@ -293,7 +294,7 @@ tr:hover td{background:#f7f9ff;}
         <button id="btn-corriger-vente" class="btn btn-outline" style="margin-top:8px;font-size:.85rem;display:none;" onclick="corrigerDerniereVente()">✏️ Corriger dernière vente</button>
       </div>
       <div class="card">
-        <div class="card-title" id="my-sales-title">📋 Mes transactions du jour</div>
+        <div class="card-title" id="my-sales-title">📋 Vente du jour</div>
         <div class="table-wrap">
           <table>
             <thead><tr><th>Date</th><th>Heure</th><th>Description</th><th>Qté</th><th>Unité</th><th>Prix unit.</th><th>Montant (HTG)</th><th>Cash (HTG)</th><th>Crédit (HTG)</th><th>Balance (HTG)</th><th>Client</th><th>Statut</th></tr></thead>
@@ -352,6 +353,33 @@ tr:hover td{background:#f7f9ff;}
           <table>
             <thead><tr><th>Client</th><th>Total Dû (HTG)</th><th>Total Payé (HTG)</th><th>Balance Restante (HTG)</th><th>Statut</th></tr></thead>
             <tbody id="dettes-table-body"><tr><td colspan="5" style="text-align:center;color:var(--text3);padding:1.5rem;">Aucune dette enregistrée.</td></tr></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- MOUVEMENT CAISSE -->
+    <div class="tab-content" id="tab-caisse">
+      <div class="card">
+        <div class="card-title">💰 Enregistrer l'ouverture de caisse</div>
+        <div class="form-row">
+          <div class="form-group">
+            <label>Date</label>
+            <input type="date" id="cx-date"/>
+          </div>
+          <div class="form-group">
+            <label>Montant d'ouverture de la caisse (Gourdes HTG)</label>
+            <input type="number" id="cx-ouverture" min="0" step="0.01" placeholder="Ex: 5000.00"/>
+          </div>
+        </div>
+        <button class="send-btn" onclick="submitCaisse()">Enregistrer ➤</button>
+      </div>
+      <div class="card">
+        <div class="card-title">📊 Mouvement de caisse par jour</div>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Date</th><th>Montant d'ouverture (HTG)</th><th>Ventes cash (HTG)</th><th>Remboursements crédit (HTG)</th><th>Total encaissé (HTG)</th><th>Montant de fermeture (HTG)</th></tr></thead>
+            <tbody id="caisse-table-body"><tr><td colspan="6" style="text-align:center;color:var(--text3);padding:1.5rem;">Aucun mouvement de caisse enregistré.</td></tr></tbody>
           </table>
         </div>
       </div>
@@ -609,7 +637,10 @@ tr:hover td{background:#f7f9ff;}
         <div id="users-list"></div>
       </div>
       <div class="card">
-        <div class="section-title">✏ Corriger / Supprimer une transaction</div>
+        <div class="section-title" style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;">
+          <span>✏ Corriger / Supprimer une transaction</span>
+          <button class="btn" style="font-size:.78rem;padding:5px 12px;width:auto;background:var(--danger-bg);color:var(--danger);border:1px solid #f5b7b1;" onclick="deleteAllTransactions()">🗑 Effacer toutes les transactions</button>
+        </div>
         <div class="table-wrap">
           <table>
             <thead><tr><th>Date</th><th>Heure</th><th>Vendeur</th><th>Description</th><th>Qté</th><th>Montant</th><th>Actions</th></tr></thead>
@@ -769,6 +800,7 @@ let STATE = {
   ],
   transactions: [],   // synced from Firestore
   stocks: [],         // synced from Firestore
+  caisse: [],         // synced from Firestore (ouvertures de caisse par jour)
   pendingQueue: [],   // offline queue
   currentUser: null,
   isOnline: navigator.onLine,
@@ -811,7 +843,7 @@ loadLocal();
 // ============================================================
 // FIREBASE LISTENERS
 // ============================================================
-let unsubCredits = null, unsubStockDepart = null;
+let unsubCredits = null, unsubStockDepart = null, unsubCaisse = null;
 
 function startFirebaseListeners() {
   if (!window._fbReady || !window._db) return;
@@ -875,6 +907,17 @@ function startFirebaseListeners() {
       renderStockActuel();
     },
     err => console.error('StockDepart listener:', err)
+  );
+
+  // MOUVEMENT CAISSE - Synchronisation globale
+  if (unsubCaisse) unsubCaisse();
+  unsubCaisse = onSnapshot(
+    query(collection(db, 'caisse'), orderBy('isoDate','desc')),
+    snap => {
+      STATE.caisse = snap.docs.map(d => ({id: d.id, ...d.data()}));
+      if (currentTab === 'caisse') renderCaisse();
+    },
+    err => console.error('Caisse listener:', err)
   );
 
   // USERS - Synchronisation globale
@@ -988,6 +1031,7 @@ function doLogin() {
     document.getElementById('tab-tableau-btn').style.display = 'block';
     document.getElementById('tab-credit-btn').style.display = 'block';
     document.getElementById('tab-dettes-btn').style.display = 'block';
+    document.getElementById('tab-caisse-btn').style.display = 'block';
     // Seuls admin et gestionnaire peuvent corriger une vente déjà envoyée
     document.getElementById('btn-corriger-vente').style.display = 'inline-flex';
   } else {
@@ -1001,6 +1045,7 @@ function doLogin() {
     document.getElementById('tab-tableau-btn').style.display = 'none';
     document.getElementById('tab-credit-btn').style.display = 'block';
     document.getElementById('tab-dettes-btn').style.display = 'block';
+    document.getElementById('tab-caisse-btn').style.display = 'none';
     // Le vendeur ne peut plus corriger/supprimer lui-même ses ventes :
     // seuls admin et gestionnaire en ont le droit désormais.
     document.getElementById('btn-corriger-vente').style.display = 'none';
@@ -1011,7 +1056,7 @@ function doLogin() {
   // L'onglet Ventes est désormais identique pour tout le monde : tout le
   // monde voit toutes les transactions de tous les vendeurs.
   const titleEl = document.getElementById('my-sales-title');
-  if (titleEl) titleEl.textContent = '📋 Toutes les transactions (tous vendeurs)';
+  if (titleEl) titleEl.textContent = '📋 Vente du jour (tous vendeurs)';
 }
 async function saveAllData() {
   if (!STATE.isOnline || !STATE.fbReady) {
@@ -1075,6 +1120,7 @@ function performLogout() {
   if (unsubUsers) unsubUsers();
   if (unsubCredits) unsubCredits();
   if (unsubStockDepart) unsubStockDepart();
+  if (unsubCaisse) unsubCaisse();
   STATE.currentUser = null;
   document.getElementById('auth-screen').style.display = 'flex';
   document.getElementById('app').style.display = 'none';
@@ -1105,6 +1151,7 @@ function switchTab(tab) {
   if (tab==='stocks') renderStocks();
   if (tab==='credit') renderCredits();
   if (tab==='dettes') renderDettes();
+  if (tab==='caisse') renderCaisse();
   if (tab==='stock-depart') renderStockDepart();
   if (tab==='stock-actuel') renderStockActuel();
   if (tab==='notif') renderNotifications();
@@ -1487,8 +1534,9 @@ function renderMySales() {
 
   // Toutes les ventes de tous les vendeurs — cet onglet est désormais
   // identique pour vendeur, gestionnaire et admin (plus de filtrage par
-  // vendeur connecté).
-  const mine = [...STATE.transactions, ...STATE.pendingQueue]
+  // vendeur connecté). Les paiements de crédit n'apparaissent plus ici — ils
+  // ont leur propre historique dans l'onglet Crédit Client.
+  const allRows = [...STATE.transactions, ...STATE.pendingQueue]
     .filter(t => t.type === 'vente')
     .sort((a,b) => {
       const da = getIsoFromTx(a), db = getIsoFromTx(b);
@@ -1496,20 +1544,8 @@ function renderMySales() {
       return (b.time||'').localeCompare(a.time||'');
     });
 
-  const allCredits = (STATE.credits||[]).filter(c => c.source !== 'vente');
-
-  // Combiner ventes et crédits
-  const allRows = [
-    ...mine,
-    ...allCredits.map(c => ({...c, _isCredit:true}))
-  ].sort((a,b) => {
-    const da = getIsoFromTx(a), db = getIsoFromTx(b);
-    if (db !== da) return db.localeCompare(da);
-    return (b.time||'').localeCompare(a.time||'');
-  });
-
   if (!allRows.length) {
-    body.innerHTML='<tr><td colspan="12" style="text-align:center;color:var(--text3);padding:1.5rem;">Aucune transaction.</td></tr>';
+    body.innerHTML='<tr><td colspan="12" style="text-align:center;color:var(--text3);padding:1.5rem;">Aucune vente.</td></tr>';
     return;
   }
 
@@ -1525,16 +1561,13 @@ function renderMySales() {
 
   let html = '';
   sortedMonths.forEach(month => {
-    const rows = groups[month];
-    const ventes = rows.filter(t => !t._isCredit);
-    const credits = rows.filter(t => t._isCredit);
+    const ventes = groups[month];
 
-    // Totaux du groupe
+    // Totaux du mois
     const totMontant = ventes.reduce((a,t) => a+(t.amount||0), 0);
     const totCash = ventes.reduce((a,t) => a+(t.cash||0), 0);
     const totCredit = ventes.reduce((a,t) => a+(t.credit||0), 0);
     const totBalance = ventes.reduce((a,t) => a+(t.balance||0), 0);
-    const totPaiements = credits.reduce((a,c) => a+(c.paid||0), 0);
 
     // Ligne de séparation par mois
     const isCurrentMonth = month === currentMonth;
@@ -1542,14 +1575,14 @@ function renderMySales() {
 
     html += `<tr style="background:${isCurrentMonth?'#1a56db':'#5a6282'};color:#fff;font-weight:700;">
       <td colspan="12" style="padding:8px 10px;font-size:.9rem;">
-        ${label} &nbsp;|&nbsp; ${ventes.length} vente(s) &nbsp;|&nbsp; ${credits.length} paiement(s) crédit
+        ${label} &nbsp;|&nbsp; ${ventes.length} vente(s)
       </td>
     </tr>`;
-    
+
     // Sous-groupement par jour à l'intérieur du mois (le plus récent en haut,
     // le plus ancien en bas), avec un total par jour.
     const dayGroups = {};
-    rows.forEach(t => {
+    ventes.forEach(t => {
       const day = getIsoFromTx(t);
       if (!dayGroups[day]) dayGroups[day] = [];
       dayGroups[day].push(t);
@@ -1557,55 +1590,42 @@ function renderMySales() {
     const sortedDays = Object.keys(dayGroups).sort((a,b) => b.localeCompare(a));
 
     sortedDays.forEach(day => {
-      const dayRows = dayGroups[day];
-      const dayVentes = dayRows.filter(t => !t._isCredit);
-      const dayCredits = dayRows.filter(t => t._isCredit);
+      const dayVentes = dayGroups[day];
       const dayTotMontant = dayVentes.reduce((a,t) => a+(t.amount||0), 0);
       const dayTotCash = dayVentes.reduce((a,t) => a+(t.cash||0), 0);
       const dayTotCredit = dayVentes.reduce((a,t) => a+(t.credit||0), 0);
       const dayTotBalance = dayVentes.reduce((a,t) => a+(t.balance||0), 0);
-      const dayTotPaiements = dayCredits.reduce((a,c) => a+(c.paid||0), 0);
 
       html += `<tr style="background:#eef1f8;font-weight:600;">
         <td colspan="12" style="padding:6px 10px;font-size:.82rem;color:#3a4260;">
-          ${formatGroupLabel(day)} &nbsp;|&nbsp; ${dayVentes.length} vente(s) &nbsp;|&nbsp; ${dayCredits.length} paiement(s) crédit
+          ${formatGroupLabel(day)} &nbsp;|&nbsp; ${dayVentes.length} vente(s)
         </td>
       </tr>`;
 
-      dayRows.forEach(t => {
-        if (t._isCredit) {
-          html += `<tr style="background:#e6f6ef;">
-            <td>${t.date}</td><td>${t.time}</td><td>💳 Paiement client</td><td>—</td><td>—</td><td>—</td>
-            <td>—</td><td>${fmtHTG(t.paid||0)}</td>
-            <td>—</td><td>${fmtHTG(t.finalBalance||0)}</td>
-            <td style="color:#0f7b4f;font-weight:600;">${esc(t.client||'')}</td>
-            <td><span class="badge badge-sent">💳 Crédit</span></td>
-          </tr>`;
-        } else {
-          const clickable = isAdminOrGest && t.id;
-          const badge = `<span class="badge ${t.status==='sent'?'badge-sent':'badge-pending'}">${t.status==='sent'?'✓ Envoyé':'⏳ En attente'}</span>`;
-          const statutCell = clickable
-            ? `<td style="cursor:pointer;text-decoration:underline;" onclick="loadSaleForCorrection('${t.id}')" title="Cliquer pour corriger cette vente">${badge}</td>`
-            : `<td>${badge}</td>`;
-          html += `<tr>
-            <td>${t.date}</td><td>${t.time}</td><td>${esc(t.description)}</td><td>${t.quantity}</td>
-            <td>${esc(formatUnitLabel(t.unit))}</td><td>${fmtHTG(t.unitPrice||0)}</td>
-            <td>${fmtHTG(t.amount)}</td><td>${fmtHTG(t.cash||0)}</td>
-            <td>${fmtHTG(t.credit||0)}</td><td>${fmtHTG(t.balance||0)}</td>
-            <td style="color:${(t.balance||0)>0?'#c0392b':'#0f7b4f'};font-weight:600;">${esc(t.client||'')}</td>
-            ${statutCell}
-          </tr>`;
-        }
+      dayVentes.forEach(t => {
+        const clickable = isAdminOrGest && t.id;
+        const badge = `<span class="badge ${t.status==='sent'?'badge-sent':'badge-pending'}">${t.status==='sent'?'✓ Envoyé':'⏳ En attente'}</span>`;
+        const statutCell = clickable
+          ? `<td style="cursor:pointer;text-decoration:underline;" onclick="loadSaleForCorrection('${t.id}')" title="Cliquer pour corriger cette vente">${badge}</td>`
+          : `<td>${badge}</td>`;
+        html += `<tr>
+          <td>${t.date}</td><td>${t.time}</td><td>${esc(t.description)}</td><td>${t.quantity}</td>
+          <td>${esc(formatUnitLabel(t.unit))}</td><td>${fmtHTG(t.unitPrice||0)}</td>
+          <td>${fmtHTG(t.amount)}</td><td>${fmtHTG(t.cash||0)}</td>
+          <td>${fmtHTG(t.credit||0)}</td><td>${fmtHTG(t.balance||0)}</td>
+          <td style="color:${(t.balance||0)>0?'#c0392b':'#0f7b4f'};font-weight:600;">${esc(t.client||'')}</td>
+          ${statutCell}
+        </tr>`;
       });
 
       // Total du jour
       html += `<tr style="background:#f6f7fb;font-weight:600;border-top:1px solid var(--border);">
         <td colspan="6" style="font-size:.82rem;">📊 Total jour — ${formatGroupLabel(day)}</td>
         <td>${fmtHTG(dayTotMontant)}</td>
-        <td>${fmtHTG(dayTotCash + dayTotPaiements)}</td>
+        <td>${fmtHTG(dayTotCash)}</td>
         <td>${fmtHTG(dayTotCredit)}</td>
         <td>${fmtHTG(dayTotBalance)}</td>
-        <td colspan="2" style="font-size:.8rem;">${dayVentes.length} vente(s) | ${dayCredits.length} crédit(s)</td>
+        <td colspan="2" style="font-size:.8rem;">${dayVentes.length} vente(s)</td>
       </tr>`;
     });
 
@@ -1613,10 +1633,10 @@ function renderMySales() {
     html += `<tr style="background:var(--surface2);font-weight:700;border-top:2px solid var(--border);">
       <td colspan="6">📊 Totaux — ${formatMonthLabel(month)}</td>
       <td>${fmtHTG(totMontant)}</td>
-      <td>${fmtHTG(totCash + totPaiements)}</td>
+      <td>${fmtHTG(totCash)}</td>
       <td>${fmtHTG(totCredit)}</td>
       <td>${fmtHTG(totBalance)}</td>
-      <td colspan="2">${ventes.length} vente(s) | ${credits.length} crédit(s)</td>
+      <td colspan="2">${ventes.length} vente(s)</td>
     </tr>`;
   });
 
@@ -1959,6 +1979,36 @@ async function deleteTransaction(id) {
       markUnsaved();
     } catch(e) { showToast('⚠ Erreur: '+e.message,'warn'); }
   }
+}
+
+// Admin/gestionnaire : effacer TOUTES les transactions (ventes + mouvements de
+// stock enregistrés comme transactions). Action irréversible, double confirmation.
+async function deleteAllTransactions() {
+  if (!requireAdminOrGest()) return;
+  const count = STATE.transactions.length;
+  if (!count) { showToast('⚠ Aucune transaction à effacer.','warn'); return; }
+  if (!confirm(`⚠ Cette action va supprimer DÉFINITIVEMENT les ${count} transaction(s) enregistrée(s). Continuer ?`)) return;
+  if (!confirm('Confirmer une dernière fois : effacer TOUTES les transactions ? Cette action est irréversible.')) return;
+  if (!STATE.isOnline || !STATE.fbReady) {
+    showToast('⚠ Hors ligne — impossible d\'effacer les transactions maintenant.','warn'); return;
+  }
+  try {
+    const {doc, deleteDoc} = window._fbFns;
+    const ids = STATE.transactions.map(t=>t.id).filter(Boolean);
+    await Promise.all(ids.map(id => deleteDoc(doc(window._db,'transactions',id))));
+    await logNotification('🗑 Suppression de toutes les transactions',
+      `${ids.length} transaction(s) supprimée(s) par ${STATE.currentUser.username}`);
+    STATE.transactions = [];
+    renderMySales();
+    renderDashboard();
+    renderStocks();
+    renderStockActuel();
+    renderDettes();
+    renderAdminTrans();
+    if (currentTab === 'compta') refreshAccounting();
+    showToast(`🗑 ${ids.length} transaction(s) supprimée(s) de Firebase.`,'warn');
+    markUnsaved();
+  } catch(e) { showToast('⚠ Erreur: '+e.message,'warn'); }
 }
 
 // ============================================================
@@ -2565,33 +2615,67 @@ function renderCredits() {
     rows.push(`<tr style="background:${isCurrentMonth?'#1a56db':'#5a6282'};color:#fff;font-weight:700;">
       <td colspan="8" style="padding:8px 10px;font-size:.9rem;">${label}</td>
     </tr>`);
+
+    // Sous-groupement par jour à l'intérieur du mois (le plus récent en haut),
+    // avec un total de remboursement par jour — pour préparer les rapports.
+    const dayGroups = {};
     groups[month].forEach(c => {
-      // Le statut affiché reflète la dette RÉELLE et actuelle du client (même
-      // calcul que la Liste des Dettes), pas seulement la balance figée de cet
-      // enregistrement — sinon un client réglé sur un paiement mais qui a une
-      // autre vente à crédit non soldée apparaîtrait à tort comme "Soldé" ici.
-      const currentDebt = getClientDebt(c.client);
-      const hasDebt = currentDebt > 0;
-      const clientColor = hasDebt ? 'color:#c0392b;font-weight:700;' : 'color:#0f7b4f;font-weight:700;';
-      rows.push(`<tr>
-        <td>${c.date}</td><td>${c.time}</td>
-        <td style="${clientColor}">${esc(c.client)}</td>
-        <td>${fmtHTG(c.due)}</td><td>${fmtHTG(c.paid||0)}</td>
-        <td style="${clientColor}">${fmtHTG(c.finalBalance||0)}</td>
-        <td><span class="badge ${hasDebt?'badge-pending':'badge-sent'}">${hasDebt?'⏳ Partiel':'✅ Soldé'}</span></td>
-        <td style="white-space:nowrap;">${STATE.currentUser&&(STATE.currentUser.role==='admin'||STATE.currentUser.role==='gestionnaire')?`<button class="btn btn-outline" style="font-size:.75rem;padding:3px 10px;" onclick="openEditCredit('${c.id||''}','${esc(c.client)}',${c.due||0},${c.paid||0},${c.finalBalance||0},'${esc(c.date||'')}','${esc(c.time||'')}')">✏</button><button class="btn" style="font-size:.75rem;padding:3px 10px;background:var(--danger-bg);color:var(--danger);border:1px solid #f5b7b1;margin-left:4px;" onclick="deleteCredit('${c.id||''}')">🗑</button>`:'—'}</td>
-      </tr>`);
-      if (hasDebt) {
-        rows.push(`<tr style="background:#fef3e2;">
-          <td colspan="2" style="color:#b45309;font-style:italic;">↩ Report</td>
-          <td style="color:#c0392b;font-weight:700;">${esc(c.client)}</td>
-          <td colspan="2" style="color:#b45309;font-style:italic;">Balance reportée</td>
-          <td style="color:#c0392b;font-weight:700;">${fmtHTG(currentDebt)}</td>
-          <td><span class="badge badge-pending">⚠ À payer</span></td>
-          <td></td>
-        </tr>`);
-      }
+      const day = getIsoFromTx ? getIsoFromTx(c) : (c.isoDate||c.date||'');
+      if (!dayGroups[day]) dayGroups[day] = [];
+      dayGroups[day].push(c);
     });
+    const sortedDays = Object.keys(dayGroups).sort((a,b) => b.localeCompare(a));
+
+    sortedDays.forEach(day => {
+      const dayCredits = dayGroups[day];
+      rows.push(`<tr style="background:#eef1f8;font-weight:600;">
+        <td colspan="8" style="padding:6px 10px;font-size:.82rem;color:#3a4260;">${formatGroupLabel(day)}</td>
+      </tr>`);
+
+      dayCredits.forEach(c => {
+        // Le statut affiché reflète la dette RÉELLE et actuelle du client (même
+        // calcul que la Liste des Dettes), pas seulement la balance figée de cet
+        // enregistrement — sinon un client réglé sur un paiement mais qui a une
+        // autre vente à crédit non soldée apparaîtrait à tort comme "Soldé" ici.
+        const currentDebt = getClientDebt(c.client);
+        const hasDebt = currentDebt > 0;
+        const clientColor = hasDebt ? 'color:#c0392b;font-weight:700;' : 'color:#0f7b4f;font-weight:700;';
+        rows.push(`<tr>
+          <td>${c.date}</td><td>${c.time}</td>
+          <td style="${clientColor}">${esc(c.client)}</td>
+          <td>${fmtHTG(c.due)}</td><td>${fmtHTG(c.paid||0)}</td>
+          <td style="${clientColor}">${fmtHTG(c.finalBalance||0)}</td>
+          <td><span class="badge ${hasDebt?'badge-pending':'badge-sent'}">${hasDebt?'⏳ Partiel':'✅ Soldé'}</span></td>
+          <td style="white-space:nowrap;">${STATE.currentUser&&(STATE.currentUser.role==='admin'||STATE.currentUser.role==='gestionnaire')?`<button class="btn btn-outline" style="font-size:.75rem;padding:3px 10px;" onclick="openEditCredit('${c.id||''}','${esc(c.client)}',${c.due||0},${c.paid||0},${c.finalBalance||0},'${esc(c.date||'')}','${esc(c.time||'')}')">✏</button><button class="btn" style="font-size:.75rem;padding:3px 10px;background:var(--danger-bg);color:var(--danger);border:1px solid #f5b7b1;margin-left:4px;" onclick="deleteCredit('${c.id||''}')">🗑</button>`:'—'}</td>
+        </tr>`);
+        if (hasDebt) {
+          rows.push(`<tr style="background:#fef3e2;">
+            <td colspan="2" style="color:#b45309;font-style:italic;">↩ Report</td>
+            <td style="color:#c0392b;font-weight:700;">${esc(c.client)}</td>
+            <td colspan="2" style="color:#b45309;font-style:italic;">Balance reportée</td>
+            <td style="color:#c0392b;font-weight:700;">${fmtHTG(currentDebt)}</td>
+            <td><span class="badge badge-pending">⚠ À payer</span></td>
+            <td></td>
+          </tr>`);
+        }
+      });
+
+      // Total remboursement du jour
+      const dayTotRemb = dayCredits.reduce((a,c) => a+(c.paid||0), 0);
+      rows.push(`<tr style="background:#f6f7fb;font-weight:600;border-top:1px solid var(--border);">
+        <td colspan="4" style="font-size:.82rem;">📊 Total remboursement jour — ${formatGroupLabel(day)}</td>
+        <td>${fmtHTG(dayTotRemb)}</td>
+        <td colspan="3" style="font-size:.8rem;">${dayCredits.length} paiement(s)</td>
+      </tr>`);
+    });
+
+    // Total remboursement du mois
+    const monthTotRemb = groups[month].reduce((a,c) => a+(c.paid||0), 0);
+    rows.push(`<tr style="background:var(--surface2);font-weight:700;border-top:2px solid var(--border);">
+      <td colspan="4">📊 Total remboursement — ${formatMonthLabel(month)}</td>
+      <td>${fmtHTG(monthTotRemb)}</td>
+      <td colspan="3">${groups[month].length} paiement(s)</td>
+    </tr>`);
   });
   body.innerHTML = rows.join('');
 }
@@ -2819,6 +2903,122 @@ function renderStockDepart() {
   </tr>`).join('');
 }
 
+// ============================================================
+// MOUVEMENT CAISSE (admin/gestionnaire)
+// ============================================================
+// Un seul enregistrement d'ouverture de caisse par jour : on met à jour
+// l'enregistrement existant plutôt que d'en créer un doublon.
+async function submitCaisse() {
+  if (!requireAdminOrGest()) return;
+  const date = document.getElementById('cx-date').value || isoDate();
+  const ouverture = parseFloat(document.getElementById('cx-ouverture').value);
+  if (isNaN(ouverture) || ouverture < 0) {
+    showToast('⚠ Veuillez indiquer un montant d\'ouverture valide.','warn'); return;
+  }
+  if (!STATE.isOnline || !STATE.fbReady) {
+    showToast('⚠ Hors ligne — impossible d\'enregistrer maintenant.','warn'); return;
+  }
+  const existing = (STATE.caisse||[]).find(c => c.isoDate === date);
+  try {
+    const {collection, addDoc, doc, updateDoc} = window._fbFns;
+    if (existing && existing.id) {
+      await updateDoc(doc(window._db,'caisse',existing.id), {
+        montantOuverture: ouverture, editedBy: STATE.currentUser.username, editedAt: new Date().toISOString()
+      });
+      existing.montantOuverture = ouverture;
+    } else {
+      const entry = { date:date, isoDate:date, montantOuverture:ouverture, seller:STATE.currentUser.username, createdAt:new Date().toISOString() };
+      const ref = await addDoc(collection(window._db,'caisse'), entry);
+      if (!STATE.caisse) STATE.caisse = [];
+      if (!STATE.caisse.find(c=>c.id===ref.id)) STATE.caisse = [{id:ref.id, ...entry}, ...STATE.caisse];
+    }
+    showToast('✅ Ouverture de caisse enregistrée.');
+  } catch(e) { showToast('⚠ Erreur: '+e.message,'warn'); }
+  renderCaisse();
+  document.getElementById('cx-date').value='';
+  document.getElementById('cx-ouverture').value='';
+}
+
+function renderCaisse() {
+  const body = document.getElementById('caisse-table-body');
+  if (!body) return;
+
+  // Ouvertures de caisse enregistrées, indexées par jour.
+  const ouvertureMap = {};
+  (STATE.caisse||[]).forEach(c => { ouvertureMap[c.isoDate] = c.montantOuverture||0; });
+
+  // Ventes encaissées en cash, par jour.
+  const cashMap = {};
+  (STATE.transactions||[]).filter(t=>t.type==='vente').forEach(t => {
+    const day = getIsoFromTx(t);
+    cashMap[day] = (cashMap[day]||0) + (t.cash||0);
+  });
+
+  // Remboursements de crédit encaissés, par jour.
+  const rembMap = {};
+  (STATE.credits||[]).forEach(c => {
+    const day = getIsoFromTx(c);
+    rembMap[day] = (rembMap[day]||0) + (c.paid||0);
+  });
+
+  const allDays = new Set([...Object.keys(ouvertureMap), ...Object.keys(cashMap), ...Object.keys(rembMap)].filter(Boolean));
+
+  if (!allDays.size) {
+    body.innerHTML = '<tr><td colspan="6" style="text-align:center;color:var(--text3);padding:1.5rem;">Aucun mouvement de caisse enregistré.</td></tr>';
+    return;
+  }
+
+  const currentMonth = localMonthStr();
+  const monthGroups = {};
+  [...allDays].forEach(day => {
+    const month = day.slice(0,7);
+    if (!monthGroups[month]) monthGroups[month] = [];
+    monthGroups[month].push(day);
+  });
+  const sortedMonths = Object.keys(monthGroups).sort((a,b) => b.localeCompare(a));
+
+  let html = '';
+  sortedMonths.forEach(month => {
+    const days = monthGroups[month].sort((a,b) => b.localeCompare(a));
+    const isCurrentMonth = month === currentMonth;
+    const label = isCurrentMonth ? `📅 CE MOIS-CI — ${formatMonthLabel(month)}` : formatMonthLabel(month);
+    html += `<tr style="background:${isCurrentMonth?'#1a56db':'#5a6282'};color:#fff;font-weight:700;">
+      <td colspan="6" style="padding:8px 10px;font-size:.9rem;">${label}</td>
+    </tr>`;
+
+    let monthOuverture=0, monthCash=0, monthRemb=0, monthEncaisse=0, monthFermeture=0;
+    days.forEach(day => {
+      const ouverture = ouvertureMap[day]||0;
+      const cash = cashMap[day]||0;
+      const remb = rembMap[day]||0;
+      const encaisse = cash + remb;
+      const fermeture = ouverture + encaisse;
+      monthOuverture += ouverture; monthCash += cash; monthRemb += remb;
+      monthEncaisse += encaisse; monthFermeture += fermeture;
+      html += `<tr>
+        <td>${formatGroupLabel(day)}</td>
+        <td>${fmtHTG(ouverture)}</td>
+        <td>${fmtHTG(cash)}</td>
+        <td>${fmtHTG(remb)}</td>
+        <td style="font-weight:600;">${fmtHTG(encaisse)}</td>
+        <td style="font-weight:700;color:#1a56db;">${fmtHTG(fermeture)}</td>
+      </tr>`;
+    });
+
+    // Total du mois
+    html += `<tr style="background:var(--surface2);font-weight:700;border-top:2px solid var(--border);">
+      <td>📊 Total — ${formatMonthLabel(month)}</td>
+      <td>${fmtHTG(monthOuverture)}</td>
+      <td>${fmtHTG(monthCash)}</td>
+      <td>${fmtHTG(monthRemb)}</td>
+      <td>${fmtHTG(monthEncaisse)}</td>
+      <td style="color:#1a56db;">${fmtHTG(monthFermeture)}</td>
+    </tr>`;
+  });
+
+  body.innerHTML = html;
+}
+
 function getQtyCaisses(t) {
   const casseSize = getCasseSize(t.description, t.unit);
   const qty = t.quantity || 0;
@@ -3001,6 +3201,7 @@ function renderAll() {
   renderDettes();
   if (currentTab === 'stock-actuel') renderStockActuel();
   if (currentTab === 'stock-depart') renderStockDepart();
+  if (currentTab === 'caisse') renderCaisse();
 }
 
 // Appel automatique de renderMySales toutes les 30 secondes pour s'assurer de la synchronisation
