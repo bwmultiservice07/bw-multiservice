@@ -2515,26 +2515,24 @@ function buildBilan() {
 }
 
 // Analyse financière cumulée jour après jour et par mois.
-// Formules :
-//   Produits          = Ventes cash (par jour) + Apport
-//   Achats marchandises = total des achats de stock (prix d'achat)
-//   Valeur Ajoutée    = Produits - Achats marchandises
-//   Autres charges    = transport, manutention, charges diverses, impôt... (onglet Autres Charges)
-//   Bénéfice Brut     = Valeur Ajoutée - Autres charges
-//   Retraits          = retraits de caisse (onglet Mouvement Caisse)
-//   Bénéfice Net      = Bénéfice Brut - Retraits  (équivalent à Produits - Charges,
-//                        avec Charges = Achats marchandises + Autres charges + Retraits)
+// Formules (telles que redéfinies par l'utilisateur) :
+//   Produits (= Chiffre d'affaires) = Quantité de produits vendus × Prix de vente
+//   Valeur Ajoutée     = Produits - Coûts d'achats des marchandises
+//                        - Coût manutention - Coût transport
+//   Bénéfice Brut      = Valeur Ajoutée - Autres charges (tout sauf Transport,
+//                        Manutention — déjà déduits — et Impôt, déduit plus bas)
+//   Bénéfice Net       = Bénéfice Brut - Impôt
+// Le Coût transport, le Coût manutention et l'Impôt sont extraits des entrées
+// de l'onglet "Autres Charges" via leur champ Description ; tout le reste de
+// ces entrées (Salaire, Carburant, Fourniture de bureau, Prime, Taxes, etc.)
+// forme le poste "Autres charges" de la formule du Bénéfice Brut.
 // Calcul partagé entre l'affichage (buildAnalyse) et les exports Excel/Drive,
 // pour garantir que les mêmes chiffres apparaissent partout.
 function computeFinancialAnalysis() {
-  const ventesCashMap = {}, apportMap = {}, achatsMap = {}, autresChargesMap = {}, retraitsMap = {};
+  const caMap = {}, achatsMap = {}, transportMap = {}, manutentionMap = {}, autresChargesMap = {}, impotMap = {};
   STATE.transactions.filter(t=>t.type==='vente').forEach(t => {
     const day = getIsoFromTx(t);
-    ventesCashMap[day] = (ventesCashMap[day]||0) + (t.cash||0);
-  });
-  (STATE.apports||[]).forEach(a => {
-    const day = a.isoDate || a.date || '';
-    apportMap[day] = (apportMap[day]||0) + (a.montant||0);
+    caMap[day] = (caMap[day]||0) + (t.amount||0);
   });
   STATE.transactions.filter(t=>t.type==='stock-in').forEach(t => {
     const day = getIsoFromTx(t);
@@ -2542,41 +2540,42 @@ function computeFinancialAnalysis() {
   });
   (STATE.charges||[]).forEach(c => {
     const day = c.isoDate || c.date || '';
-    autresChargesMap[day] = (autresChargesMap[day]||0) + (c.montant||0);
-  });
-  (STATE.caisseRetraits||[]).forEach(r => {
-    const day = r.isoDate || r.date || '';
-    retraitsMap[day] = (retraitsMap[day]||0) + (r.montant||0);
+    const montant = c.montant||0;
+    if (c.description==='Transport') transportMap[day] = (transportMap[day]||0) + montant;
+    else if (c.description==='Manutention') manutentionMap[day] = (manutentionMap[day]||0) + montant;
+    else if (c.description==='Impôt') impotMap[day] = (impotMap[day]||0) + montant;
+    else autresChargesMap[day] = (autresChargesMap[day]||0) + montant;
   });
 
   const allDays = new Set([
-    ...Object.keys(ventesCashMap), ...Object.keys(apportMap), ...Object.keys(achatsMap),
-    ...Object.keys(autresChargesMap), ...Object.keys(retraitsMap)
+    ...Object.keys(caMap), ...Object.keys(achatsMap), ...Object.keys(transportMap),
+    ...Object.keys(manutentionMap), ...Object.keys(autresChargesMap), ...Object.keys(impotMap)
   ].filter(Boolean));
 
   const sortedAsc = [...allDays].sort((a,b)=>a.localeCompare(b));
   const cumulMap = {};
   let running = 0;
   const days = sortedAsc.map(day => {
-    const ventesCash = ventesCashMap[day]||0, apport = apportMap[day]||0;
-    const produits = ventesCash + apport;
+    const ca = caMap[day]||0;
     const achats = achatsMap[day]||0;
-    const va = produits - achats;
+    const transport = transportMap[day]||0;
+    const manutention = manutentionMap[day]||0;
+    const va = ca - achats - transport - manutention;
     const autresCharges = autresChargesMap[day]||0;
     const benBrut = va - autresCharges;
-    const retraits = retraitsMap[day]||0;
-    const benNet = benBrut - retraits;
+    const impot = impotMap[day]||0;
+    const benNet = benBrut - impot;
     running += benNet;
     cumulMap[day] = running;
-    return {day, ventesCash, apport, produits, achats, va, autresCharges, benBrut, retraits, benNet, cumul:running};
+    return {day, ca, achats, transport, manutention, va, autresCharges, benBrut, impot, benNet, cumul:running};
   });
 
   const totals = days.reduce((a,d) => ({
-    ventesCash: a.ventesCash+d.ventesCash, apport: a.apport+d.apport, produits: a.produits+d.produits,
-    achats: a.achats+d.achats, va: a.va+d.va, autresCharges: a.autresCharges+d.autresCharges,
-    benBrut: a.benBrut+d.benBrut, retraits: a.retraits+d.retraits, benNet: a.benNet+d.benNet
-  }), {ventesCash:0,apport:0,produits:0,achats:0,va:0,autresCharges:0,benBrut:0,retraits:0,benNet:0});
-  totals.charges = totals.achats + totals.autresCharges + totals.retraits;
+    ca: a.ca+d.ca, achats: a.achats+d.achats, transport: a.transport+d.transport,
+    manutention: a.manutention+d.manutention, va: a.va+d.va, autresCharges: a.autresCharges+d.autresCharges,
+    benBrut: a.benBrut+d.benBrut, impot: a.impot+d.impot, benNet: a.benNet+d.benNet
+  }), {ca:0,achats:0,transport:0,manutention:0,va:0,autresCharges:0,benBrut:0,impot:0,benNet:0});
+  totals.charges = totals.achats + totals.transport + totals.manutention + totals.autresCharges + totals.impot;
 
   return {days, cumulMap, totals};
 }
@@ -2594,8 +2593,6 @@ function buildAnalyse() {
     <div class="metric-card accent"><div class="label">Chiffre d'affaires total</div><div class="value">${fmtHTG(vt)}</div></div>
     <div class="metric-card success"><div class="label">Valeur du stock</div><div class="value">${fmtHTG(st)}</div></div>
     <div class="metric-card ${mg>=0?'success':''}"><div class="label">Marge brute estimée</div><div class="value">${mg.toFixed(1)}%</div></div>
-    <div class="metric-card accent"><div class="label">Produits (total)</div><div class="value">${fmtHTG(totals.produits)}</div></div>
-    <div class="metric-card"><div class="label">Charges (total)</div><div class="value">${fmtHTG(totals.charges)}</div></div>
     <div class="metric-card ${totals.va>=0?'success':''}"><div class="label">Valeur Ajoutée</div><div class="value">${fmtHTG(totals.va)}</div></div>
     <div class="metric-card ${totals.benBrut>=0?'success':''}"><div class="label">Bénéfice Brut</div><div class="value">${fmtHTG(totals.benBrut)}</div></div>
     <div class="metric-card ${totals.benNet>=0?'success':''}"><div class="label">Bénéfice Net</div><div class="value">${fmtHTG(totals.benNet)}</div></div>
@@ -2618,7 +2615,7 @@ function buildAnalyse() {
   const sortedMonths = Object.keys(monthGroups).sort((a,b)=>b.localeCompare(a));
 
   html += `<div class="table-wrap"><table>
-    <thead><tr><th>Date</th><th>Ventes cash</th><th>Apport</th><th>Produits</th><th>Achats marchandises</th><th>Valeur Ajoutée</th><th>Autres charges</th><th>Bénéfice Brut</th><th>Retraits</th><th>Bénéfice Net</th><th>Cumul Bénéfice Net</th></tr></thead>
+    <thead><tr><th>Date</th><th>Produits</th><th>Achats marchandises</th><th>Coût transport</th><th>Coût manutention</th><th>Valeur Ajoutée</th><th>Autres charges</th><th>Bénéfice Brut</th><th>Impôt</th><th>Bénéfice Net</th><th>Cumul Bénéfice Net</th></tr></thead>
     <tbody>`;
 
   sortedMonths.forEach(month => {
@@ -2629,20 +2626,20 @@ function buildAnalyse() {
       <td colspan="11" style="padding:8px 10px;font-size:.9rem;">${label}</td>
     </tr>`;
 
-    let mVentesCash=0, mApport=0, mProduits=0, mAchats=0, mVA=0, mAutresCharges=0, mBenBrut=0, mRetraits=0, mBenNet=0;
+    let mCa=0, mAchats=0, mTransport=0, mManutention=0, mVA=0, mAutresCharges=0, mBenBrut=0, mImpot=0, mBenNet=0;
     mDays.forEach(d => {
-      mVentesCash+=d.ventesCash; mApport+=d.apport; mProduits+=d.produits; mAchats+=d.achats;
-      mVA+=d.va; mAutresCharges+=d.autresCharges; mBenBrut+=d.benBrut; mRetraits+=d.retraits; mBenNet+=d.benNet;
+      mCa+=d.ca; mAchats+=d.achats; mTransport+=d.transport; mManutention+=d.manutention;
+      mVA+=d.va; mAutresCharges+=d.autresCharges; mBenBrut+=d.benBrut; mImpot+=d.impot; mBenNet+=d.benNet;
       html += `<tr>
         <td>${formatGroupLabel(d.day)}</td>
-        <td>${fmtHTG(d.ventesCash)}</td>
-        <td>${fmtHTG(d.apport)}</td>
-        <td style="font-weight:600;">${fmtHTG(d.produits)}</td>
+        <td style="font-weight:600;">${fmtHTG(d.ca)}</td>
         <td>${fmtHTG(d.achats)}</td>
+        <td>${fmtHTG(d.transport)}</td>
+        <td>${fmtHTG(d.manutention)}</td>
         <td style="font-weight:600;">${fmtHTG(d.va)}</td>
         <td>${fmtHTG(d.autresCharges)}</td>
         <td style="font-weight:600;">${fmtHTG(d.benBrut)}</td>
-        <td style="color:#c0392b;">${d.retraits>0?'-':''}${fmtHTG(d.retraits)}</td>
+        <td>${fmtHTG(d.impot)}</td>
         <td style="font-weight:700;color:${d.benNet>=0?'#1a7a4c':'#c0392b'};">${fmtHTG(d.benNet)}</td>
         <td style="font-weight:600;color:#1a56db;">${fmtHTG(d.cumul)}</td>
       </tr>`;
@@ -2650,14 +2647,14 @@ function buildAnalyse() {
 
     html += `<tr style="background:var(--surface2);font-weight:700;border-top:2px solid var(--border);">
       <td>📊 Total — ${formatMonthLabel(month)}</td>
-      <td>${fmtHTG(mVentesCash)}</td>
-      <td>${fmtHTG(mApport)}</td>
-      <td>${fmtHTG(mProduits)}</td>
+      <td>${fmtHTG(mCa)}</td>
       <td>${fmtHTG(mAchats)}</td>
+      <td>${fmtHTG(mTransport)}</td>
+      <td>${fmtHTG(mManutention)}</td>
       <td>${fmtHTG(mVA)}</td>
       <td>${fmtHTG(mAutresCharges)}</td>
       <td>${fmtHTG(mBenBrut)}</td>
-      <td style="color:#c0392b;">${mRetraits>0?'-':''}${fmtHTG(mRetraits)}</td>
+      <td>${fmtHTG(mImpot)}</td>
       <td style="color:${mBenNet>=0?'#1a7a4c':'#c0392b'};">${fmtHTG(mBenNet)}</td>
       <td style="color:#1a56db;">${fmtHTG(mDays[0].cumul)}</td>
     </tr>`;
@@ -2812,17 +2809,16 @@ function buildAnalyseSheetRows(vt, st) {
     ["Chiffre d'affaires total", vt],
     ['Valeur du stock', st],
     ['Marge brute estimée (%)', st>0?parseFloat(mg.toFixed(2)):0],
-    ['Produits (total)', totals.produits],
     ['Charges (total)', totals.charges],
     ['Valeur Ajoutée', totals.va],
     ['Bénéfice Brut', totals.benBrut],
     ['Bénéfice Net', totals.benNet],
     [],
     ['Cumul jour après jour'],
-    ['Date','Ventes cash','Apport','Produits','Achats marchandises','Valeur Ajoutée','Autres charges','Bénéfice Brut','Retraits','Bénéfice Net','Cumul Bénéfice Net']
+    ['Date','Produits','Achats marchandises','Coût transport','Coût manutention','Valeur Ajoutée','Autres charges','Bénéfice Brut','Impôt','Bénéfice Net','Cumul Bénéfice Net']
   ];
   days.forEach(d => {
-    rows.push([d.day, d.ventesCash, d.apport, d.produits, d.achats, d.va, d.autresCharges, d.benBrut, d.retraits, d.benNet, d.cumul]);
+    rows.push([d.day, d.ca, d.achats, d.transport, d.manutention, d.va, d.autresCharges, d.benBrut, d.impot, d.benNet, d.cumul]);
   });
   return rows;
 }
