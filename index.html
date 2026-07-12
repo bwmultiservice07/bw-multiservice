@@ -375,11 +375,39 @@ tr:hover td{background:#f7f9ff;}
         <button class="send-btn" onclick="submitCaisse()">Enregistrer ➤</button>
       </div>
       <div class="card">
+        <div class="card-title">💸 Retrait de caisse</div>
+        <div class="form-row">
+          <div class="form-group">
+            <label>Date</label>
+            <input type="date" id="cxr-date"/>
+          </div>
+          <div class="form-group">
+            <label>Montant retiré (Gourdes HTG)</label>
+            <input type="number" id="cxr-montant" min="0" step="0.01" placeholder="Ex: 1000.00"/>
+          </div>
+          <div class="form-group">
+            <label>Nom de la personne</label>
+            <input type="text" id="cxr-personne" placeholder="Ex: Jean Pierre"/>
+          </div>
+          <div class="form-group" style="flex:2;min-width:200px;">
+            <label>Objet du retrait</label>
+            <input type="text" id="cxr-objet" placeholder="Ex: Achat de carburant"/>
+          </div>
+        </div>
+        <button class="send-btn" onclick="submitRetraitCaisse()">Enregistrer ➤</button>
+        <div class="table-wrap" style="margin-top:1rem;">
+          <table>
+            <thead><tr><th>Date</th><th>Montant retiré (HTG)</th><th>Retiré par</th><th>Objet</th><th>Actions</th></tr></thead>
+            <tbody id="caisse-retraits-body"><tr><td colspan="5" style="text-align:center;color:var(--text3);padding:1.5rem;">Aucun retrait enregistré.</td></tr></tbody>
+          </table>
+        </div>
+      </div>
+      <div class="card">
         <div class="card-title">📊 Mouvement de caisse par jour</div>
         <div class="table-wrap">
           <table>
-            <thead><tr><th>Date</th><th>Montant d'ouverture (HTG)</th><th>Ventes cash (HTG)</th><th>Remboursements crédit (HTG)</th><th>Total encaissé (HTG)</th><th>Montant de fermeture (HTG)</th></tr></thead>
-            <tbody id="caisse-table-body"><tr><td colspan="6" style="text-align:center;color:var(--text3);padding:1.5rem;">Aucun mouvement de caisse enregistré.</td></tr></tbody>
+            <thead><tr><th>Date</th><th>Montant d'ouverture (HTG)</th><th>Ventes cash (HTG)</th><th>Remboursements crédit (HTG)</th><th>Retraits (HTG)</th><th>Total encaissé (HTG)</th><th>Montant de fermeture (HTG)</th></tr></thead>
+            <tbody id="caisse-table-body"><tr><td colspan="7" style="text-align:center;color:var(--text3);padding:1.5rem;">Aucun mouvement de caisse enregistré.</td></tr></tbody>
           </table>
         </div>
       </div>
@@ -801,6 +829,7 @@ let STATE = {
   transactions: [],   // synced from Firestore
   stocks: [],         // synced from Firestore
   caisse: [],         // synced from Firestore (ouvertures de caisse par jour)
+  caisseRetraits: [], // synced from Firestore (retraits de caisse)
   pendingQueue: [],   // offline queue
   currentUser: null,
   isOnline: navigator.onLine,
@@ -843,7 +872,7 @@ loadLocal();
 // ============================================================
 // FIREBASE LISTENERS
 // ============================================================
-let unsubCredits = null, unsubStockDepart = null, unsubCaisse = null;
+let unsubCredits = null, unsubStockDepart = null, unsubCaisse = null, unsubCaisseRetraits = null;
 
 function startFirebaseListeners() {
   if (!window._fbReady || !window._db) return;
@@ -918,6 +947,17 @@ function startFirebaseListeners() {
       if (currentTab === 'caisse') renderCaisse();
     },
     err => console.error('Caisse listener:', err)
+  );
+
+  // RETRAITS DE CAISSE - Synchronisation globale
+  if (unsubCaisseRetraits) unsubCaisseRetraits();
+  unsubCaisseRetraits = onSnapshot(
+    query(collection(db, 'caisse_retraits'), orderBy('isoDate','desc')),
+    snap => {
+      STATE.caisseRetraits = snap.docs.map(d => ({id: d.id, ...d.data()}));
+      if (currentTab === 'caisse') { renderCaisseRetraits(); renderCaisse(); }
+    },
+    err => console.error('CaisseRetraits listener:', err)
   );
 
   // USERS - Synchronisation globale
@@ -1121,6 +1161,7 @@ function performLogout() {
   if (unsubCredits) unsubCredits();
   if (unsubStockDepart) unsubStockDepart();
   if (unsubCaisse) unsubCaisse();
+  if (unsubCaisseRetraits) unsubCaisseRetraits();
   STATE.currentUser = null;
   document.getElementById('auth-screen').style.display = 'flex';
   document.getElementById('app').style.display = 'none';
@@ -1151,7 +1192,7 @@ function switchTab(tab) {
   if (tab==='stocks') renderStocks();
   if (tab==='credit') renderCredits();
   if (tab==='dettes') renderDettes();
-  if (tab==='caisse') renderCaisse();
+  if (tab==='caisse') { renderCaisse(); renderCaisseRetraits(); }
   if (tab==='stock-depart') renderStockDepart();
   if (tab==='stock-actuel') renderStockActuel();
   if (tab==='notif') renderNotifications();
@@ -2939,6 +2980,73 @@ async function submitCaisse() {
   document.getElementById('cx-ouverture').value='';
 }
 
+// Retrait de caisse : date, montant retiré, personne, objet. Intégré dans le
+// calcul du montant de fermeture (Fermeture = Ouverture + Encaissé - Retraits).
+async function submitRetraitCaisse() {
+  if (!requireAdminOrGest()) return;
+  const date = document.getElementById('cxr-date').value || isoDate();
+  const montant = parseFloat(document.getElementById('cxr-montant').value);
+  const personne = document.getElementById('cxr-personne').value.trim();
+  const objet = document.getElementById('cxr-objet').value.trim();
+  if (isNaN(montant) || montant <= 0) {
+    showToast('⚠ Veuillez indiquer un montant retiré valide.','warn'); return;
+  }
+  if (!personne || !objet) {
+    showToast('⚠ Veuillez indiquer le nom de la personne et l\'objet du retrait.','warn'); return;
+  }
+  if (!STATE.isOnline || !STATE.fbReady) {
+    showToast('⚠ Hors ligne — impossible d\'enregistrer maintenant.','warn'); return;
+  }
+  try {
+    const {collection, addDoc} = window._fbFns;
+    const entry = { date:date, isoDate:date, montant:montant, personne:personne, objet:objet,
+      seller:STATE.currentUser.username, createdAt:new Date().toISOString() };
+    const ref = await addDoc(collection(window._db,'caisse_retraits'), entry);
+    if (!STATE.caisseRetraits) STATE.caisseRetraits = [];
+    if (!STATE.caisseRetraits.find(c=>c.id===ref.id)) STATE.caisseRetraits = [{id:ref.id, ...entry}, ...STATE.caisseRetraits];
+    showToast('✅ Retrait de caisse enregistré.');
+  } catch(e) { showToast('⚠ Erreur: '+e.message,'warn'); }
+  renderCaisseRetraits();
+  renderCaisse();
+  document.getElementById('cxr-date').value='';
+  document.getElementById('cxr-montant').value='';
+  document.getElementById('cxr-personne').value='';
+  document.getElementById('cxr-objet').value='';
+}
+
+async function deleteCaisseRetrait(id) {
+  if (!requireAdminOrGest()) return;
+  if (!confirm('Supprimer ce retrait de caisse ?')) return;
+  if (STATE.isOnline && STATE.fbReady && id) {
+    try {
+      const {doc, deleteDoc} = window._fbFns;
+      await deleteDoc(doc(window._db,'caisse_retraits',id));
+      STATE.caisseRetraits = (STATE.caisseRetraits||[]).filter(c=>c.id!==id);
+      showToast('🗑 Retrait supprimé.','warn');
+    } catch(e) { showToast('⚠ Erreur: '+e.message,'warn'); }
+  }
+  renderCaisseRetraits();
+  renderCaisse();
+}
+
+function renderCaisseRetraits() {
+  const body = document.getElementById('caisse-retraits-body');
+  if (!body) return;
+  const items = [...(STATE.caisseRetraits||[])].sort((a,b)=>(b.isoDate||'').localeCompare(a.isoDate||''));
+  if (!items.length) {
+    body.innerHTML = '<tr><td colspan="5" style="text-align:center;color:var(--text3);padding:1.5rem;">Aucun retrait enregistré.</td></tr>';
+    return;
+  }
+  const canEdit = STATE.currentUser && (STATE.currentUser.role==='admin' || STATE.currentUser.role==='gestionnaire');
+  body.innerHTML = items.map(c=>`<tr>
+    <td>${c.date}</td>
+    <td style="color:#c0392b;font-weight:600;">-${fmtHTG(c.montant||0)}</td>
+    <td>${esc(c.personne||'')}</td>
+    <td>${esc(c.objet||'')}</td>
+    <td>${canEdit ? `<button class="btn" style="font-size:.75rem;padding:3px 10px;background:var(--danger-bg);color:var(--danger);border:1px solid #f5b7b1;" onclick="deleteCaisseRetrait('${c.id||''}')">🗑</button>` : '—'}</td>
+  </tr>`).join('');
+}
+
 function renderCaisse() {
   const body = document.getElementById('caisse-table-body');
   if (!body) return;
@@ -2961,10 +3069,17 @@ function renderCaisse() {
     rembMap[day] = (rembMap[day]||0) + (c.paid||0);
   });
 
-  const allDays = new Set([...Object.keys(ouvertureMap), ...Object.keys(cashMap), ...Object.keys(rembMap)].filter(Boolean));
+  // Retraits de caisse, par jour.
+  const retraitMap = {};
+  (STATE.caisseRetraits||[]).forEach(c => {
+    const day = c.isoDate || c.date || '';
+    retraitMap[day] = (retraitMap[day]||0) + (c.montant||0);
+  });
+
+  const allDays = new Set([...Object.keys(ouvertureMap), ...Object.keys(cashMap), ...Object.keys(rembMap), ...Object.keys(retraitMap)].filter(Boolean));
 
   if (!allDays.size) {
-    body.innerHTML = '<tr><td colspan="6" style="text-align:center;color:var(--text3);padding:1.5rem;">Aucun mouvement de caisse enregistré.</td></tr>';
+    body.innerHTML = '<tr><td colspan="7" style="text-align:center;color:var(--text3);padding:1.5rem;">Aucun mouvement de caisse enregistré.</td></tr>';
     return;
   }
 
@@ -2983,23 +3098,25 @@ function renderCaisse() {
     const isCurrentMonth = month === currentMonth;
     const label = isCurrentMonth ? `📅 CE MOIS-CI — ${formatMonthLabel(month)}` : formatMonthLabel(month);
     html += `<tr style="background:${isCurrentMonth?'#1a56db':'#5a6282'};color:#fff;font-weight:700;">
-      <td colspan="6" style="padding:8px 10px;font-size:.9rem;">${label}</td>
+      <td colspan="7" style="padding:8px 10px;font-size:.9rem;">${label}</td>
     </tr>`;
 
-    let monthOuverture=0, monthCash=0, monthRemb=0, monthEncaisse=0, monthFermeture=0;
+    let monthOuverture=0, monthCash=0, monthRemb=0, monthRetrait=0, monthEncaisse=0, monthFermeture=0;
     days.forEach(day => {
       const ouverture = ouvertureMap[day]||0;
       const cash = cashMap[day]||0;
       const remb = rembMap[day]||0;
+      const retrait = retraitMap[day]||0;
       const encaisse = cash + remb;
-      const fermeture = ouverture + encaisse;
-      monthOuverture += ouverture; monthCash += cash; monthRemb += remb;
+      const fermeture = ouverture + encaisse - retrait;
+      monthOuverture += ouverture; monthCash += cash; monthRemb += remb; monthRetrait += retrait;
       monthEncaisse += encaisse; monthFermeture += fermeture;
       html += `<tr>
         <td>${formatGroupLabel(day)}</td>
         <td>${fmtHTG(ouverture)}</td>
         <td>${fmtHTG(cash)}</td>
         <td>${fmtHTG(remb)}</td>
+        <td style="color:#c0392b;">${retrait>0?'-':''}${fmtHTG(retrait)}</td>
         <td style="font-weight:600;">${fmtHTG(encaisse)}</td>
         <td style="font-weight:700;color:#1a56db;">${fmtHTG(fermeture)}</td>
       </tr>`;
@@ -3011,6 +3128,7 @@ function renderCaisse() {
       <td>${fmtHTG(monthOuverture)}</td>
       <td>${fmtHTG(monthCash)}</td>
       <td>${fmtHTG(monthRemb)}</td>
+      <td style="color:#c0392b;">${monthRetrait>0?'-':''}${fmtHTG(monthRetrait)}</td>
       <td>${fmtHTG(monthEncaisse)}</td>
       <td style="color:#1a56db;">${fmtHTG(monthFermeture)}</td>
     </tr>`;
@@ -3201,7 +3319,7 @@ function renderAll() {
   renderDettes();
   if (currentTab === 'stock-actuel') renderStockActuel();
   if (currentTab === 'stock-depart') renderStockDepart();
-  if (currentTab === 'caisse') renderCaisse();
+  if (currentTab === 'caisse') { renderCaisse(); renderCaisseRetraits(); }
 }
 
 // Appel automatique de renderMySales toutes les 30 secondes pour s'assurer de la synchronisation
