@@ -736,6 +736,39 @@ tr:hover td{background:#f7f9ff;}
         </div>
       </div>
       <div class="acc-sheet" id="acc-analyse">
+        <div class="card">
+          <div class="card-title">💸 Enregistrer une charge</div>
+          <div class="form-row">
+            <div class="form-group">
+              <label>Date</label>
+              <input type="date" id="ch-date"/>
+            </div>
+            <div class="form-group">
+              <label>Type</label>
+              <select id="ch-type">
+                <option value="transport">Coût transport</option>
+                <option value="manutention">Coût manutention</option>
+                <option value="charges">Charges diverses</option>
+                <option value="impot">Impôt</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label>Montant (Gourdes HTG)</label>
+              <input type="number" id="ch-montant" min="0" step="0.01" placeholder="Ex: 500.00"/>
+            </div>
+            <div class="form-group" style="flex:2;min-width:200px;">
+              <label>Note (optionnel)</label>
+              <input type="text" id="ch-note" placeholder="Ex: Transport marchandise du 10 juillet"/>
+            </div>
+          </div>
+          <button class="send-btn" onclick="submitCharge()">Enregistrer ➤</button>
+          <div class="table-wrap" style="margin-top:1rem;">
+            <table>
+              <thead><tr><th>Date</th><th>Type</th><th>Montant (HTG)</th><th>Note</th><th>Actions</th></tr></thead>
+              <tbody id="charges-body"><tr><td colspan="5" style="text-align:center;color:var(--text3);padding:1.5rem;">Aucune charge enregistrée.</td></tr></tbody>
+            </table>
+          </div>
+        </div>
         <div class="card"><div class="card-title">📈 Analyse financière</div><div id="analyse-content"></div></div>
       </div>
     </div>
@@ -834,6 +867,7 @@ let STATE = {
   stocks: [],         // synced from Firestore
   caisse: [],         // synced from Firestore (ouvertures de caisse par jour)
   caisseRetraits: [], // synced from Firestore (retraits de caisse)
+  charges: [],        // synced from Firestore (coûts transport/manutention, charges diverses, impôt)
   pendingQueue: [],   // offline queue
   currentUser: null,
   isOnline: navigator.onLine,
@@ -880,7 +914,7 @@ loadLocal();
 // ============================================================
 // FIREBASE LISTENERS
 // ============================================================
-let unsubCredits = null, unsubStockDepart = null, unsubCaisse = null, unsubCaisseRetraits = null;
+let unsubCredits = null, unsubStockDepart = null, unsubCaisse = null, unsubCaisseRetraits = null, unsubCharges = null;
 
 function startFirebaseListeners() {
   if (!window._fbReady || !window._db) return;
@@ -967,6 +1001,17 @@ function startFirebaseListeners() {
       if (currentTab === 'tableau') renderDashboard();
     },
     err => console.error('CaisseRetraits listener:', err)
+  );
+
+  // CHARGES - Synchronisation globale (coûts transport/manutention, charges diverses, impôt)
+  if (unsubCharges) unsubCharges();
+  unsubCharges = onSnapshot(
+    query(collection(db, 'charges'), orderBy('isoDate','desc')),
+    snap => {
+      STATE.charges = snap.docs.map(d => ({id: d.id, ...d.data()}));
+      if (currentTab === 'compta') { renderChargesHistory(); buildAnalyse(); }
+    },
+    err => console.error('Charges listener:', err)
   );
 
   // USERS - Synchronisation globale
@@ -1172,6 +1217,7 @@ function performLogout() {
   if (unsubStockDepart) unsubStockDepart();
   if (unsubCaisse) unsubCaisse();
   if (unsubCaisseRetraits) unsubCaisseRetraits();
+  if (unsubCharges) unsubCharges();
   STATE.currentUser = null;
   document.getElementById('auth-screen').style.display = 'flex';
   document.getElementById('app').style.display = 'none';
@@ -2158,7 +2204,79 @@ function refreshAccounting() {
   buildGrandLivre();
   buildBalance();
   buildBilan();
+  renderChargesHistory();
   buildAnalyse();
+}
+
+// ============================================================
+// CHARGES (Coûts transport, Coûts manutention, Charges diverses, Impôt)
+// ============================================================
+const CHARGE_TYPE_LABELS = {
+  transport: 'Coût transport',
+  manutention: 'Coût manutention',
+  charges: 'Charges diverses',
+  impot: 'Impôt'
+};
+
+async function submitCharge() {
+  if (!requireAdminOrGest()) return;
+  const date = document.getElementById('ch-date').value || isoDate();
+  const type = document.getElementById('ch-type').value;
+  const montant = parseFloat(document.getElementById('ch-montant').value);
+  const note = document.getElementById('ch-note').value.trim();
+  if (isNaN(montant) || montant <= 0) {
+    showToast('⚠ Veuillez indiquer un montant valide.','warn'); return;
+  }
+  if (!STATE.isOnline || !STATE.fbReady) {
+    showToast('⚠ Hors ligne — impossible d\'enregistrer maintenant.','warn'); return;
+  }
+  try {
+    const {collection, addDoc} = window._fbFns;
+    const entry = { date:date, isoDate:date, type:type, montant:montant, note:note,
+      seller:STATE.currentUser.username, createdAt:new Date().toISOString() };
+    const ref = await addDoc(collection(window._db,'charges'), entry);
+    if (!STATE.charges) STATE.charges = [];
+    if (!STATE.charges.find(c=>c.id===ref.id)) STATE.charges = [{id:ref.id, ...entry}, ...STATE.charges];
+    showToast('✅ Charge enregistrée.');
+  } catch(e) { showToast('⚠ Erreur: '+e.message,'warn'); }
+  renderChargesHistory();
+  buildAnalyse();
+  document.getElementById('ch-date').value='';
+  document.getElementById('ch-montant').value='';
+  document.getElementById('ch-note').value='';
+}
+
+async function deleteCharge(id) {
+  if (!requireAdminOrGest()) return;
+  if (!confirm('Supprimer cette charge ?')) return;
+  if (STATE.isOnline && STATE.fbReady && id) {
+    try {
+      const {doc, deleteDoc} = window._fbFns;
+      await deleteDoc(doc(window._db,'charges',id));
+      STATE.charges = (STATE.charges||[]).filter(c=>c.id!==id);
+      showToast('🗑 Charge supprimée.','warn');
+    } catch(e) { showToast('⚠ Erreur: '+e.message,'warn'); }
+  }
+  renderChargesHistory();
+  buildAnalyse();
+}
+
+function renderChargesHistory() {
+  const body = document.getElementById('charges-body');
+  if (!body) return;
+  const items = [...(STATE.charges||[])].sort((a,b)=>(b.isoDate||'').localeCompare(a.isoDate||''));
+  if (!items.length) {
+    body.innerHTML = '<tr><td colspan="5" style="text-align:center;color:var(--text3);padding:1.5rem;">Aucune charge enregistrée.</td></tr>';
+    return;
+  }
+  const canEdit = STATE.currentUser && (STATE.currentUser.role==='admin' || STATE.currentUser.role==='gestionnaire');
+  body.innerHTML = items.map(c=>`<tr>
+    <td>${c.date}</td>
+    <td>${esc(CHARGE_TYPE_LABELS[c.type]||c.type||'')}</td>
+    <td>${fmtHTG(c.montant||0)}</td>
+    <td>${esc(c.note||'')}</td>
+    <td>${canEdit ? `<button class="btn" style="font-size:.75rem;padding:3px 10px;background:var(--danger-bg);color:var(--danger);border:1px solid #f5b7b1;" onclick="deleteCharge('${c.id||''}')">🗑</button>` : '—'}</td>
+  </tr>`).join('');
 }
 
 function buildTransSheet() {
@@ -2263,30 +2381,150 @@ function buildBilan() {
       </tbody></table></div></div>`;
 }
 
+// Analyse financière cumulée jour après jour et par mois.
+// Formules :
+//   Produits          = Chiffre d'affaires (total des ventes)
+//   Coûts produits    = total des achats de stock (prix d'achat)
+//   Valeur Ajoutée    = Produits - Coûts produits - Coûts transport - Coûts manutention
+//   Bénéfice Brut     = Valeur Ajoutée - Charges (toutes les autres dépenses)
+//   Bénéfice Net      = Bénéfice Brut - Impôt
+// Calcul partagé entre l'affichage (buildAnalyse) et les exports Excel/Drive,
+// pour garantir que les mêmes chiffres apparaissent partout.
+function computeFinancialAnalysis() {
+  const produitsMap = {}, coutsProduitsMap = {}, transportMap = {}, manutentionMap = {}, chargesMap = {}, impotMap = {};
+  STATE.transactions.filter(t=>t.type==='vente').forEach(t => {
+    const day = getIsoFromTx(t);
+    produitsMap[day] = (produitsMap[day]||0) + (t.amount||0);
+  });
+  STATE.transactions.filter(t=>t.type==='stock-in').forEach(t => {
+    const day = getIsoFromTx(t);
+    coutsProduitsMap[day] = (coutsProduitsMap[day]||0) + (t.amount||0);
+  });
+  (STATE.charges||[]).forEach(c => {
+    const day = c.isoDate || c.date || '';
+    const montant = c.montant||0;
+    if (c.type==='transport') transportMap[day] = (transportMap[day]||0) + montant;
+    else if (c.type==='manutention') manutentionMap[day] = (manutentionMap[day]||0) + montant;
+    else if (c.type==='impot') impotMap[day] = (impotMap[day]||0) + montant;
+    else chargesMap[day] = (chargesMap[day]||0) + montant;
+  });
+
+  const allDays = new Set([
+    ...Object.keys(produitsMap), ...Object.keys(coutsProduitsMap),
+    ...Object.keys(transportMap), ...Object.keys(manutentionMap),
+    ...Object.keys(chargesMap), ...Object.keys(impotMap)
+  ].filter(Boolean));
+
+  const sortedAsc = [...allDays].sort((a,b)=>a.localeCompare(b));
+  const cumulMap = {};
+  let running = 0;
+  const days = sortedAsc.map(day => {
+    const produits = produitsMap[day]||0, coutsProduits = coutsProduitsMap[day]||0;
+    const transport = transportMap[day]||0, manutention = manutentionMap[day]||0;
+    const va = produits - coutsProduits - transport - manutention;
+    const charges = chargesMap[day]||0;
+    const benBrut = va - charges;
+    const impot = impotMap[day]||0;
+    const benNet = benBrut - impot;
+    running += benNet;
+    cumulMap[day] = running;
+    return {day, produits, coutsProduits, transport, manutention, va, charges, benBrut, impot, benNet, cumul:running};
+  });
+
+  const totals = days.reduce((a,d) => ({
+    produits: a.produits+d.produits, coutsProduits: a.coutsProduits+d.coutsProduits,
+    transport: a.transport+d.transport, manutention: a.manutention+d.manutention,
+    va: a.va+d.va, charges: a.charges+d.charges, benBrut: a.benBrut+d.benBrut,
+    impot: a.impot+d.impot, benNet: a.benNet+d.benNet
+  }), {produits:0,coutsProduits:0,transport:0,manutention:0,va:0,charges:0,benBrut:0,impot:0,benNet:0});
+
+  return {days, cumulMap, totals};
+}
+
 function buildAnalyse() {
   const cont=document.getElementById('analyse-content');
   const vt=STATE.transactions.filter(t=>t.type==='vente').reduce((a,t)=>a+t.amount,0);
   const st=STATE.stocks.reduce((a,s)=>a+s.amount,0);
-  const nbV=STATE.transactions.filter(t=>t.type==='vente').length;
-  const avg=nbV?vt/nbV:0;
-  const today=todayStr();
-  const todayV=STATE.transactions.filter(t=>t.type==='vente'&&t.date===today).reduce((a,t)=>a+t.amount,0);
   const mg=st>0?(vt-st)/st*100:0;
-  cont.innerHTML=`
+
+  const {days, cumulMap, totals} = computeFinancialAnalysis();
+
+  let html = `
   <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px;margin-bottom:1.2rem;">
     <div class="metric-card accent"><div class="label">Chiffre d'affaires total</div><div class="value">${fmtHTG(vt)}</div></div>
-    <div class="metric-card"><div class="label">Ventes du jour</div><div class="value">${fmtHTG(todayV)}</div></div>
-    <div class="metric-card"><div class="label">Panier moyen</div><div class="value">${fmtHTG(avg)}</div></div>
     <div class="metric-card success"><div class="label">Valeur du stock</div><div class="value">${fmtHTG(st)}</div></div>
-    <div class="metric-card"><div class="label">Nombre de ventes</div><div class="value">${nbV}</div></div>
     <div class="metric-card ${mg>=0?'success':''}"><div class="label">Marge brute estimée</div><div class="value">${mg.toFixed(1)}%</div></div>
-  </div>
-  <div class="card" style="background:var(--surface2);">
-    <div style="font-size:.85rem;color:var(--text2);">
-      Chiffre d'affaires total : <strong>${fmtHTG(vt)}</strong> | Valeur stock : <strong>${fmtHTG(st)}</strong> |
-      Panier moyen : <strong>${fmtHTG(avg)}</strong> | Marge brute estimée : <strong>${mg.toFixed(1)}%</strong>
-    </div>
+    <div class="metric-card accent"><div class="label">Produits (total)</div><div class="value">${fmtHTG(totals.produits)}</div></div>
+    <div class="metric-card"><div class="label">Charges (total)</div><div class="value">${fmtHTG(totals.charges+totals.transport+totals.manutention+totals.impot)}</div></div>
+    <div class="metric-card ${totals.va>=0?'success':''}"><div class="label">Valeur Ajoutée</div><div class="value">${fmtHTG(totals.va)}</div></div>
+    <div class="metric-card ${totals.benBrut>=0?'success':''}"><div class="label">Bénéfice Brut</div><div class="value">${fmtHTG(totals.benBrut)}</div></div>
+    <div class="metric-card ${totals.benNet>=0?'success':''}"><div class="label">Bénéfice Net</div><div class="value">${fmtHTG(totals.benNet)}</div></div>
   </div>`;
+
+  if (!days.length) {
+    html += `<div class="table-wrap"><table><tbody><tr><td style="text-align:center;color:var(--text3);padding:1.5rem;">Aucune donnée pour l'analyse financière.</td></tr></tbody></table></div>`;
+    cont.innerHTML = html;
+    return;
+  }
+
+  // --- Regroupement par mois, affichage du plus récent au plus ancien ---
+  const currentMonth = localMonthStr();
+  const monthGroups = {};
+  days.forEach(d => {
+    const month = d.day.slice(0,7);
+    if (!monthGroups[month]) monthGroups[month] = [];
+    monthGroups[month].push(d);
+  });
+  const sortedMonths = Object.keys(monthGroups).sort((a,b)=>b.localeCompare(a));
+
+  html += `<div class="table-wrap"><table>
+    <thead><tr><th>Date</th><th>Produits</th><th>Coûts produits</th><th>Coûts transport</th><th>Coûts manutention</th><th>Valeur Ajoutée</th><th>Charges</th><th>Bénéfice Brut</th><th>Impôt</th><th>Bénéfice Net</th><th>Cumul Bénéfice Net</th></tr></thead>
+    <tbody>`;
+
+  sortedMonths.forEach(month => {
+    const mDays = monthGroups[month].sort((a,b)=>b.day.localeCompare(a.day));
+    const isCurrentMonth = month === currentMonth;
+    const label = isCurrentMonth ? `📅 CE MOIS-CI — ${formatMonthLabel(month)}` : formatMonthLabel(month);
+    html += `<tr style="background:${isCurrentMonth?'#1a56db':'#5a6282'};color:#fff;font-weight:700;">
+      <td colspan="11" style="padding:8px 10px;font-size:.9rem;">${label}</td>
+    </tr>`;
+
+    let mProduits=0, mCoutsProduits=0, mTransport=0, mManutention=0, mVA=0, mCharges=0, mBenBrut=0, mImpot=0, mBenNet=0;
+    mDays.forEach(d => {
+      mProduits+=d.produits; mCoutsProduits+=d.coutsProduits; mTransport+=d.transport; mManutention+=d.manutention;
+      mVA+=d.va; mCharges+=d.charges; mBenBrut+=d.benBrut; mImpot+=d.impot; mBenNet+=d.benNet;
+      html += `<tr>
+        <td>${formatGroupLabel(d.day)}</td>
+        <td>${fmtHTG(d.produits)}</td>
+        <td>${fmtHTG(d.coutsProduits)}</td>
+        <td>${fmtHTG(d.transport)}</td>
+        <td>${fmtHTG(d.manutention)}</td>
+        <td style="font-weight:600;">${fmtHTG(d.va)}</td>
+        <td>${fmtHTG(d.charges)}</td>
+        <td style="font-weight:600;">${fmtHTG(d.benBrut)}</td>
+        <td>${fmtHTG(d.impot)}</td>
+        <td style="font-weight:700;color:${d.benNet>=0?'#1a7a4c':'#c0392b'};">${fmtHTG(d.benNet)}</td>
+        <td style="font-weight:600;color:#1a56db;">${fmtHTG(d.cumul)}</td>
+      </tr>`;
+    });
+
+    html += `<tr style="background:var(--surface2);font-weight:700;border-top:2px solid var(--border);">
+      <td>📊 Total — ${formatMonthLabel(month)}</td>
+      <td>${fmtHTG(mProduits)}</td>
+      <td>${fmtHTG(mCoutsProduits)}</td>
+      <td>${fmtHTG(mTransport)}</td>
+      <td>${fmtHTG(mManutention)}</td>
+      <td>${fmtHTG(mVA)}</td>
+      <td>${fmtHTG(mCharges)}</td>
+      <td>${fmtHTG(mBenBrut)}</td>
+      <td>${fmtHTG(mImpot)}</td>
+      <td style="color:${mBenNet>=0?'#1a7a4c':'#c0392b'};">${fmtHTG(mBenNet)}</td>
+      <td style="color:#1a56db;">${fmtHTG(mDays[0].cumul)}</td>
+    </tr>`;
+  });
+
+  html += `</tbody></table></div>`;
+  cont.innerHTML = html;
 }
 
 // ============================================================
@@ -2417,16 +2655,36 @@ function exportAllToExcel() {
     ['Stocks',st,'Fournisseurs',st],['Caisse',vt,'Résultat',vt],['Total Actif',st+vt,'Total Passif',st+vt]
   ]),'Bilan');
 
-  const nbV=STATE.transactions.filter(t=>t.type==='vente').length;
-  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([
-    ['Indicateur','Valeur'],
-    ['Chiffre d\'affaires total',vt],['Panier moyen',nbV?vt/nbV:0],
-    ['Valeur du stock',st],['Nombre de ventes',nbV],
-    ['Marge brute estimée (%)',st>0?parseFloat(((vt-st)/st*100).toFixed(2)):0]
-  ]),'Analyse financière');
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(buildAnalyseSheetRows(vt, st)), 'Analyse financière');
 
   XLSX.writeFile(wb,`BW_Multiservice_${isoDate()}.xlsx`);
   showToast('📥 Fichier Excel téléchargé.');
+}
+
+// Construit les lignes de la feuille "Analyse financière" (résumé + cumul
+// jour après jour) réutilisées par les deux exports Excel/Drive, avec les
+// mêmes chiffres que l'onglet Comptabilité → Analyse financière.
+function buildAnalyseSheetRows(vt, st) {
+  const mg = st>0?(vt-st)/st*100:0;
+  const {days, totals} = computeFinancialAnalysis();
+  const rows = [
+    ['Indicateur','Valeur'],
+    ["Chiffre d'affaires total", vt],
+    ['Valeur du stock', st],
+    ['Marge brute estimée (%)', st>0?parseFloat(mg.toFixed(2)):0],
+    ['Produits (total)', totals.produits],
+    ['Charges (total)', totals.charges+totals.transport+totals.manutention+totals.impot],
+    ['Valeur Ajoutée', totals.va],
+    ['Bénéfice Brut', totals.benBrut],
+    ['Bénéfice Net', totals.benNet],
+    [],
+    ['Cumul jour après jour'],
+    ['Date','Produits','Coûts produits','Coûts transport','Coûts manutention','Valeur Ajoutée','Charges','Bénéfice Brut','Impôt','Bénéfice Net','Cumul Bénéfice Net']
+  ];
+  days.forEach(d => {
+    rows.push([d.day, d.produits, d.coutsProduits, d.transport, d.manutention, d.va, d.charges, d.benBrut, d.impot, d.benNet, d.cumul]);
+  });
+  return rows;
 }
 
 function buildFullWorkbook() {
@@ -2569,14 +2827,7 @@ function buildFullWorkbook() {
   ]), '📑 Bilan');
 
   // 12. Analyse Financière
-  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([
-    ['Indicateur','Valeur'],
-    ["Chiffre d'affaires total", vt],
-    ['Panier moyen', nbV?vt/nbV:0],
-    ['Valeur du stock', stockVal],
-    ['Nombre de ventes', nbV],
-    ['Marge brute estimée (%)', stockVal>0?parseFloat(((vt-stockVal)/stockVal*100).toFixed(2)):0]
-  ]), '📈 Analyse Financière');
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(buildAnalyseSheetRows(vt, stockVal)), '📈 Analyse Financière');
 
   return wb;
 }
