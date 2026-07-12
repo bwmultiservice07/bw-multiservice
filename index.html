@@ -417,6 +417,9 @@ tr:hover td{background:#f7f9ff;}
     <div class="tab-content" id="tab-stock-depart">
       <div class="card">
         <div class="card-title">🏁 Enregistrer le stock de départ</div>
+        <div id="stock-depart-correction-banner" style="display:none;background:#fef3e2;color:#8a5a00;border:1px solid #f5d59a;border-radius:8px;padding:8px 12px;margin-bottom:12px;font-size:.85rem;font-weight:600;">
+          ✏️ Correction en cours — <span id="stock-depart-correction-banner-text"></span>.
+        </div>
         <div class="form-row">
           <div class="form-group" style="flex:2;min-width:200px;">
             <label>Produit</label>
@@ -483,13 +486,14 @@ tr:hover td{background:#f7f9ff;}
           </div>
         </div>
         <button class="send-btn" onclick="submitStockDepart()">Enregistrer ➤</button>
+        <button id="btn-annuler-stock-depart" class="btn btn-outline" style="margin-top:8px;font-size:.85rem;display:none;" onclick="unlockStockDepartForm()">✖ Annuler la correction</button>
       </div>
       <div class="card">
         <div class="card-title">📋 Historique du stock de départ</div>
         <div class="table-wrap">
           <table>
-            <thead><tr><th>Date</th><th>Produit</th><th>Quantité</th><th>Unité</th><th>Prix de vente caisse/bout</th><th>Prix de vente unitaire</th><th>Nombre d'unité</th><th>Valeur totale</th></tr></thead>
-            <tbody id="stock-depart-body"><tr><td colspan="8" style="text-align:center;color:var(--text3);padding:1.5rem;">Aucun stock de départ enregistré.</td></tr></tbody>
+            <thead><tr><th>Date</th><th>Produit</th><th>Quantité</th><th>Unité</th><th>Prix de vente caisse/bout</th><th>Prix de vente unitaire</th><th>Nombre d'unité</th><th>Valeur totale</th><th>Actions</th></tr></thead>
+            <tbody id="stock-depart-body"><tr><td colspan="9" style="text-align:center;color:var(--text3);padding:1.5rem;">Aucun stock de départ enregistré.</td></tr></tbody>
           </table>
         </div>
       </div>
@@ -847,6 +851,10 @@ let _pendingCorrection = null; // { date, isoDate, time, client }
 // depuis l'historique, on met à jour l'enregistrement existant au lieu d'en
 // créer un nouveau, et le nom du client reste figé.
 let _pendingCreditEditId = null;
+// Quand une ligne de "Historique du stock de départ" est chargée pour
+// correction (admin/gestionnaire), on met à jour l'enregistrement existant
+// au lieu d'en créer un nouveau.
+let _pendingStockDepartEditId = null;
 
 function loadLocal() {
   try {
@@ -1155,6 +1163,7 @@ async function confirmLogout(action) {
 function performLogout() {
   unlockSaleForm();
   unlockCreditForm();
+  unlockStockDepartForm();
   if (unsubTrans) unsubTrans();
   if (unsubStocks) unsubStocks();
   if (unsubUsers) unsubUsers();
@@ -2899,6 +2908,37 @@ async function submitStockDepart() {
     valeur:valeur, isoDate:date, date:date, createdAt:new Date().toISOString(),
     seller:STATE.currentUser.username
   };
+
+  // Correction d'un enregistrement existant (admin/gestionnaire) : on met à
+  // jour le document au lieu d'en créer un nouveau.
+  if (_pendingStockDepartEditId) {
+    if (!requireAdminOrGest()) return;
+    if (!STATE.isOnline || !STATE.fbReady) {
+      showToast('⚠ Hors ligne — impossible d\'enregistrer la correction maintenant.','warn'); return;
+    }
+    try {
+      const {doc, updateDoc} = window._fbFns;
+      await updateDoc(doc(window._db,'stock_depart',_pendingStockDepartEditId), {
+        ...entry, editedBy: STATE.currentUser.username, editedAt: new Date().toISOString()
+      });
+      const idx = STATE.stockDepart.findIndex(s => s.id === _pendingStockDepartEditId);
+      if (idx !== -1) STATE.stockDepart[idx] = {...STATE.stockDepart[idx], ...entry};
+      showToast('✅ Stock de départ corrigé.');
+    } catch(e) { showToast('⚠ Erreur: '+e.message,'warn'); }
+    unlockStockDepartForm();
+    renderStockDepart();
+    renderStockActuel();
+    document.getElementById('sd-desc').value='';
+    document.getElementById('sd-qty').value='';
+    document.getElementById('sd-unit').value='caisse';
+    document.getElementById('sd-prix-caisse').value='';
+    document.getElementById('sd-prix-unitaire').value='';
+    document.getElementById('sd-nb-unite').value='';
+    document.getElementById('sd-valeur').value='';
+    document.getElementById('sd-date').value='';
+    return;
+  }
+
   if (STATE.isOnline && STATE.fbReady) {
     try {
       const {collection, addDoc} = window._fbFns;
@@ -2926,21 +2966,84 @@ async function submitStockDepart() {
   document.getElementById('sd-date').value='';
 }
 
+// Admin/gestionnaire : clic sur une ligne de "Historique du stock de départ"
+// pour charger cet enregistrement dans le formulaire et le corriger.
+function loadStockDepartForCorrection(id) {
+  if (!requireAdminOrGest()) return;
+  const s = (STATE.stockDepart||[]).find(x => x.id === id);
+  if (!s) { showToast('⚠ Enregistrement introuvable.','warn'); return; }
+  document.getElementById('sd-desc').value = s.description || '';
+  document.getElementById('sd-qty').value = s.quantity || '';
+  document.getElementById('sd-unit').value = s.unit || 'caisse';
+  document.getElementById('sd-prix-caisse').value = s.prixCaisse || '';
+  document.getElementById('sd-prix-unitaire').value = s.prixUnitaire || (s.prixCaisse ? (s.prixCaisse/getUnitsPerSelection(s.description, s.unit)).toFixed(2) : '');
+  document.getElementById('sd-nb-unite').value = s.nombreUnite || '';
+  document.getElementById('sd-valeur').value = (s.valeur||0).toFixed(2);
+  document.getElementById('sd-date').value = s.isoDate || s.date || '';
+  _pendingStockDepartEditId = id;
+  const banner = document.getElementById('stock-depart-correction-banner');
+  const bannerText = document.getElementById('stock-depart-correction-banner-text');
+  if (banner && bannerText) {
+    bannerText.textContent = `${s.description||''} du ${s.date||''}`;
+    banner.style.display = 'block';
+  }
+  const btnAnnuler = document.getElementById('btn-annuler-stock-depart');
+  if (btnAnnuler) btnAnnuler.style.display = 'inline-flex';
+  document.getElementById('sd-desc').scrollIntoView({behavior:'smooth', block:'center'});
+  showToast('✏️ Enregistrement chargé — corrigez puis cliquez sur Enregistrer.');
+}
+
+function unlockStockDepartForm() {
+  _pendingStockDepartEditId = null;
+  const banner = document.getElementById('stock-depart-correction-banner');
+  if (banner) banner.style.display = 'none';
+  const btnAnnuler = document.getElementById('btn-annuler-stock-depart');
+  if (btnAnnuler) btnAnnuler.style.display = 'none';
+  document.getElementById('sd-desc').value='';
+  document.getElementById('sd-qty').value='';
+  document.getElementById('sd-unit').value='caisse';
+  document.getElementById('sd-prix-caisse').value='';
+  document.getElementById('sd-prix-unitaire').value='';
+  document.getElementById('sd-nb-unite').value='';
+  document.getElementById('sd-valeur').value='';
+  document.getElementById('sd-date').value='';
+}
+
+async function deleteStockDepart(id) {
+  if (!requireAdminOrGest()) return;
+  if (!confirm('Supprimer définitivement cet enregistrement de stock de départ ?')) return;
+  if (STATE.isOnline && STATE.fbReady && id) {
+    try {
+      const {doc, deleteDoc} = window._fbFns;
+      await deleteDoc(doc(window._db,'stock_depart',id));
+      STATE.stockDepart = (STATE.stockDepart||[]).filter(s => s.id !== id);
+      if (_pendingStockDepartEditId === id) unlockStockDepartForm();
+      showToast('🗑 Stock de départ supprimé.','warn');
+      renderStockDepart();
+      renderStockActuel();
+    } catch(e) { showToast('⚠ Erreur: '+e.message,'warn'); }
+  } else {
+    showToast('⚠ Hors ligne — impossible de supprimer maintenant.','warn');
+  }
+}
+
 function renderStockDepart() {
   const body = document.getElementById('stock-depart-body');
   if (!body) return;
   const items = (STATE.stockDepart||[]).sort((a,b)=>(b.isoDate||'').localeCompare(a.isoDate||''));
   if (!items.length) {
-    body.innerHTML='<tr><td colspan="8" style="text-align:center;color:var(--text3);padding:1.5rem;">Aucun stock de départ enregistré.</td></tr>';
+    body.innerHTML='<tr><td colspan="9" style="text-align:center;color:var(--text3);padding:1.5rem;">Aucun stock de départ enregistré.</td></tr>';
     return;
   }
-  body.innerHTML = items.map(s=>`<tr>
+  const canEdit = STATE.currentUser && (STATE.currentUser.role==='admin' || STATE.currentUser.role==='gestionnaire');
+  body.innerHTML = items.map(s=>`<tr${canEdit ? ` style="cursor:pointer;" onclick="loadStockDepartForCorrection('${s.id||''}')" title="Cliquer pour corriger cet enregistrement"` : ''}>
     <td>${s.date}</td><td>${esc(s.description)}</td><td>${s.quantity}</td>
     <td>${esc(formatUnitLabel(s.unit))}</td>
     <td>${fmtHTG(s.prixCaisse||0)}</td>
     <td>${fmtHTG(s.prixUnitaire || (s.prixCaisse ? s.prixCaisse/getUnitsPerSelection(s.description, s.unit) : 0))}</td>
     <td>${s.nombreUnite||0}</td>
     <td>${fmtHTG(s.valeur)}</td>
+    <td style="white-space:nowrap;">${canEdit ? `<button class="btn" style="font-size:.75rem;padding:3px 10px;background:var(--danger-bg);color:var(--danger);border:1px solid #f5b7b1;" onclick="event.stopPropagation();deleteStockDepart('${s.id||''}')">🗑</button>` : '—'}</td>
   </tr>`).join('');
 }
 
