@@ -428,16 +428,28 @@ tr:hover td{background:#f7f9ff;}
             <label>Montant (Gourdes HTG)</label>
             <input type="number" id="ap-montant" min="0" step="0.01" placeholder="Ex: 10000.00"/>
           </div>
+          <div class="form-group">
+            <label>Source</label>
+            <select id="ap-source">
+              <option value="">-- Choisir une source --</option>
+              <option value="Propriétaire">Propriétaire</option>
+              <option value="Actionnaire">Actionnaire</option>
+              <option value="Emprunt long terme">Emprunt long terme</option>
+              <option value="Emprunt court terme">Emprunt court terme</option>
+              <option value="Subvention">Subvention</option>
+              <option value="Autres">Autres</option>
+            </select>
+          </div>
           <div class="form-group" style="flex:2;min-width:200px;">
-            <label>Source / Note (optionnel)</label>
+            <label>Note (optionnel)</label>
             <input type="text" id="ap-note" placeholder="Ex: Apport personnel du propriétaire"/>
           </div>
         </div>
         <button class="send-btn" onclick="submitApport()">Enregistrer ➤</button>
         <div class="table-wrap" style="margin-top:1rem;">
           <table>
-            <thead><tr><th>Date</th><th>Montant (HTG)</th><th>Source / Note</th><th>Actions</th></tr></thead>
-            <tbody id="apport-body"><tr><td colspan="4" style="text-align:center;color:var(--text3);padding:1.5rem;">Aucun apport enregistré.</td></tr></tbody>
+            <thead><tr><th>Date</th><th>Montant (HTG)</th><th>Source</th><th>Note</th><th>Actions</th></tr></thead>
+            <tbody id="apport-body"><tr><td colspan="5" style="text-align:center;color:var(--text3);padding:1.5rem;">Aucun apport enregistré.</td></tr></tbody>
           </table>
         </div>
       </div>
@@ -456,6 +468,21 @@ tr:hover td{background:#f7f9ff;}
             <label>Montant (Gourdes HTG)</label>
             <input type="number" id="ch-montant" min="0" step="0.01" placeholder="Ex: 500.00"/>
           </div>
+          <div class="form-group">
+            <label>Description</label>
+            <select id="ch-desc">
+              <option value="">-- Choisir une description --</option>
+              <option value="Salaire">Salaire</option>
+              <option value="Manutention">Manutention</option>
+              <option value="Transport">Transport</option>
+              <option value="Carburant">Carburant</option>
+              <option value="Fourniture de bureau">Fourniture de bureau</option>
+              <option value="Prime">Prime</option>
+              <option value="Taxes">Taxes</option>
+              <option value="Impôt">Impôt</option>
+              <option value="Autres charges">Autres charges</option>
+            </select>
+          </div>
           <div class="form-group" style="flex:2;min-width:200px;">
             <label>Note (optionnel)</label>
             <input type="text" id="ch-note" placeholder="Ex: Transport marchandise du 10 juillet"/>
@@ -464,8 +491,8 @@ tr:hover td{background:#f7f9ff;}
         <button class="send-btn" onclick="submitCharge()">Enregistrer ➤</button>
         <div class="table-wrap" style="margin-top:1rem;">
           <table>
-            <thead><tr><th>Date</th><th>Montant (HTG)</th><th>Note</th><th>Actions</th></tr></thead>
-            <tbody id="charges-body"><tr><td colspan="4" style="text-align:center;color:var(--text3);padding:1.5rem;">Aucune charge enregistrée.</td></tr></tbody>
+            <thead><tr><th>Date</th><th>Montant (HTG)</th><th>Description</th><th>Note</th><th>Actions</th></tr></thead>
+            <tbody id="charges-body"><tr><td colspan="5" style="text-align:center;color:var(--text3);padding:1.5rem;">Aucune charge enregistrée.</td></tr></tbody>
           </table>
         </div>
       </div>
@@ -2262,6 +2289,7 @@ async function submitCharge() {
   if (!requireAdminOrGest()) return;
   const date = document.getElementById('ch-date').value || isoDate();
   const montant = parseFloat(document.getElementById('ch-montant').value);
+  const desc = document.getElementById('ch-desc').value;
   const note = document.getElementById('ch-note').value.trim();
   if (isNaN(montant) || montant <= 0) {
     showToast('⚠ Veuillez indiquer un montant valide.','warn'); return;
@@ -2271,7 +2299,7 @@ async function submitCharge() {
   }
   try {
     const {collection, addDoc} = window._fbFns;
-    const entry = { date:date, isoDate:date, montant:montant, note:note,
+    const entry = { date:date, isoDate:date, montant:montant, description:desc, note:note,
       seller:STATE.currentUser.username, createdAt:new Date().toISOString() };
     const ref = await addDoc(collection(window._db,'charges'), entry);
     if (!STATE.charges) STATE.charges = [];
@@ -2282,6 +2310,7 @@ async function submitCharge() {
   if (currentTab === 'compta') buildAnalyse();
   document.getElementById('ch-date').value='';
   document.getElementById('ch-montant').value='';
+  document.getElementById('ch-desc').value='';
   document.getElementById('ch-note').value='';
 }
 
@@ -2305,13 +2334,14 @@ function renderChargesHistory() {
   if (!body) return;
   const items = [...(STATE.charges||[])].sort((a,b)=>(b.isoDate||'').localeCompare(a.isoDate||''));
   if (!items.length) {
-    body.innerHTML = '<tr><td colspan="4" style="text-align:center;color:var(--text3);padding:1.5rem;">Aucune charge enregistrée.</td></tr>';
+    body.innerHTML = '<tr><td colspan="5" style="text-align:center;color:var(--text3);padding:1.5rem;">Aucune charge enregistrée.</td></tr>';
     return;
   }
   const canEdit = STATE.currentUser && (STATE.currentUser.role==='admin' || STATE.currentUser.role==='gestionnaire');
   body.innerHTML = items.map(c=>`<tr>
     <td>${c.date}</td>
     <td>${fmtHTG(c.montant||0)}</td>
+    <td>${esc(c.description||'')}</td>
     <td>${esc(c.note||'')}</td>
     <td>${canEdit ? `<button class="btn" style="font-size:.75rem;padding:3px 10px;background:var(--danger-bg);color:var(--danger);border:1px solid #f5b7b1;" onclick="deleteCharge('${c.id||''}')">🗑</button>` : '—'}</td>
   </tr>`).join('');
@@ -2324,6 +2354,7 @@ async function submitApport() {
   if (!requireAdminOrGest()) return;
   const date = document.getElementById('ap-date').value || isoDate();
   const montant = parseFloat(document.getElementById('ap-montant').value);
+  const source = document.getElementById('ap-source').value;
   const note = document.getElementById('ap-note').value.trim();
   if (isNaN(montant) || montant <= 0) {
     showToast('⚠ Veuillez indiquer un montant valide.','warn'); return;
@@ -2333,7 +2364,7 @@ async function submitApport() {
   }
   try {
     const {collection, addDoc} = window._fbFns;
-    const entry = { date:date, isoDate:date, montant:montant, note:note,
+    const entry = { date:date, isoDate:date, montant:montant, source:source, note:note,
       seller:STATE.currentUser.username, createdAt:new Date().toISOString() };
     const ref = await addDoc(collection(window._db,'apports'), entry);
     if (!STATE.apports) STATE.apports = [];
@@ -2344,6 +2375,7 @@ async function submitApport() {
   if (currentTab === 'compta') buildAnalyse();
   document.getElementById('ap-date').value='';
   document.getElementById('ap-montant').value='';
+  document.getElementById('ap-source').value='';
   document.getElementById('ap-note').value='';
 }
 
@@ -2367,13 +2399,14 @@ function renderApports() {
   if (!body) return;
   const items = [...(STATE.apports||[])].sort((a,b)=>(b.isoDate||'').localeCompare(a.isoDate||''));
   if (!items.length) {
-    body.innerHTML = '<tr><td colspan="4" style="text-align:center;color:var(--text3);padding:1.5rem;">Aucun apport enregistré.</td></tr>';
+    body.innerHTML = '<tr><td colspan="5" style="text-align:center;color:var(--text3);padding:1.5rem;">Aucun apport enregistré.</td></tr>';
     return;
   }
   const canEdit = STATE.currentUser && (STATE.currentUser.role==='admin' || STATE.currentUser.role==='gestionnaire');
   body.innerHTML = items.map(a=>`<tr>
     <td>${a.date}</td>
     <td>${fmtHTG(a.montant||0)}</td>
+    <td>${esc(a.source||'')}</td>
     <td>${esc(a.note||'')}</td>
     <td>${canEdit ? `<button class="btn" style="font-size:.75rem;padding:3px 10px;background:var(--danger-bg);color:var(--danger);border:1px solid #f5b7b1;" onclick="deleteApport('${a.id||''}')">🗑</button>` : '—'}</td>
   </tr>`).join('');
