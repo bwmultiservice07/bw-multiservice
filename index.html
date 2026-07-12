@@ -442,7 +442,7 @@ tr:hover td{background:#f7f9ff;}
     <!-- STOCKS (Mouvements) -->
     <div class="tab-content" id="tab-stocks">
       <div class="card">
-        <div class="card-title">📥 Entrée de stock</div>
+        <div class="card-title">📥 Achats</div>
         <div class="form-row">
           <div class="form-group" style="flex:2;min-width:200px;">
             <label>Produit</label>
@@ -515,13 +515,13 @@ tr:hover td{background:#f7f9ff;}
           <div class="sub">En temps réel</div>
         </div>
         <div class="metric-card accent">
-          <div class="label">Entrées enregistrées</div>
+          <div class="label">Achats enregistrés</div>
           <div class="value" id="stock-items">0</div>
           <div class="sub">Mouvements de stock</div>
         </div>
       </div>
       <div class="card">
-        <div class="card-title">📦 Historique des mouvements de stock (Entrées et Sorties)</div>
+        <div class="card-title">📦 Historique des mouvements de stock (Achats et Sorties)</div>
         <div class="table-wrap">
           <table>
             <thead><tr><th>Date</th><th>Type</th><th>Produit</th><th>Qté</th><th>Prix d'achat/Caisse</th><th>Prix d'achat unitaire</th><th>Valeur</th><th>Fournisseur/Client</th></tr></thead>
@@ -1676,9 +1676,9 @@ async function submitStock() {
       }
       // Also log in transactions
       await addDoc(collection(window._db,'transactions'), {
-        ...entry, description:`[ENTRÉE STOCK] ${desc}`, product:'Stock', status:'sent'
+        ...entry, description:`[ACHAT STOCK] ${desc}`, product:'Stock', status:'sent'
       });
-      showToast('✅ Entrée de stock enregistrée sur Firebase.');
+      showToast('✅ Achat enregistré sur Firebase.');
     } catch(e) {
       showToast('⚠ Erreur Firebase: '+e.message,'warn');
     }
@@ -1730,7 +1730,7 @@ function renderStocks() {
   } else {
     body.innerHTML=all.map(s=> s._type==='entree' ? `<tr style="background:#e6f6ef;">
       <td>${s.date}</td>
-      <td><span class="badge badge-in">📥 Entrée</span></td>
+      <td><span class="badge badge-in">📥 Achat</span></td>
       <td>${esc(s.description)}</td>
       <td style="color:#0f7b4f;font-weight:600;">+${formatCaissesDisplay(s.qtyCaisses, s.casseSize)}</td>
       <td>${fmtHTG(s.prixCaisse)}</td>
@@ -1748,8 +1748,8 @@ function renderStocks() {
       <td>${esc(s.client||s.seller||'')}</td>
     </tr>`).join('') + `<tr style="background:var(--surface2);font-weight:700;border-top:2px solid var(--border);">
       <td colspan="3">📊 TOTAUX</td>
-      <td>Entrées: ${entrees.reduce((a,s)=>a+(s.qtyCaisses||0),0).toFixed(2)} | Sorties: ${sorties.reduce((a,s)=>a+(s.qtyCaisses||0),0).toFixed(2)}</td>
-      <td colspan="4">Valeur entrées: ${fmtHTG(entrees.reduce((a,s)=>a+s.amount,0))}</td>
+      <td>Achats: ${entrees.reduce((a,s)=>a+(s.qtyCaisses||0),0).toFixed(2)} | Sorties: ${sorties.reduce((a,s)=>a+(s.qtyCaisses||0),0).toFixed(2)}</td>
+      <td colspan="4">Valeur achats: ${fmtHTG(entrees.reduce((a,s)=>a+s.amount,0))}</td>
     </tr>`;
   }
   const stockVal = STATE.stocks.reduce((a,s)=>a+s.amount,0);
@@ -2276,9 +2276,9 @@ function buildFullWorkbook() {
     ['TOTAL', debtors.reduce((a,d)=>a+d.totalDu,0), debtors.reduce((a,d)=>a+d.totalPaye,0), debtors.reduce((a,d)=>a+d.balanceRestante,0), '']
   ]), '📋 Liste des Dettes');
 
-  // 4. Mouvements Stocks (entrées + sorties)
+  // 4. Mouvements Stocks (achats + sorties)
   const entrees = (STATE.stocks||[]).map(s=>({
-    date:s.date, type:'Entrée', description:s.description,
+    date:s.date, type:'Achat', description:s.description,
     qtyCaisses: s.quantityCaisses||s.quantity||0, prixCaisse: s.unitPrice||0,
     amount: s.amount||0, tiers: s.supplier||''
   }));
