@@ -2036,15 +2036,10 @@ function prevMonthStr(monthStr) {
   return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`;
 }
 
-// Calcule le taux de marge par produit vendu et la moyenne pondérée globale.
-// Taux moyen de marge produit = ((Prix de vente unitaire - Prix d'achat
-// unitaire) / Prix d'achat unitaire) × Quota vente, le quota étant la part
-// du produit dans le total des quantités vendues (reflète son taux de
-// vente). La moyenne pondérée globale = somme de ces taux par produit
-// (chaque produit contribue déjà sa part pondérée). Réutilisé par Data
-// Analyse ET Analyse financière (+ export Excel) pour des chiffres cohérents.
-function computeProductMarginRates() {
-  const ventes = (STATE.transactions||[]).filter(t=>t.type==='vente');
+// Construit les prix de vente/achat unitaires par produit (STATE.stockDepart /
+// STATE.stocks). Ces prix ne sont pas propres à une période : seul le mix de
+// produits vendus (et donc le quota de chacun) varie selon le jour/mois choisi.
+function computeProductPriceMaps() {
   const prixVenteMap = {};
   (STATE.stockDepart||[]).forEach(s => {
     if (s.prixCaisse) {
@@ -2069,6 +2064,66 @@ function computeProductMarginRates() {
   Object.keys(achatAgg).forEach(k => {
     prixAchatMap[k] = achatAgg[k].sumQty > 0 ? achatAgg[k].sumPrixQty / achatAgg[k].sumQty : 0;
   });
+  return {prixVenteMap, prixAchatMap};
+}
+
+// Calcule la moyenne pondérée du taux de marge produit pour un sous-ensemble
+// de ventes donné (ex : les ventes d'un seul jour ou d'un seul mois), avec la
+// même formule : Σ [((Prix vente − Prix achat) / Prix achat) × Quota vente],
+// le quota étant recalculé sur ce sous-ensemble (mix de produits de la période).
+function computeMargeProduitPourVentes(ventes, prixVenteMap, prixAchatMap) {
+  const qtyVenduMap = {};
+  let totalQtyVendu = 0;
+  ventes.forEach(t => {
+    const q = getQtyCaisses(t);
+    qtyVenduMap[t.description] = (qtyVenduMap[t.description]||0) + q;
+    totalQtyVendu += q;
+  });
+  if (totalQtyVendu <= 0) return null;
+  let tauxMoyenPondere = 0, hasData = false;
+  Object.keys(qtyVenduMap).forEach(p => {
+    const prixVente = prixVenteMap[p] || 0;
+    const prixAchat = prixAchatMap[p] || 0;
+    if (prixAchat <= 0) return;
+    hasData = true;
+    const quota = qtyVenduMap[p] / totalQtyVendu;
+    const ratioMarge = (prixVente - prixAchat) / prixAchat;
+    tauxMoyenPondere += ratioMarge * quota * 100;
+  });
+  return hasData ? tauxMoyenPondere : null;
+}
+
+// Calcule le taux moyen de marge par produit vendu, jour par jour et mois par
+// mois — réutilisé par Analyse financière (tableau + export Excel) pour
+// afficher ce taux à côté des autres indicateurs cumulés.
+function computeProductMarginRatesByPeriod() {
+  const ventes = (STATE.transactions||[]).filter(t=>t.type==='vente');
+  const {prixVenteMap, prixAchatMap} = computeProductPriceMaps();
+  const ventesByDay = {}, ventesByMonth = {};
+  ventes.forEach(t => {
+    const day = getIsoFromTx(t);
+    const month = day.slice(0,7);
+    if (!ventesByDay[day]) ventesByDay[day] = [];
+    ventesByDay[day].push(t);
+    if (!ventesByMonth[month]) ventesByMonth[month] = [];
+    ventesByMonth[month].push(t);
+  });
+  const byDay = {}, byMonth = {};
+  Object.keys(ventesByDay).forEach(day => { byDay[day] = computeMargeProduitPourVentes(ventesByDay[day], prixVenteMap, prixAchatMap); });
+  Object.keys(ventesByMonth).forEach(month => { byMonth[month] = computeMargeProduitPourVentes(ventesByMonth[month], prixVenteMap, prixAchatMap); });
+  return {byDay, byMonth};
+}
+
+// Calcule le taux de marge par produit vendu et la moyenne pondérée globale.
+// Taux moyen de marge produit = ((Prix de vente unitaire - Prix d'achat
+// unitaire) / Prix d'achat unitaire) × Quota vente, le quota étant la part
+// du produit dans le total des quantités vendues (reflète son taux de
+// vente). La moyenne pondérée globale = somme de ces taux par produit
+// (chaque produit contribue déjà sa part pondérée). Réutilisé par Data
+// Analyse ET Analyse financière (+ export Excel) pour des chiffres cohérents.
+function computeProductMarginRates() {
+  const ventes = (STATE.transactions||[]).filter(t=>t.type==='vente');
+  const {prixVenteMap, prixAchatMap} = computeProductPriceMaps();
   const qtyVenduMap = {};
   let totalQtyVendu = 0;
   ventes.forEach(t => {
@@ -2973,6 +3028,7 @@ function buildAnalyse() {
 
   const {days, totals} = computeFinancialAnalysis();
   const {tauxMoyenPondere} = computeProductMarginRates();
+  const {byDay: margeByDay, byMonth: margeByMonth} = computeProductMarginRatesByPeriod();
 
   let html = `
   <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px;margin-bottom:1.2rem;">
@@ -3005,7 +3061,7 @@ function buildAnalyse() {
   const sortedMonths = Object.keys(monthGroups).sort((a,b)=>b.localeCompare(a));
 
   html += `<div class="table-wrap"><table>
-    <thead><tr><th>Date</th><th>Chiffre d'affaires</th><th>Produits</th><th>Achats marchandises</th><th>Coût transport</th><th>Coût manutention</th><th>Valeur Ajoutée</th><th>Charges</th><th>Bénéfice Brut</th><th>Impôt</th><th>Bénéfice Net</th><th>Cumul Bénéfice Net</th></tr></thead>
+    <thead><tr><th>Date</th><th>Chiffre d'affaires</th><th>Produits</th><th>Achats marchandises</th><th>Coût transport</th><th>Coût manutention</th><th>Valeur Ajoutée</th><th>Charges</th><th>Bénéfice Brut</th><th>Impôt</th><th>Bénéfice Net</th><th>Cumul Bénéfice Net</th><th>Taux moyen de marge produit</th></tr></thead>
     <tbody>`;
 
   sortedMonths.forEach(month => {
@@ -3013,13 +3069,14 @@ function buildAnalyse() {
     const isCurrentMonth = month === currentMonth;
     const label = isCurrentMonth ? `📅 CE MOIS-CI — ${formatMonthLabel(month)}` : formatMonthLabel(month);
     html += `<tr style="background:${isCurrentMonth?'#1a56db':'#5a6282'};color:#fff;font-weight:700;">
-      <td colspan="12" style="padding:8px 10px;font-size:.9rem;">${label}</td>
+      <td colspan="13" style="padding:8px 10px;font-size:.9rem;">${label}</td>
     </tr>`;
 
     let mCa=0, mProduits=0, mAchats=0, mTransport=0, mManutention=0, mVA=0, mCharges=0, mBenBrut=0, mImpot=0, mBenNet=0;
     mDays.forEach(d => {
       mCa+=d.ca; mProduits+=d.produits; mAchats+=d.achats; mTransport+=d.transport; mManutention+=d.manutention;
       mVA+=d.va; mCharges+=d.charges; mBenBrut+=d.benBrut; mImpot+=d.impot; mBenNet+=d.benNet;
+      const mgJour = margeByDay[d.day];
       html += `<tr>
         <td>${formatGroupLabel(d.day)}</td>
         <td>${fmtHTG(d.ca)}</td>
@@ -3033,9 +3090,11 @@ function buildAnalyse() {
         <td>${fmtHTG(d.impot)}</td>
         <td style="font-weight:700;color:${d.benNet>=0?'#1a7a4c':'#c0392b'};">${fmtHTG(d.benNet)}</td>
         <td style="font-weight:600;color:#1a56db;">${fmtHTG(d.cumul)}</td>
+        <td style="color:${mgJour!=null?(mgJour>=0?'#1a7a4c':'#c0392b'):'var(--text3)'};">${mgJour!=null?mgJour.toFixed(1)+'%':'—'}</td>
       </tr>`;
     });
 
+    const mgMois = margeByMonth[month];
     html += `<tr style="background:var(--surface2);font-weight:700;border-top:2px solid var(--border);">
       <td>📊 Total — ${formatMonthLabel(month)}</td>
       <td>${fmtHTG(mCa)}</td>
@@ -3049,6 +3108,7 @@ function buildAnalyse() {
       <td>${fmtHTG(mImpot)}</td>
       <td style="color:${mBenNet>=0?'#1a7a4c':'#c0392b'};">${fmtHTG(mBenNet)}</td>
       <td style="color:#1a56db;">${fmtHTG(mDays[0].cumul)}</td>
+      <td style="color:${mgMois!=null?(mgMois>=0?'#1a7a4c':'#c0392b'):'var(--text3)'};">${mgMois!=null?mgMois.toFixed(1)+'%':'—'}</td>
     </tr>`;
   });
 
@@ -3197,6 +3257,7 @@ function buildAnalyseSheetRows(vt, st) {
   const mg = st>0?(vt-st)/st*100:0;
   const {days, totals} = computeFinancialAnalysis();
   const {tauxMoyenPondere} = computeProductMarginRates();
+  const {byDay: margeByDay} = computeProductMarginRatesByPeriod();
   const rows = [
     ['Indicateur','Valeur'],
     ["Chiffre d'affaires total", vt],
@@ -3211,10 +3272,11 @@ function buildAnalyseSheetRows(vt, st) {
     ['Bénéfice Net', totals.benNet],
     [],
     ['Cumul jour après jour'],
-    ["Date","Chiffre d'affaires",'Produits','Achats marchandises','Coût transport','Coût manutention','Valeur Ajoutée','Charges','Bénéfice Brut','Impôt','Bénéfice Net','Cumul Bénéfice Net']
+    ["Date","Chiffre d'affaires",'Produits','Achats marchandises','Coût transport','Coût manutention','Valeur Ajoutée','Charges','Bénéfice Brut','Impôt','Bénéfice Net','Cumul Bénéfice Net','Taux moyen de marge produit (%)']
   ];
   days.forEach(d => {
-    rows.push([d.day, d.ca, d.produits, d.achats, d.transport, d.manutention, d.va, d.charges, d.benBrut, d.impot, d.benNet, d.cumul]);
+    const mgJour = margeByDay[d.day];
+    rows.push([d.day, d.ca, d.produits, d.achats, d.transport, d.manutention, d.va, d.charges, d.benBrut, d.impot, d.benNet, d.cumul, mgJour!=null?parseFloat(mgJour.toFixed(2)):'']);
   });
   return rows;
 }
