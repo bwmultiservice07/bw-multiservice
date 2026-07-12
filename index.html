@@ -190,7 +190,7 @@ tr:hover td{background:#f7f9ff;}
     <button id="tab-dettes-btn" onclick="switchTab('dettes')">📋 Liste des Dettes</button>
     <button id="tab-caisse-btn" onclick="switchTab('caisse')" style="display:none;">💰 Mouvement Caisse</button>
     <button id="tab-apport-btn" onclick="switchTab('apport')" style="display:none;">🪙 Apport</button>
-    <button id="tab-autres-charges-btn" onclick="switchTab('autres-charges')" style="display:none;">💸 Autres Charges</button>
+    <button id="tab-autres-charges-btn" onclick="switchTab('autres-charges')" style="display:none;">💸 Charges hors marchandises</button>
     <button id="tab-stock-depart-btn" onclick="switchTab('stock-depart')" style="display:none;">🏁 Stock de départ</button>
     <button id="tab-stocks-btn" onclick="switchTab('stocks')" style="display:none;">📦 Mouvements de Stocks</button>
     <button id="tab-stock-actuel-btn" onclick="switchTab('stock-actuel')" style="display:none;">📊 Stock Actuel</button>
@@ -2047,6 +2047,51 @@ function renderDataAnalyse() {
   rises.sort((a,b)=>b.pct-a.pct);
   const topSellers = Object.entries(curData).sort((a,b)=>b[1].montant-a[1].montant).slice(0,3);
 
+  // --- Taux de marge par produit ---
+  // Taux de marge produit = ((Prix de vente unitaire - Prix d'achat unitaire) / Prix
+  // d'achat unitaire) × quota (part du produit dans le total des quantités vendues,
+  // reflétant son taux de vente). La moyenne globale pondérée = somme de ces
+  // contributions (les quotas totalisent 1 sur l'ensemble des produits vendus).
+  const prixVenteMap = {};
+  (STATE.stockDepart||[]).forEach(s => {
+    if (s.prixCaisse) {
+      prixVenteMap[s.description] = s.prixUnitaire || (s.prixCaisse / getUnitsPerSelection(s.description, s.unit));
+    }
+  });
+  const achatAgg = {};
+  (STATE.stocks||[]).filter(s=>s.prixUnitaire).forEach(s => {
+    const key = s.description;
+    const qty = parseFloat(s.quantityCaisses || s.quantity) || 0;
+    if (!achatAgg[key]) achatAgg[key] = {sumPrixQty:0, sumQty:0};
+    achatAgg[key].sumPrixQty += (s.prixUnitaire||0) * qty;
+    achatAgg[key].sumQty += qty;
+  });
+  const prixAchatMap = {};
+  Object.keys(achatAgg).forEach(k => {
+    prixAchatMap[k] = achatAgg[k].sumQty > 0 ? achatAgg[k].sumPrixQty / achatAgg[k].sumQty : 0;
+  });
+  const qtyVenduMap = {};
+  let totalQtyVendu = 0;
+  ventes.forEach(t => {
+    const q = getQtyCaisses(t);
+    qtyVenduMap[t.description] = (qtyVenduMap[t.description]||0) + q;
+    totalQtyVendu += q;
+  });
+  const margeProducts = new Set([...Object.keys(prixVenteMap), ...Object.keys(prixAchatMap), ...Object.keys(qtyVenduMap)]);
+  const margeRows = [...margeProducts].map(p => {
+    const prixVente = prixVenteMap[p] || 0;
+    const prixAchat = prixAchatMap[p] || 0;
+    const qtyVendu = qtyVenduMap[p] || 0;
+    const quota = totalQtyVendu > 0 ? qtyVendu / totalQtyVendu : 0;
+    const donneesOk = prixAchat > 0;
+    const ratioMarge = donneesOk ? (prixVente - prixAchat) / prixAchat : null; // ratio brut (0.5 = 50%)
+    const contribution = donneesOk ? ratioMarge * quota : 0; // contribution pondérée à la moyenne globale
+    const tauxMarge = donneesOk ? ratioMarge * 100 : null; // pour affichage en %
+    return {produit:p, prixVente, prixAchat, qtyVendu, quota, tauxMarge, contribution, donneesOk};
+  }).filter(r => r.qtyVendu > 0 || r.prixVente > 0 || r.prixAchat > 0)
+    .sort((a,b) => b.qtyVendu - a.qtyVendu);
+  const tauxMoyenPondere = margeRows.reduce((a,r)=>a+r.contribution, 0) * 100;
+
   const decisions = [];
   declines.slice(0,5).forEach(d=>decisions.push(`⚠ <strong>${esc(d.produit)}</strong> : ventes en baisse de ${Math.abs(d.pct).toFixed(0)}% ce mois-ci par rapport au mois dernier — vérifier la disponibilité en stock ou envisager une promotion.`));
   zeros.slice(0,5).forEach(z=>decisions.push(`🔍 <strong>${esc(z.produit)}</strong> : aucune vente ce mois-ci (contre ${z.prevQty.toFixed(1)} caisse(s) éq. le mois dernier) — vérifier le stock ou la demande.`));
@@ -2092,6 +2137,26 @@ function renderDataAnalyse() {
       bottom5.map(([p,d],i)=>`<tr><td>${i+1}</td><td>${esc(p)}</td><td>${d.qty.toFixed(2)}</td><td>${fmtHTG(d.montant)}</td></tr>`).join('') +
       `</tbody></table></div></div>`;
   });
+  html += `</div>`;
+
+  // --- Carte Taux de marge par produit ---
+  html += `<div class="card"><div class="card-title">📊 Taux de marge par produit</div>
+    <div class="metric-card ${tauxMoyenPondere>=0?'success':''}" style="margin-bottom:1rem;max-width:280px;">
+      <div class="label">Taux moyen de marge sur les produits</div><div class="value">${tauxMoyenPondere.toFixed(1)}%</div>
+    </div>`;
+  if (!margeRows.length) {
+    html += `<div style="color:var(--text3);padding:.5rem 0;">Pas assez de données (prix de vente et prix d'achat) pour calculer les taux de marge.</div>`;
+  } else {
+    html += `<div class="table-wrap"><table><thead><tr><th>Produit</th><th>Prix de vente unitaire</th><th>Prix d'achat unitaire</th><th>Quota (part des ventes)</th><th>Taux de marge</th></tr></thead><tbody>` +
+      margeRows.map(r=>`<tr>
+        <td>${esc(r.produit)}</td>
+        <td>${fmtHTG(r.prixVente)}</td>
+        <td>${fmtHTG(r.prixAchat)}</td>
+        <td>${(r.quota*100).toFixed(1)}%</td>
+        <td style="font-weight:600;color:${r.donneesOk?(r.tauxMarge>=0?'#1a7a4c':'#c0392b'):'var(--text3)'};">${r.donneesOk?r.tauxMarge.toFixed(1)+'%':'Données insuffisantes'}</td>
+      </tr>`).join('') +
+      `</tbody></table></div>`;
+  }
   html += `</div>`;
 
   // --- Carte Décisions à prendre ---
@@ -2658,18 +2723,22 @@ function buildBilan() {
 //   Chiffre d'affaires = Quantité de produits vendus × Prix de vente
 //   Produits           = Ventes (cash) + Paiements crédits + Apport
 //   Charges            = Achats marchandises + toutes les autres dépenses
-//                        (onglet Autres Charges, toutes descriptions confondues)
+//                        (onglet Charges hors marchandises, toutes descriptions confondues)
 //   Valeur Ajoutée     = Produits - Coût d'achat des marchandises
 //                        - Coût transport - Coût manutention
-//   Bénéfice Brut      = Valeur Ajoutée - Charges (sauf Coût manutention,
-//                        Coût transport et Impôt — déjà comptés ailleurs)
+//   Bénéfice Brut      = Valeur Ajoutée - Total charges hors marchandises,
+//                        sauf Coût manutention, Coût transport et Impôt
+//                        (déjà comptés ailleurs dans la formule)
 //   Bénéfice Net       = Bénéfice Brut - Impôt
 //   Taux de marge sur les ventes = (Chiffre d'affaires - prix d'achat des
 //                        produits - Coût manutention - Coût transport) / Chiffre d'affaires
+//   Taux de manutention/transport = (Total coût manutention + Total coût
+//                        transport) / Chiffre d'affaires
 // Le Coût transport, le Coût manutention et l'Impôt sont extraits des entrées
-// de l'onglet "Autres Charges" via leur champ Description ; tout le reste de
-// ces entrées (Salaire, Carburant, Fourniture de bureau, Prime, Taxes, etc.)
-// forme le poste "Autres charges" utilisé dans le calcul du Bénéfice Brut.
+// de l'onglet "Charges hors marchandises" via leur champ Description ; tout
+// le reste de ces entrées (Salaire, Carburant, Fourniture de bureau, Prime,
+// Taxes, etc.) forme le poste "Autres charges" utilisé dans le calcul du
+// Bénéfice Brut.
 // Calcul partagé entre l'affichage (buildAnalyse) et les exports Excel/Drive,
 // pour garantir que les mêmes chiffres apparaissent partout.
 function computeFinancialAnalysis() {
@@ -2735,6 +2804,7 @@ function computeFinancialAnalysis() {
     charges: a.charges+d.charges, benBrut: a.benBrut+d.benBrut, impot: a.impot+d.impot, benNet: a.benNet+d.benNet
   }), {ca:0,ventesCash:0,rembCredit:0,apport:0,produits:0,achats:0,transport:0,manutention:0,va:0,autresCharges:0,charges:0,benBrut:0,impot:0,benNet:0});
   totals.tauxMargeVentes = totals.ca > 0 ? (totals.ca - totals.achats - totals.transport - totals.manutention) / totals.ca * 100 : 0;
+  totals.tauxManutentionTransport = totals.ca > 0 ? (totals.manutention + totals.transport) / totals.ca * 100 : 0;
 
   return {days, cumulMap, totals};
 }
@@ -2755,6 +2825,7 @@ function buildAnalyse() {
     <div class="metric-card"><div class="label">Charges (total)</div><div class="value">${fmtHTG(totals.charges)}</div></div>
     <div class="metric-card ${mg>=0?'success':''}"><div class="label">Marge brute estimée</div><div class="value">${mg.toFixed(1)}%</div></div>
     <div class="metric-card ${totals.tauxMargeVentes>=0?'success':''}"><div class="label">Taux de marge sur les ventes</div><div class="value">${totals.tauxMargeVentes.toFixed(1)}%</div></div>
+    <div class="metric-card"><div class="label">Taux de manutention/transport</div><div class="value">${totals.tauxManutentionTransport.toFixed(1)}%</div></div>
     <div class="metric-card ${totals.va>=0?'success':''}"><div class="label">Valeur Ajoutée</div><div class="value">${fmtHTG(totals.va)}</div></div>
     <div class="metric-card ${totals.benBrut>=0?'success':''}"><div class="label">Bénéfice Brut</div><div class="value">${fmtHTG(totals.benBrut)}</div></div>
     <div class="metric-card ${totals.benNet>=0?'success':''}"><div class="label">Bénéfice Net</div><div class="value">${fmtHTG(totals.benNet)}</div></div>
@@ -2978,6 +3049,7 @@ function buildAnalyseSheetRows(vt, st) {
     ['Charges (total)', totals.charges],
     ['Marge brute estimée (%)', st>0?parseFloat(mg.toFixed(2)):0],
     ['Taux de marge sur les ventes (%)', parseFloat(totals.tauxMargeVentes.toFixed(2))],
+    ['Taux de manutention/transport (%)', parseFloat(totals.tauxManutentionTransport.toFixed(2))],
     ['Valeur Ajoutée', totals.va],
     ['Bénéfice Brut', totals.benBrut],
     ['Bénéfice Net', totals.benNet],
