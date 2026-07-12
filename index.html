@@ -191,6 +191,7 @@ tr:hover td{background:#f7f9ff;}
     <button id="tab-caisse-btn" onclick="switchTab('caisse')" style="display:none;">💰 Mouvement Caisse</button>
     <button id="tab-apport-btn" onclick="switchTab('apport')" style="display:none;">🪙 Apport</button>
     <button id="tab-autres-charges-btn" onclick="switchTab('autres-charges')" style="display:none;">💸 Charges hors marchandises</button>
+    <button id="tab-depenses-dom-btn" onclick="switchTab('depenses-dom')" style="display:none;">🏠 Dépenses domestiques</button>
     <button id="tab-stock-depart-btn" onclick="switchTab('stock-depart')" style="display:none;">🏁 Stock de départ</button>
     <button id="tab-stocks-btn" onclick="switchTab('stocks')" style="display:none;">📦 Mouvements de Stocks</button>
     <button id="tab-stock-actuel-btn" onclick="switchTab('stock-actuel')" style="display:none;">📊 Stock Actuel</button>
@@ -494,6 +495,38 @@ tr:hover td{background:#f7f9ff;}
           <table>
             <thead><tr><th>Date</th><th>Montant (HTG)</th><th>Description</th><th>Note</th><th>Actions</th></tr></thead>
             <tbody id="charges-body"><tr><td colspan="5" style="text-align:center;color:var(--text3);padding:1.5rem;">Aucune charge enregistrée.</td></tr></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- DEPENSES DOMESTIQUES -->
+    <div class="tab-content" id="tab-depenses-dom">
+      <div class="card">
+        <div class="card-title">🏠 Enregistrer une dépense domestique</div>
+        <div class="form-row">
+          <div class="form-group">
+            <label>Date</label>
+            <input type="date" id="dd-date"/>
+          </div>
+          <div class="form-group">
+            <label>Montant (Gourdes HTG)</label>
+            <input type="number" id="dd-montant" min="0" step="0.01" placeholder="Ex: 500.00"/>
+          </div>
+          <div class="form-group" style="flex:2;min-width:200px;">
+            <label>Description</label>
+            <input type="text" id="dd-desc" placeholder="Ex: Nourriture, électricité, loyer..."/>
+          </div>
+          <div class="form-group" style="flex:2;min-width:200px;">
+            <label>Note (optionnel)</label>
+            <input type="text" id="dd-note" placeholder="Ex: Précision supplémentaire"/>
+          </div>
+        </div>
+        <button class="send-btn" onclick="submitDepenseDom()">Enregistrer ➤</button>
+        <div class="table-wrap" style="margin-top:1rem;">
+          <table>
+            <thead><tr><th>Date</th><th>Montant (HTG)</th><th>Description</th><th>Note</th><th>Actions</th></tr></thead>
+            <tbody id="depenses-dom-body"><tr><td colspan="5" style="text-align:center;color:var(--text3);padding:1.5rem;">Aucune dépense domestique enregistrée.</td></tr></tbody>
           </table>
         </div>
       </div>
@@ -927,6 +960,7 @@ let STATE = {
   caisseRetraits: [], // synced from Firestore (retraits de caisse)
   charges: [],        // synced from Firestore (autres charges : transport, manutention, charges diverses, impôt...)
   apports: [],        // synced from Firestore (apports / injections de capital)
+  depensesDomestiques: [], // synced from Firestore (dépenses domestiques, comptées comme des charges)
   pendingQueue: [],   // offline queue
   currentUser: null,
   isOnline: navigator.onLine,
@@ -973,7 +1007,7 @@ loadLocal();
 // ============================================================
 // FIREBASE LISTENERS
 // ============================================================
-let unsubCredits = null, unsubStockDepart = null, unsubCaisse = null, unsubCaisseRetraits = null, unsubCharges = null, unsubApports = null;
+let unsubCredits = null, unsubStockDepart = null, unsubCaisse = null, unsubCaisseRetraits = null, unsubCharges = null, unsubApports = null, unsubDepensesDom = null;
 
 function startFirebaseListeners() {
   if (!window._fbReady || !window._db) return;
@@ -1084,6 +1118,18 @@ function startFirebaseListeners() {
       if (currentTab === 'compta') buildAnalyse();
     },
     err => console.error('Apports listener:', err)
+  );
+
+  // DEPENSES DOMESTIQUES - Synchronisation globale (comptées comme des charges)
+  if (unsubDepensesDom) unsubDepensesDom();
+  unsubDepensesDom = onSnapshot(
+    query(collection(db, 'depenses_domestiques'), orderBy('isoDate','desc')),
+    snap => {
+      STATE.depensesDomestiques = snap.docs.map(d => ({id: d.id, ...d.data()}));
+      if (currentTab === 'depenses-dom') renderDepensesDom();
+      if (currentTab === 'compta') buildAnalyse();
+    },
+    err => console.error('DepensesDom listener:', err)
   );
 
   // USERS - Synchronisation globale
@@ -1201,6 +1247,7 @@ function doLogin() {
     document.getElementById('tab-caisse-btn').style.display = 'block';
     document.getElementById('tab-apport-btn').style.display = 'block';
     document.getElementById('tab-autres-charges-btn').style.display = 'block';
+    document.getElementById('tab-depenses-dom-btn').style.display = 'block';
     // Seuls admin et gestionnaire peuvent corriger une vente déjà envoyée
     document.getElementById('btn-corriger-vente').style.display = 'inline-flex';
   } else {
@@ -1218,6 +1265,7 @@ function doLogin() {
     document.getElementById('tab-caisse-btn').style.display = 'none';
     document.getElementById('tab-apport-btn').style.display = 'none';
     document.getElementById('tab-autres-charges-btn').style.display = 'none';
+    document.getElementById('tab-depenses-dom-btn').style.display = 'none';
     // Le vendeur ne peut plus corriger/supprimer lui-même ses ventes :
     // seuls admin et gestionnaire en ont le droit désormais.
     document.getElementById('btn-corriger-vente').style.display = 'none';
@@ -1297,6 +1345,7 @@ function performLogout() {
   if (unsubCaisseRetraits) unsubCaisseRetraits();
   if (unsubCharges) unsubCharges();
   if (unsubApports) unsubApports();
+  if (unsubDepensesDom) unsubDepensesDom();
   STATE.currentUser = null;
   document.getElementById('auth-screen').style.display = 'flex';
   document.getElementById('app').style.display = 'none';
@@ -1331,6 +1380,7 @@ function switchTab(tab) {
   if (tab==='caisse') { renderCaisse(); renderCaisseRetraits(); }
   if (tab==='apport') renderApports();
   if (tab==='autres-charges') renderChargesHistory();
+  if (tab==='depenses-dom') renderDepensesDom();
   if (tab==='stock-depart') renderStockDepart();
   if (tab==='stock-actuel') renderStockActuel();
   if (tab==='notif') renderNotifications();
@@ -2616,6 +2666,71 @@ function renderApports() {
   </tr>`).join('');
 }
 
+// ============================================================
+// DEPENSES DOMESTIQUES (comptées comme des charges dans l'Analyse financière)
+// ============================================================
+async function submitDepenseDom() {
+  if (!requireAdminOrGest()) return;
+  const date = document.getElementById('dd-date').value || isoDate();
+  const montant = parseFloat(document.getElementById('dd-montant').value);
+  const description = document.getElementById('dd-desc').value.trim();
+  const note = document.getElementById('dd-note').value.trim();
+  if (isNaN(montant) || montant <= 0) {
+    showToast('⚠ Veuillez indiquer un montant valide.','warn'); return;
+  }
+  if (!STATE.isOnline || !STATE.fbReady) {
+    showToast('⚠ Hors ligne — impossible d\'enregistrer maintenant.','warn'); return;
+  }
+  try {
+    const {collection, addDoc} = window._fbFns;
+    const entry = { date:date, isoDate:date, montant:montant, description:description, note:note,
+      seller:STATE.currentUser.username, createdAt:new Date().toISOString() };
+    const ref = await addDoc(collection(window._db,'depenses_domestiques'), entry);
+    if (!STATE.depensesDomestiques) STATE.depensesDomestiques = [];
+    if (!STATE.depensesDomestiques.find(d=>d.id===ref.id)) STATE.depensesDomestiques = [{id:ref.id, ...entry}, ...STATE.depensesDomestiques];
+    showToast('✅ Dépense domestique enregistrée.');
+  } catch(e) { showToast('⚠ Erreur: '+e.message,'warn'); }
+  renderDepensesDom();
+  if (currentTab === 'compta') buildAnalyse();
+  document.getElementById('dd-date').value='';
+  document.getElementById('dd-montant').value='';
+  document.getElementById('dd-desc').value='';
+  document.getElementById('dd-note').value='';
+}
+
+async function deleteDepenseDom(id) {
+  if (!requireAdminOrGest()) return;
+  if (!confirm('Supprimer cette dépense domestique ?')) return;
+  if (STATE.isOnline && STATE.fbReady && id) {
+    try {
+      const {doc, deleteDoc} = window._fbFns;
+      await deleteDoc(doc(window._db,'depenses_domestiques',id));
+      STATE.depensesDomestiques = (STATE.depensesDomestiques||[]).filter(d=>d.id!==id);
+      showToast('🗑 Dépense domestique supprimée.','warn');
+    } catch(e) { showToast('⚠ Erreur: '+e.message,'warn'); }
+  }
+  renderDepensesDom();
+  if (currentTab === 'compta') buildAnalyse();
+}
+
+function renderDepensesDom() {
+  const body = document.getElementById('depenses-dom-body');
+  if (!body) return;
+  const items = [...(STATE.depensesDomestiques||[])].sort((a,b)=>(b.isoDate||'').localeCompare(a.isoDate||''));
+  if (!items.length) {
+    body.innerHTML = '<tr><td colspan="5" style="text-align:center;color:var(--text3);padding:1.5rem;">Aucune dépense domestique enregistrée.</td></tr>';
+    return;
+  }
+  const canEdit = STATE.currentUser && (STATE.currentUser.role==='admin' || STATE.currentUser.role==='gestionnaire');
+  body.innerHTML = items.map(d=>`<tr>
+    <td>${d.date}</td>
+    <td>${fmtHTG(d.montant||0)}</td>
+    <td>${esc(d.description||'')}</td>
+    <td>${esc(d.note||'')}</td>
+    <td>${canEdit ? `<button class="btn" style="font-size:.75rem;padding:3px 10px;background:var(--danger-bg);color:var(--danger);border:1px solid #f5b7b1;" onclick="deleteDepenseDom('${d.id||''}')">🗑</button>` : '—'}</td>
+  </tr>`).join('');
+}
+
 function buildTransSheet() {
   const body = document.getElementById('sheet-trans-body');
   const total = document.getElementById('trans-total');
@@ -2728,22 +2843,26 @@ function buildBilan() {
 //                        - Coût transport - Coût manutention
 //   Bénéfice Brut      = Valeur Ajoutée - Total charges hors marchandises,
 //                        sauf Coût manutention, Coût transport et Impôt
-//                        (déjà comptés ailleurs dans la formule)
+//                        (déjà comptés ailleurs dans la formule) - Dépenses
+//                        domestiques (comptées comme des charges)
 //   Bénéfice Net       = Bénéfice Brut - Impôt
 //   Taux de marge sur les ventes = (Chiffre d'affaires - prix d'achat des
 //                        produits - Coût manutention - Coût transport) / Chiffre d'affaires
 //   Taux de manutention/transport = (Total coût manutention + Total coût
 //                        transport) / Chiffre d'affaires
+//   Taux de marge sur chiffre d'affaires (proposé) = Bénéfice Net / Chiffre
+//                        d'affaires — la marge nette : quelle part du CA se
+//                        transforme en profit final après toutes les charges.
 // Le Coût transport, le Coût manutention et l'Impôt sont extraits des entrées
 // de l'onglet "Charges hors marchandises" via leur champ Description ; tout
 // le reste de ces entrées (Salaire, Carburant, Fourniture de bureau, Prime,
-// Taxes, etc.) forme le poste "Autres charges" utilisé dans le calcul du
-// Bénéfice Brut.
+// Taxes, etc.) forme le poste "Autres charges", combiné aux Dépenses
+// domestiques, utilisé dans le calcul du Bénéfice Brut.
 // Calcul partagé entre l'affichage (buildAnalyse) et les exports Excel/Drive,
 // pour garantir que les mêmes chiffres apparaissent partout.
 function computeFinancialAnalysis() {
   const caMap = {}, ventesCashMap = {}, rembCreditMap = {}, apportMap = {},
-        achatsMap = {}, transportMap = {}, manutentionMap = {}, autresChargesMap = {}, impotMap = {};
+        achatsMap = {}, transportMap = {}, manutentionMap = {}, autresChargesMap = {}, impotMap = {}, depensesDomMap = {};
   STATE.transactions.filter(t=>t.type==='vente').forEach(t => {
     const day = getIsoFromTx(t);
     caMap[day] = (caMap[day]||0) + (t.amount||0);
@@ -2769,11 +2888,15 @@ function computeFinancialAnalysis() {
     else if (c.description==='Impôt') impotMap[day] = (impotMap[day]||0) + montant;
     else autresChargesMap[day] = (autresChargesMap[day]||0) + montant;
   });
+  (STATE.depensesDomestiques||[]).forEach(d => {
+    const day = d.isoDate || d.date || '';
+    depensesDomMap[day] = (depensesDomMap[day]||0) + (d.montant||0);
+  });
 
   const allDays = new Set([
     ...Object.keys(caMap), ...Object.keys(ventesCashMap), ...Object.keys(rembCreditMap), ...Object.keys(apportMap),
     ...Object.keys(achatsMap), ...Object.keys(transportMap),
-    ...Object.keys(manutentionMap), ...Object.keys(autresChargesMap), ...Object.keys(impotMap)
+    ...Object.keys(manutentionMap), ...Object.keys(autresChargesMap), ...Object.keys(impotMap), ...Object.keys(depensesDomMap)
   ].filter(Boolean));
 
   const sortedAsc = [...allDays].sort((a,b)=>a.localeCompare(b));
@@ -2788,23 +2911,26 @@ function computeFinancialAnalysis() {
     const manutention = manutentionMap[day]||0;
     const va = produits - achats - transport - manutention;
     const autresCharges = autresChargesMap[day]||0;
-    const benBrut = va - autresCharges;
+    const depensesDom = depensesDomMap[day]||0;
+    const benBrut = va - autresCharges - depensesDom;
     const impot = impotMap[day]||0;
     const benNet = benBrut - impot;
-    const charges = achats + transport + manutention + impot + autresCharges;
+    const charges = achats + transport + manutention + impot + autresCharges + depensesDom;
     running += benNet;
     cumulMap[day] = running;
-    return {day, ca, ventesCash, rembCredit, apport, produits, achats, transport, manutention, va, autresCharges, charges, benBrut, impot, benNet, cumul:running};
+    return {day, ca, ventesCash, rembCredit, apport, produits, achats, transport, manutention, va, autresCharges, depensesDom, charges, benBrut, impot, benNet, cumul:running};
   });
 
   const totals = days.reduce((a,d) => ({
     ca: a.ca+d.ca, ventesCash: a.ventesCash+d.ventesCash, rembCredit: a.rembCredit+d.rembCredit, apport: a.apport+d.apport,
     produits: a.produits+d.produits, achats: a.achats+d.achats, transport: a.transport+d.transport,
     manutention: a.manutention+d.manutention, va: a.va+d.va, autresCharges: a.autresCharges+d.autresCharges,
+    depensesDom: a.depensesDom+d.depensesDom,
     charges: a.charges+d.charges, benBrut: a.benBrut+d.benBrut, impot: a.impot+d.impot, benNet: a.benNet+d.benNet
-  }), {ca:0,ventesCash:0,rembCredit:0,apport:0,produits:0,achats:0,transport:0,manutention:0,va:0,autresCharges:0,charges:0,benBrut:0,impot:0,benNet:0});
+  }), {ca:0,ventesCash:0,rembCredit:0,apport:0,produits:0,achats:0,transport:0,manutention:0,va:0,autresCharges:0,depensesDom:0,charges:0,benBrut:0,impot:0,benNet:0});
   totals.tauxMargeVentes = totals.ca > 0 ? (totals.ca - totals.achats - totals.transport - totals.manutention) / totals.ca * 100 : 0;
   totals.tauxManutentionTransport = totals.ca > 0 ? (totals.manutention + totals.transport) / totals.ca * 100 : 0;
+  totals.tauxMargeSurCA = totals.ca > 0 ? totals.benNet / totals.ca * 100 : 0;
 
   return {days, cumulMap, totals};
 }
@@ -2826,6 +2952,7 @@ function buildAnalyse() {
     <div class="metric-card ${mg>=0?'success':''}"><div class="label">Marge brute estimée</div><div class="value">${mg.toFixed(1)}%</div></div>
     <div class="metric-card ${totals.tauxMargeVentes>=0?'success':''}"><div class="label">Taux de marge sur les ventes</div><div class="value">${totals.tauxMargeVentes.toFixed(1)}%</div></div>
     <div class="metric-card"><div class="label">Taux de manutention/transport</div><div class="value">${totals.tauxManutentionTransport.toFixed(1)}%</div></div>
+    <div class="metric-card ${totals.tauxMargeSurCA>=0?'success':''}"><div class="label">Taux de marge sur chiffre d'affaires</div><div class="value">${totals.tauxMargeSurCA.toFixed(1)}%</div></div>
     <div class="metric-card ${totals.va>=0?'success':''}"><div class="label">Valeur Ajoutée</div><div class="value">${fmtHTG(totals.va)}</div></div>
     <div class="metric-card ${totals.benBrut>=0?'success':''}"><div class="label">Bénéfice Brut</div><div class="value">${fmtHTG(totals.benBrut)}</div></div>
     <div class="metric-card ${totals.benNet>=0?'success':''}"><div class="label">Bénéfice Net</div><div class="value">${fmtHTG(totals.benNet)}</div></div>
@@ -2848,7 +2975,7 @@ function buildAnalyse() {
   const sortedMonths = Object.keys(monthGroups).sort((a,b)=>b.localeCompare(a));
 
   html += `<div class="table-wrap"><table>
-    <thead><tr><th>Date</th><th>Chiffre d'affaires</th><th>Produits</th><th>Achats marchandises</th><th>Coût transport</th><th>Coût manutention</th><th>Valeur Ajoutée</th><th>Autres charges</th><th>Charges</th><th>Bénéfice Brut</th><th>Impôt</th><th>Bénéfice Net</th><th>Cumul Bénéfice Net</th></tr></thead>
+    <thead><tr><th>Date</th><th>Chiffre d'affaires</th><th>Produits</th><th>Achats marchandises</th><th>Coût transport</th><th>Coût manutention</th><th>Valeur Ajoutée</th><th>Charges</th><th>Bénéfice Brut</th><th>Impôt</th><th>Bénéfice Net</th><th>Cumul Bénéfice Net</th></tr></thead>
     <tbody>`;
 
   sortedMonths.forEach(month => {
@@ -2856,13 +2983,13 @@ function buildAnalyse() {
     const isCurrentMonth = month === currentMonth;
     const label = isCurrentMonth ? `📅 CE MOIS-CI — ${formatMonthLabel(month)}` : formatMonthLabel(month);
     html += `<tr style="background:${isCurrentMonth?'#1a56db':'#5a6282'};color:#fff;font-weight:700;">
-      <td colspan="13" style="padding:8px 10px;font-size:.9rem;">${label}</td>
+      <td colspan="12" style="padding:8px 10px;font-size:.9rem;">${label}</td>
     </tr>`;
 
-    let mCa=0, mProduits=0, mAchats=0, mTransport=0, mManutention=0, mVA=0, mAutresCharges=0, mCharges=0, mBenBrut=0, mImpot=0, mBenNet=0;
+    let mCa=0, mProduits=0, mAchats=0, mTransport=0, mManutention=0, mVA=0, mCharges=0, mBenBrut=0, mImpot=0, mBenNet=0;
     mDays.forEach(d => {
       mCa+=d.ca; mProduits+=d.produits; mAchats+=d.achats; mTransport+=d.transport; mManutention+=d.manutention;
-      mVA+=d.va; mAutresCharges+=d.autresCharges; mCharges+=d.charges; mBenBrut+=d.benBrut; mImpot+=d.impot; mBenNet+=d.benNet;
+      mVA+=d.va; mCharges+=d.charges; mBenBrut+=d.benBrut; mImpot+=d.impot; mBenNet+=d.benNet;
       html += `<tr>
         <td>${formatGroupLabel(d.day)}</td>
         <td>${fmtHTG(d.ca)}</td>
@@ -2871,7 +2998,6 @@ function buildAnalyse() {
         <td>${fmtHTG(d.transport)}</td>
         <td>${fmtHTG(d.manutention)}</td>
         <td style="font-weight:600;">${fmtHTG(d.va)}</td>
-        <td>${fmtHTG(d.autresCharges)}</td>
         <td>${fmtHTG(d.charges)}</td>
         <td style="font-weight:600;">${fmtHTG(d.benBrut)}</td>
         <td>${fmtHTG(d.impot)}</td>
@@ -2888,7 +3014,6 @@ function buildAnalyse() {
       <td>${fmtHTG(mTransport)}</td>
       <td>${fmtHTG(mManutention)}</td>
       <td>${fmtHTG(mVA)}</td>
-      <td>${fmtHTG(mAutresCharges)}</td>
       <td>${fmtHTG(mCharges)}</td>
       <td>${fmtHTG(mBenBrut)}</td>
       <td>${fmtHTG(mImpot)}</td>
@@ -3050,15 +3175,16 @@ function buildAnalyseSheetRows(vt, st) {
     ['Marge brute estimée (%)', st>0?parseFloat(mg.toFixed(2)):0],
     ['Taux de marge sur les ventes (%)', parseFloat(totals.tauxMargeVentes.toFixed(2))],
     ['Taux de manutention/transport (%)', parseFloat(totals.tauxManutentionTransport.toFixed(2))],
+    ["Taux de marge sur chiffre d'affaires (%)", parseFloat(totals.tauxMargeSurCA.toFixed(2))],
     ['Valeur Ajoutée', totals.va],
     ['Bénéfice Brut', totals.benBrut],
     ['Bénéfice Net', totals.benNet],
     [],
     ['Cumul jour après jour'],
-    ["Date","Chiffre d'affaires",'Produits','Achats marchandises','Coût transport','Coût manutention','Valeur Ajoutée','Autres charges','Charges','Bénéfice Brut','Impôt','Bénéfice Net','Cumul Bénéfice Net']
+    ["Date","Chiffre d'affaires",'Produits','Achats marchandises','Coût transport','Coût manutention','Valeur Ajoutée','Charges','Bénéfice Brut','Impôt','Bénéfice Net','Cumul Bénéfice Net']
   ];
   days.forEach(d => {
-    rows.push([d.day, d.ca, d.produits, d.achats, d.transport, d.manutention, d.va, d.autresCharges, d.charges, d.benBrut, d.impot, d.benNet, d.cumul]);
+    rows.push([d.day, d.ca, d.produits, d.achats, d.transport, d.manutention, d.va, d.charges, d.benBrut, d.impot, d.benNet, d.cumul]);
   });
   return rows;
 }
