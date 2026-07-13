@@ -11,7 +11,7 @@
 <script type="module">
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
 import { getFirestore, collection, addDoc, onSnapshot, doc, updateDoc, deleteDoc, setDoc, getDoc, query, orderBy, serverTimestamp, getDocs } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
-import { getAuth, signInAnonymously, onAuthStateChanged, signInWithEmailAndPassword, createUserWithEmailAndPassword, signOut, sendPasswordResetEmail } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js";
+import { getAuth, signInAnonymously, onAuthStateChanged, signInWithEmailAndPassword, createUserWithEmailAndPassword, signOut, sendPasswordResetEmail, EmailAuthProvider, reauthenticateWithCredential, updatePassword } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js";
 
 const firebaseConfig = {
   apiKey: "AIzaSyBtk9kE-vJ-cNA3_1GMM5Zm63RbMMHjaNg",
@@ -40,7 +40,7 @@ const secondaryAuth = getAuth(secondaryApp);
 window._db = db;
 window._auth = auth;
 window._fbFns = { collection, addDoc, onSnapshot, doc, updateDoc, deleteDoc, setDoc, getDoc, query, orderBy, serverTimestamp, getDocs };
-window._authFns = { signInWithEmailAndPassword, createUserWithEmailAndPassword, signOut, sendPasswordResetEmail };
+window._authFns = { signInWithEmailAndPassword, createUserWithEmailAndPassword, signOut, sendPasswordResetEmail, EmailAuthProvider, reauthenticateWithCredential, updatePassword };
 window._secondaryAuth = secondaryAuth;
 
 // Connexion anonyme obligatoire avant d'autoriser l'accès à Firestore : ceci
@@ -215,6 +215,7 @@ tr:hover td{background:#f7f9ff;}
     <span id="unsaved-indicator" style="display:none;background:#fef3e2;color:#b45309;font-size:.75rem;padding:3px 10px;border-radius:12px;font-weight:600;">⚠ Non sauvegardé</span>
     <button class="btn btn-success" style="padding:4px 12px;font-size:.8rem;" onclick="saveAllData()">💾 Sauvegarder</button>
     <button id="btn-export-drive" class="btn btn-outline" style="display:none;padding:4px 12px;font-size:.8rem;background:#34a853;color:#fff;border:none;" onclick="exportCompletToExcel()">📥 Exporter Google Drive</button>
+    <button class="btn btn-outline" style="padding:4px 12px;font-size:.8rem;" onclick="changeMyPassword()">🔒 Mot de passe</button>
     <button class="btn btn-outline" style="padding:4px 12px;font-size:.8rem;" onclick="doLogout()">Déconnexion</button>
   </div>
   <div class="offline-banner" id="offline-banner">⚠ Hors ligne — les transactions seront envoyées dès le retour d'internet (<span id="pending-count">0</span> en attente)</div>
@@ -2919,12 +2920,15 @@ function renderUsers() {
     </div>`).join('');
 }
 
-// Réinitialisation du mot de passe : Firebase Auth (comme tout système
-// d'authentification sérieux) ne permet pas à un admin de "voir" ou de
-// forcer directement le mot de passe d'un autre compte — la méthode standard
-// et sécurisée est d'envoyer un lien de réinitialisation à l'email personnel
-// de la personne. La première fois, on demande cet email (une seule fois,
-// il est ensuite mémorisé dans son profil pour les prochaines réinitialisations).
+// IMPORTANT : cette réinitialisation par email ne fonctionne que si le compte
+// Firebase de la personne a déjà un email personnel réel enregistré comme
+// identifiant (voir changeMyPassword ci-dessous, plus fiable et immédiat,
+// pour changer SON PROPRE mot de passe sans dépendre d'un email). Nos comptes
+// utilisent en interne un email technique (nom@bwmultiservice-users.internal)
+// qui ne reçoit jamais de vrais emails — tant que la personne n'a pas
+// elle-même changé son mot de passe une fois via 🔒 "Mot de passe" en étant
+// connectée, ce bouton de réinitialisation par email peut échouer
+// silencieusement (aucun email ne sera réellement livré).
 async function resetUserPassword(username, uid) {
   if (!requireAdminOrGest()) return;
   if (!STATE.isOnline || !STATE.fbReady) { showToast('⚠ Hors ligne — impossible de réinitialiser un mot de passe maintenant.','warn'); return; }
@@ -2949,6 +2953,37 @@ async function resetUserPassword(username, uid) {
     showToast(`✅ Lien de réinitialisation envoyé à ${email}.`);
   } catch(e) {
     showToast('⚠ Échec de l\'envoi : ' + e.message, 'warn');
+  }
+}
+
+// Changement de MON PROPRE mot de passe, pendant que je suis connecté(e).
+// Contrairement au lien de réinitialisation par email (qui ne fonctionne pas
+// tant qu'un email personnel réel n'est pas enregistré comme identifiant
+// Firebase), ceci fonctionne immédiatement pour n'importe quel utilisateur
+// déjà connecté : il suffit de confirmer le mot de passe actuel.
+async function changeMyPassword() {
+  if (!STATE.isOnline || !STATE.fbReady || !window._auth || !window._auth.currentUser) {
+    showToast('⚠ Hors ligne ou compte non sécurisé — impossible de changer le mot de passe maintenant.','warn');
+    return;
+  }
+  const user = window._auth.currentUser;
+  const oldPass = prompt('Confirme ton mot de passe ACTUEL :');
+  if (!oldPass) return;
+  const newPass = prompt('Entre ton NOUVEAU mot de passe (6 caractères minimum) :');
+  if (!newPass || newPass.length < 6) { showToast('⚠ Mot de passe trop court (6 caractères minimum) — annulé.','warn'); return; }
+  const confirmPass = prompt('Retape le nouveau mot de passe pour confirmer :');
+  if (newPass !== confirmPass) { showToast('⚠ Les deux mots de passe ne correspondent pas — annulé.','warn'); return; }
+  try {
+    const {EmailAuthProvider, reauthenticateWithCredential, updatePassword} = window._authFns;
+    const cred = EmailAuthProvider.credential(user.email, oldPass);
+    await reauthenticateWithCredential(user, cred);
+    await updatePassword(user, newPass);
+    showToast('✅ Mot de passe changé avec succès. Utilise le nouveau dès ta prochaine connexion.');
+  } catch(e) {
+    const msg = e.code === 'auth/wrong-password' || e.code === 'auth/invalid-credential' ? 'Mot de passe actuel incorrect.'
+      : e.code === 'auth/weak-password' ? 'Nouveau mot de passe trop faible.'
+      : ('Erreur : ' + e.message);
+    showToast('⚠ Échec : ' + msg, 'warn');
   }
 }
 
