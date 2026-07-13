@@ -306,7 +306,7 @@ tr:hover td{background:#f7f9ff;}
         <div class="card-title">🧊 Enregistrer une vente glacée</div>
         <div class="form-row">
           <div class="form-group" style="flex:2;min-width:200px;">
-            <label>Description des marchandises (glacé)</label>
+            <label>Produit</label>
             <select id="vg-desc">
               <option value="">-- Choisir un produit --</option>
               <option value="7up">7up</option>
@@ -334,53 +334,15 @@ tr:hover td{background:#f7f9ff;}
         <div class="form-row">
           <div class="form-group">
             <label>Quantité</label>
-            <input type="number" id="vg-qty" min="1" placeholder="Ex: 10" oninput="calcMontant('vg')"/>
+            <input type="number" id="vg-qty" min="1" placeholder="Ex: 10" oninput="calcMontantGlace()"/>
           </div>
           <div class="form-group">
-            <label>Unité</label>
-            <select id="vg-unit" onchange="calcMontant('vg')">
-              <option value="caisse">Caisse (24 unités)</option>
-              <option value="bout">Bout (12 unités)</option>
-              <option value="caisse-1-2">Caisse et 1/2 (36 unités)</option>
-              <option value="bout-1-2">Bout et 1/2 (18 unités)</option>
-              <option value="caisse-beller">Caisse Beller (48 unités)</option>
-            </select>
-          </div>
-          <div class="form-group">
-            <label>Prix / Caisse (HTG)</label>
-            <input type="number" id="vg-prix-caisse" min="0" step="0.01" placeholder="Ex: 1200.00" oninput="calcPrixUnitaire('vg')"/>
-          </div>
-          <div class="form-group">
-            <label>Prix unitaire (HTG) — auto</label>
-            <input type="number" id="vg-prix" min="0" step="0.01" placeholder="Ex: 50.00" oninput="calcMontant('vg')" readonly style="background:#f0f2f7;"/>
-          </div>
-          <div class="form-group">
-            <label>Nombre d'unité</label>
-            <input type="number" id="vg-nb-unite" min="0" step="1" placeholder="Ex: 1, 2, 3..." oninput="calcMontant('vg')"/>
+            <label>Prix unitaire (HTG)</label>
+            <input type="number" id="vg-prix" min="0" step="0.01" placeholder="Ex: 50.00" oninput="calcMontantGlace()"/>
           </div>
           <div class="form-group">
             <label>Montant total (HTG) — automatique</label>
-            <input type="number" id="vg-amount" min="0" step="0.01" placeholder="0.00" readonly style="background:#f0f2f7;font-weight:700;color:#1a56db;" oninput="calcBalance('vg')"/>
-          </div>
-        </div>
-        <div class="form-row">
-          <div class="form-group">
-            <label>Paiement cash (Gourdes HTG)</label>
-            <input type="number" id="vg-cash" min="0" step="0.01" placeholder="Ex: 300.00" oninput="calcBalance('vg')"/>
-          </div>
-          <div class="form-group">
-            <label>Crédit par client (Gourdes HTG)</label>
-            <input type="number" id="vg-credit" min="0" step="0.01" placeholder="Ex: 200.00" readonly style="background:#f0f2f7;"/>
-          </div>
-          <div class="form-group">
-            <label>Balance (HTG)</label>
-            <input type="number" id="vg-balance" min="0" step="0.01" placeholder="0.00" readonly style="background:#f0f2f7;font-weight:700;color:#c0392b;"/>
-          </div>
-        </div>
-        <div class="form-row">
-          <div class="form-group" style="flex:2;min-width:200px;">
-            <label>Nom du client</label>
-            <input type="text" id="vg-client" placeholder="Ex: Jean Pierre" autocomplete="off" list="vente-client-list" oninput="updateVenteClientList('vg')"/>
+            <input type="number" id="vg-amount" min="0" step="0.01" placeholder="0.00" readonly style="background:#f0f2f7;font-weight:700;color:#1a56db;"/>
           </div>
         </div>
         <button class="send-btn" onclick="submitSaleGlace()">Envoyer ➤</button>
@@ -1933,51 +1895,35 @@ async function submitSale() {
   unlockSaleForm();
 }
 
-// Vente d'un produit "glacé" (même liste de produits, même logique de calcul
-// que submitSale() — voir formulaire 🧊 "Enregistrer une vente glacée"). La
-// description du produit reste identique (ex: "Sprite") pour rester compatible
-// avec le calcul du chiffre d'affaires, les taux de marge et Data Analyse ;
-// seul le champ isGlace:true distingue cette vente, affiché comme badge 🧊
-// dans "Vente du jour" (elle y apparaît automatiquement car type:'vente').
+// Montant total = Quantité × Prix unitaire (formulaire simplifié "vente glacée").
+function calcMontantGlace() {
+  const qty = parseFloat(document.getElementById('vg-qty').value) || 0;
+  const prix = parseFloat(document.getElementById('vg-prix').value) || 0;
+  document.getElementById('vg-amount').value = (qty*prix).toFixed(2);
+}
+
+// Vente d'un produit "glacé" — formulaire simplifié : Produit, Quantité, Prix
+// unitaire, Montant total (auto). La description du produit reste identique
+// (ex: "Sprite", sans suffixe) pour rester compatible avec le calcul du
+// chiffre d'affaires, les taux de marge et Data Analyse ; seul le champ
+// isGlace:true distingue cette vente, affiché comme badge 🧊 dans "Vente du
+// jour" (elle y apparaît automatiquement car type:'vente'). Vente considérée
+// entièrement cash (pas de champ client/crédit dans ce formulaire simplifié).
 async function submitSaleGlace() {
   const desc = document.getElementById('vg-desc').value.trim();
   const qty = parseFloat(document.getElementById('vg-qty').value);
-  const unit = document.getElementById('vg-unit').value;
+  const prix = parseFloat(document.getElementById('vg-prix').value);
   const amount = parseFloat(document.getElementById('vg-amount').value);
-  const cash = parseFloat(document.getElementById('vg-cash').value) || 0;
-  const balance = parseFloat(document.getElementById('vg-balance').value) || 0;
-  const client = document.getElementById('vg-client').value.trim();
-  const prix = parseFloat(document.getElementById('vg-prix').value) || 0;
-  const nbUnite = parseFloat(document.getElementById('vg-nb-unite').value) || 0;
-  if (!desc||isNaN(qty)||qty<=0||prix<=0||isNaN(amount)||amount<=0) {
-    showToast('⚠ Veuillez remplir tous les champs obligatoires (produit, quantité, prix, montant).','warn'); return;
-  }
-  if (balance > 0 && !client) {
-    showToast('⚠ Le nom du client est obligatoire pour une vente à crédit.','warn'); return;
+  if (!desc||isNaN(qty)||qty<=0||isNaN(prix)||prix<=0||isNaN(amount)||amount<=0) {
+    showToast('⚠ Veuillez remplir tous les champs obligatoires (produit, quantité, prix unitaire).','warn'); return;
   }
   const saleDate = todayStr(), saleIsoDate = isoDate(), saleTime = nowStr();
   const tx = {
     type:'vente', date:saleDate, isoDate:saleIsoDate, time:saleTime,
-    seller:STATE.currentUser.username, description:desc, unit:unit||'caisse', isGlace:true,
-    quantity:qty, unitPrice:prix, nombreUnite:nbUnite, prixCaisse:parseFloat(document.getElementById('vg-prix-caisse').value)||0, amount:amount, cash:cash, credit:balance, balance:balance,
-    client:client||'', status:'sent', createdAt: new Date().toISOString()
+    seller:STATE.currentUser.username, description:desc, unit:'unite', isGlace:true,
+    quantity:qty, unitPrice:prix, nombreUnite:0, prixCaisse:0, amount:amount, cash:amount, credit:0, balance:0,
+    client:'', status:'sent', createdAt: new Date().toISOString()
   };
-  if (balance > 0 && client) {
-    const cr = {
-      type:'credit', date:saleDate, isoDate:saleIsoDate, time:saleTime,
-      seller:STATE.currentUser.username, client:client, due:balance, paid:0, finalBalance:balance,
-      status:'partiel', source:'vente', createdAt: new Date().toISOString()
-    };
-    if (STATE.isOnline && STATE.fbReady) {
-      try {
-        const {collection, addDoc} = window._fbFns;
-        await addDoc(collection(window._db,'credits'), cr);
-      } catch(e) { console.error('Credit auto:', e); }
-    } else {
-      if (!STATE.credits) STATE.credits = [];
-      STATE.credits.push(cr);
-    }
-  }
   if (STATE.isOnline && STATE.fbReady) {
     try {
       const {collection, addDoc} = window._fbFns;
@@ -2001,18 +1947,10 @@ async function submitSaleGlace() {
   markUnsaved();
   renderMySales();
   renderDashboard();
-  renderDettes();
   document.getElementById('vg-desc').value='';
   document.getElementById('vg-qty').value='';
-  document.getElementById('vg-unit').value='caisse';
-  document.getElementById('vg-prix-caisse').value='';
   document.getElementById('vg-prix').value='';
-  document.getElementById('vg-nb-unite').value='';
   document.getElementById('vg-amount').value='';
-  document.getElementById('vg-cash').value='';
-  document.getElementById('vg-credit').value='';
-  document.getElementById('vg-balance').value='';
-  document.getElementById('vg-client').value='';
 }
 
 function getIsoFromTx(t) {
