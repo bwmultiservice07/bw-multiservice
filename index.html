@@ -2900,13 +2900,18 @@ function renderAdminTrans() {
 function renderUsers() {
   const container = document.getElementById('users-list');
   if (!container) return;
+  // On ne protège de la suppression que s'il s'agit du DERNIER compte de
+  // rôle admin restant (pas simplement tout compte nommé "admin") — sinon,
+  // dès qu'un doublon "admin" existe, aucun des deux n'a de bouton × et on
+  // ne peut jamais nettoyer les doublons.
+  const adminCount = STATE.users.filter(x=>x.role==='admin').length;
   container.innerHTML = STATE.users.map(u=>`
     <div class="user-chip">
       <div class="av">${u.username[0].toUpperCase()}</div>
       <span>${esc(u.username)}</span>
       <span class="role-badge">${u.role}</span>
       <button class="del-btn" style="background:none;color:var(--accent);border:1px solid var(--accent);font-size:.72rem;" title="Réinitialiser le mot de passe" onclick="resetUserPassword('${esc(u.username)}','${u.id||''}')">🔑</button>
-      ${u.username!=='admin'?`<button class="del-btn" onclick="deleteUser('${u.username}','${u.id||''}')">×</button>`:''}
+      ${(u.role==='admin' && adminCount<=1)?'':`<button class="del-btn" onclick="deleteUser('${u.username}','${u.id||''}')">×</button>`}
     </div>`).join('');
 }
 
@@ -2993,7 +2998,12 @@ async function deleteUser(username, fbId) {
       await deleteDoc(doc(window._db,'users',fbId));
     } catch(e){}
   }
-  STATE.users = STATE.users.filter(u=>u.username!==username);
+  // Important : ne retirer QUE la fiche précisément cliquée, pas toutes les
+  // fiches portant ce nom — sinon, en cas de doublon (2 comptes "gestionnaire"
+  // par ex.), supprimer l'un effaçait aussi l'autre de l'affichage local.
+  STATE.users = fbId
+    ? STATE.users.filter(u => u.id !== fbId)
+    : STATE.users.filter(u => !(u.username === username && !u.id));
   saveLocal();
   renderUsers();
   showToast(`Utilisateur "${username}" supprimé.`,'warn');
