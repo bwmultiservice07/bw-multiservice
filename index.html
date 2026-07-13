@@ -1071,7 +1071,7 @@ tr:hover td{background:#f7f9ff;}
 <div class="edit-modal-bg" id="add-user-modal-bg">
   <div class="edit-modal">
     <h3>👤 Ajouter un utilisateur</h3>
-    <div class="form-group"><label>Nom d'utilisateur</label><input type="text" id="new-username" placeholder="vendeur01"/></div>
+    <div class="form-group"><label>Nom d'utilisateur</label><input type="text" id="new-username" placeholder="ex: jean-vendeur"/></div>
     <div class="form-group"><label>Mot de passe</label><input type="password" id="new-password" placeholder="••••••••"/></div>
     <div class="form-group"><label>Rôle</label>
       <select id="new-role">
@@ -1134,12 +1134,16 @@ window.addEventListener('beforeunload', function(e) {
 // séparée de STATE.users (qui lui est remplacé à chaque synchronisation
 // Firestore), utilisée pour fusionner proprement sans jamais créer de
 // doublons d'affichage dans "Gestion des utilisateurs".
+// Ces mots de passe ne servent QUE de secours hors-ligne (quand Firebase est
+// injoignable) : la connexion normale en ligne utilise le vrai compte
+// Firebase sécurisé de chaque personne, indépendant de cette liste. Changés
+// le 13 juillet 2026 pour retirer les anciens mots de passe visibles dans le
+// code source public depuis le début du projet. Les 3 comptes "vendeur01/02/03"
+// n'ayant jamais été utilisés ont été retirés entièrement.
 const DEFAULT_USERS = [
-  {username:'admin', password:'bwadmin2024', role:'admin'},
-  {username:'gestionnaire', password:'bwgest2024', role:'gestionnaire'},
-  {username:'vendeur01', password:'bwvente2024', role:'vendeur'},
-  {username:'vendeur02', password:'bwvente2025', role:'vendeur'},
-  {username:'vendeur03', password:'bwvente2026', role:'vendeur'}
+  {username:'admin', password:'3kwUHTCa6#yS', role:'admin'},
+  {username:'gestionnaire', password:'xdr#2Xpfw52@', role:'gestionnaire'},
+  {username:'vendeur', password:'4yi&E&6T$B66', role:'vendeur'}
 ];
 
 let STATE = {
