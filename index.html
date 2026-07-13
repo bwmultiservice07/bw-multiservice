@@ -11,6 +11,7 @@
 <script type="module">
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
 import { getFirestore, collection, addDoc, onSnapshot, doc, updateDoc, deleteDoc, query, orderBy, serverTimestamp, getDocs } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
+import { getAuth, signInAnonymously, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js";
 
 const firebaseConfig = {
   apiKey: "AIzaSyBtk9kE-vJ-cNA3_1GMM5Zm63RbMMHjaNg",
@@ -24,12 +25,27 @@ const firebaseConfig = {
 
 const fireApp = initializeApp(firebaseConfig);
 const db = getFirestore(fireApp);
+const auth = getAuth(fireApp);
 
 // Expose to global scope for use in non-module scripts
 window._db = db;
 window._fbFns = { collection, addDoc, onSnapshot, doc, updateDoc, deleteDoc, query, orderBy, serverTimestamp, getDocs };
-window._fbReady = true;
-window.dispatchEvent(new Event('fb-ready'));
+
+// Connexion anonyme obligatoire avant d'autoriser l'accès à Firestore : ceci
+// permet de restreindre les règles de sécurité Firestore à
+// "allow read, write: if request.auth != null" au lieu de les laisser
+// ouvertes à tout le monde sur internet (faille de sécurité critique
+// corrigée le 13 juillet 2026 suite à une suppression de données).
+// L'app ne devient "prête" (fb-ready) qu'une fois cette connexion établie.
+onAuthStateChanged(auth, user => {
+  if (user) {
+    window._fbReady = true;
+    window.dispatchEvent(new Event('fb-ready'));
+  }
+});
+signInAnonymously(auth).catch(err => {
+  console.error('Connexion anonyme Firebase échouée:', err);
+});
 </script>
 
 <style>
@@ -933,6 +949,14 @@ tr:hover td{background:#f7f9ff;}
         <div id="users-list"></div>
       </div>
       <div class="card">
+        <div class="section-title">🗄️ Sauvegarde complète vers Google Drive</div>
+        <div style="font-size:.85rem;color:var(--text2);margin-bottom:.8rem;">
+          Exporte TOUTES les données brutes de l'application (ventes, stock, crédits, dettes, charges, apports, caisse, utilisateurs) dans un fichier Excel envoyé sur ton Google Drive — un filet de sécurité en plus de Firebase, au cas où. Une sauvegarde automatique et silencieuse est aussi tentée une fois par jour à la connexion d'un admin/gestionnaire (si l'autorisation Google a déjà été donnée une première fois).
+        </div>
+        <div style="font-size:.8rem;color:var(--text3);margin-bottom:.8rem;" id="backup-status-line">Dernière sauvegarde : vérification...</div>
+        <button class="btn" style="background:#34a853;color:#fff;" onclick="backupAllDataToDrive(false)">🗄️ Sauvegarder maintenant vers Drive</button>
+      </div>
+      <div class="card">
         <div class="section-title" style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;">
           <span>✏ Corriger / Supprimer une transaction</span>
           <button class="btn" style="font-size:.78rem;padding:5px 12px;width:auto;background:var(--danger-bg);color:var(--danger);border:1px solid #f5b7b1;" onclick="deleteAllTransactions()">🗑 Effacer toutes les transactions</button>
@@ -1436,6 +1460,10 @@ function doLogin() {
   // monde voit toutes les transactions de tous les vendeurs.
   const titleEl = document.getElementById('my-sales-title');
   if (titleEl) titleEl.textContent = '📋 Vente du jour (tous vendeurs)';
+  // Sauvegarde automatique quotidienne vers Google Drive (filet de sécurité
+  // en plus de Firebase) — délai pour laisser le temps aux données de se
+  // charger depuis Firestore avant de générer le fichier de sauvegarde.
+  setTimeout(() => { maybeAutoBackup(); }, 8000);
 }
 async function saveAllData() {
   if (!STATE.isOnline || !STATE.fbReady) {
@@ -1532,7 +1560,7 @@ function switchTab(tab) {
   const names = ['ventes','credit','stocks','tableau','admin','compta'];
   document.querySelectorAll('.tabs button').forEach((b,i) => { if(names[i]===tab) b.classList.add('active'); });
   if (tab==='compta') refreshAccounting();
-  if (tab==='admin') { renderAdminTrans(); renderUsers(); }
+  if (tab==='admin') { renderAdminTrans(); renderUsers(); updateBackupStatusLine(); }
   if (tab==='tableau') renderDashboard();
   if (tab==='data-analyse') renderDataAnalyse();
   if (tab==='stocks') renderStocks();
@@ -3512,8 +3540,26 @@ function getGDriveAccessToken() {
   });
 }
 
-async function uploadFileToDrive(blob, filename, mimeType) {
-  const token = await getGDriveAccessToken();
+// Requête de jeton en mode strictement silencieux (prompt:'') : n'affiche
+// JAMAIS de popup Google. Utilisée par la sauvegarde automatique en arrière
+// -plan — si le consentement n'a jamais été donné, elle échoue simplement
+// (rejet de la promesse) sans jamais interrompre l'utilisateur.
+function getGDriveAccessTokenSilent() {
+  return new Promise((resolve, reject) => {
+    if (!initGDriveTokenClient()) { reject(new Error("Service Google non chargé.")); return; }
+    const now = Date.now();
+    if (_gDriveAccessToken && now < _gDriveTokenExpiry) { resolve(_gDriveAccessToken); return; }
+    _gDriveTokenClient.callback = (resp) => {
+      if (resp.error) { reject(new Error(resp.error)); return; }
+      _gDriveAccessToken = resp.access_token;
+      _gDriveTokenExpiry = Date.now() + (resp.expires_in * 1000) - 60000;
+      resolve(_gDriveAccessToken);
+    };
+    _gDriveTokenClient.requestAccessToken({ prompt: '' });
+  });
+}
+
+async function uploadBlobToDriveWithToken(token, blob, filename, mimeType) {
   const metadata = { name: filename, mimeType };
   // L'API Drive exige un vrai multipart/related (RFC 2387) avec une frontière
   // (boundary) définie manuellement — un simple FormData (multipart/form-data)
@@ -3539,6 +3585,127 @@ async function uploadFileToDrive(blob, filename, mimeType) {
     throw new Error(`Erreur Drive (${res.status}) ${detail}`);
   }
   return res.json();
+}
+
+async function uploadFileToDrive(blob, filename, mimeType) {
+  const token = await getGDriveAccessToken();
+  return uploadBlobToDriveWithToken(token, blob, filename, mimeType);
+}
+
+async function uploadFileToDriveSilent(blob, filename, mimeType) {
+  const token = await getGDriveAccessTokenSilent();
+  return uploadBlobToDriveWithToken(token, blob, filename, mimeType);
+}
+
+// ============================================================
+// SAUVEGARDE COMPLÈTE (BRUTE) DE TOUTES LES COLLECTIONS FIRESTORE
+// ============================================================
+// Contrairement à exportCompletToExcel() (qui produit des vues comptables
+// mises en forme pour la lecture humaine), cette sauvegarde exporte CHAQUE
+// document de CHAQUE collection tel quel (id + JSON complet), afin de
+// pouvoir tout reconstituer manuellement dans Firebase en cas de nouvelle
+// perte de données. Ajoutée le 13 juillet 2026 suite à une suppression de
+// données causée par des règles Firestore laissées ouvertes à tout le monde.
+function buildRawBackupWorkbook() {
+  const wb = XLSX.utils.book_new();
+  const collections = {
+    'transactions': STATE.transactions,
+    'stocks': STATE.stocks,
+    'credits': STATE.credits,
+    'fournisseur_payments': STATE.fournisseurPayments,
+    'stock_depart': STATE.stockDepart,
+    'caisse': STATE.caisse,
+    'caisse_retraits': STATE.caisseRetraits,
+    'charges': STATE.charges,
+    'apports': STATE.apports,
+    'depenses_domestiques': STATE.depensesDomestiques,
+    'users': STATE.users
+  };
+  Object.entries(collections).forEach(([name, docs]) => {
+    const rows = [['id', 'donnees_json']];
+    (docs||[]).forEach(d => {
+      const {id, ...rest} = d;
+      rows.push([id||'', JSON.stringify(rest)]);
+    });
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(rows), name.substring(0,31));
+  });
+  return wb;
+}
+
+async function getLastBackupDate() {
+  try {
+    const {collection, getDocs} = window._fbFns;
+    const snap = await getDocs(collection(window._db, 'backup_log'));
+    if (snap.empty) return null;
+    const dates = snap.docs.map(d => d.data().date).filter(Boolean).sort();
+    return dates.length ? dates[dates.length-1] : null;
+  } catch(e) { console.error('getLastBackupDate:', e); return null; }
+}
+
+async function recordBackupDone() {
+  try {
+    const {collection, addDoc, serverTimestamp} = window._fbFns;
+    await addDoc(collection(window._db, 'backup_log'), {
+      date: isoDate(), createdAt: serverTimestamp(),
+      by: (STATE.currentUser && STATE.currentUser.username) || 'auto'
+    });
+  } catch(e) { console.error('recordBackupDone:', e); }
+}
+
+// silent=true : appelée automatiquement en arrière-plan, jamais de popup ni
+// message d'erreur intrusif. silent=false : appelée par le bouton "Sauvegarder
+// maintenant", peut demander le consentement Google et affiche le résultat.
+async function backupAllDataToDrive(silent) {
+  if (typeof XLSX === 'undefined') { if (!silent) showToast('⚠ Bibliothèque Excel non disponible.','warn'); return false; }
+  try {
+    if (!silent) showToast('⏳ Préparation de la sauvegarde complète...');
+    const wb = buildRawBackupWorkbook();
+    const wbArray = XLSX.write(wb, { bookType:'xlsx', type:'array' });
+    const blob = new Blob([wbArray], { type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+    const filename = `BW_Multiservice_Sauvegarde_${isoDate()}.xlsx`;
+    if (!silent) showToast('🔐 Connexion à Google Drive...');
+    const file = silent ? await uploadFileToDriveSilent(blob, filename, 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+                         : await uploadFileToDrive(blob, filename, 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    await recordBackupDone();
+    updateBackupStatusLine();
+    if (!silent) showToast(`✅ Sauvegarde complète envoyée vers Google Drive : ${file.name}`);
+    return true;
+  } catch(e) {
+    console.error('Sauvegarde Drive:', e);
+    if (!silent) showToast('⚠ Échec de la sauvegarde vers Drive : ' + e.message, 'warn');
+    return false;
+  }
+}
+
+async function updateBackupStatusLine() {
+  const el = document.getElementById('backup-status-line');
+  if (!el) return;
+  const last = await getLastBackupDate();
+  el.textContent = last
+    ? `Dernière sauvegarde : ${last}${last===isoDate()?' (aujourd\'hui ✅)':''}`
+    : 'Dernière sauvegarde : aucune pour le moment.';
+}
+
+let _backupConsentWarned = false;
+// Appelée une fois après la connexion d'un admin/gestionnaire : tente une
+// sauvegarde silencieuse si aucune n'a encore été faite aujourd'hui. Si le
+// consentement Google Drive n'a jamais été donné, prévient une seule fois
+// par session (sans bloquer ni déranger davantage) plutôt que d'échouer en
+// silence indéfiniment.
+async function maybeAutoBackup() {
+  if (!STATE.currentUser) return;
+  const role = STATE.currentUser.role;
+  if (role !== 'admin' && role !== 'gestionnaire') return;
+  if (!STATE.isOnline || !STATE.fbReady) return;
+  updateBackupStatusLine();
+  const today = isoDate();
+  const last = await getLastBackupDate();
+  if (last === today) return;
+  const ok = await backupAllDataToDrive(true);
+  if (!ok && !_backupConsentWarned) {
+    _backupConsentWarned = true;
+    showToast('💡 Sauvegarde automatique vers Drive en attente d\'autorisation — clique sur "Sauvegarder maintenant" dans l\'onglet Admin pour l\'activer (une seule fois).', 'warn');
+  }
 }
 
 function hashCode(str) {
