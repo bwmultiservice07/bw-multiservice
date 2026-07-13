@@ -34,8 +34,11 @@ const auth = getAuth(fireApp);
 // "failed-precondition" = un autre onglet de l'app est déjà ouvert (la
 // persistance ne peut être active que dans un seul onglet à la fois — sans
 // gravité, cet onglet fonctionnera simplement sans le cache local).
-enableIndexedDbPersistence(db).catch(err => {
+enableIndexedDbPersistence(db).then(() => {
+  setTimeout(() => { if (window._DEBUG_OFFLINE && window.showToast) window.showToast('🔎 Persistance Firestore (IndexedDB) activée avec succès.'); }, 300);
+}).catch(err => {
   console.error('Persistance hors-ligne Firestore non activée:', err.code || err.message);
+  setTimeout(() => { if (window._DEBUG_OFFLINE && window.showToast) window.showToast('🔎 Persistance Firestore ÉCHOUÉE: ' + (err.code || err.message), 'warn'); }, 300);
 });
 
 // Instance Firebase secondaire, dédiée à la création de comptes par un
@@ -75,7 +78,15 @@ window._secondaryAuth = secondaryAuth;
 // au gestionnaire de rouvrir l'app hors ligne sans être bloqué à l'écran de
 // connexion. On ne lance une session anonyme que si PERSONNE n'est
 // restauré (première visite, ou après une vraie déconnexion).
+// DIAGNOSTIC TEMPORAIRE (à retirer une fois le hors-ligne confirmé stable) :
+// affiche ce qu'onAuthStateChanged reçoit réellement à chaque chargement,
+// pour identifier précisément où la reconnexion automatique hors ligne
+// échoue chez certains utilisateurs.
+window._DEBUG_OFFLINE = true;
 onAuthStateChanged(auth, user => {
+  if (window._DEBUG_OFFLINE && window.showToast) {
+    window.showToast('🔎 onAuthStateChanged: ' + (user ? (user.isAnonymous ? 'session anonyme' : 'session réelle uid=' + user.uid.slice(0,8)) : 'aucune session'));
+  }
   if (user) {
     window._fbReady = true;
     window.dispatchEvent(new Event('fb-ready'));
@@ -1646,14 +1657,20 @@ function finishLogin(user) {
 // personne s'est déjà connectée au moins une fois auparavant (avec internet)
 // sur cet appareil et ne s'est pas explicitement déconnectée depuis.
 window.addEventListener('fb-user-restored', async (e) => {
-  if (STATE.currentUser) return; // déjà connecté par un autre chemin (formulaire) — rien à faire
+  if (window._DEBUG_OFFLINE) showToast('🔎 fb-user-restored reçu (uid=' + e.detail.uid.slice(0,8) + ') — recherche du profil...');
+  if (STATE.currentUser) {
+    if (window._DEBUG_OFFLINE) showToast('🔎 Déjà connecté par un autre chemin — ignoré.');
+    return; // déjà connecté par un autre chemin (formulaire) — rien à faire
+  }
   try {
     const profile = await fetchUserProfile(e.detail.uid);
+    if (window._DEBUG_OFFLINE) showToast(profile ? ('🔎 Profil trouvé: ' + profile.username + ' (' + profile.role + ')') : '🔎 AUCUN profil trouvé (cache local vide pour cet uid)', profile ? undefined : 'warn');
     if (profile && !STATE.currentUser) {
       finishLogin({ uid: e.detail.uid, username: profile.username, role: profile.role });
       if (!STATE.isOnline) showToast('🔌 Session reconnectée automatiquement (hors ligne).');
     }
   } catch(err) {
+    if (window._DEBUG_OFFLINE) showToast('🔎 fetchUserProfile a échoué: ' + (err.code || err.message), 'warn');
     console.error('Reconnexion automatique échouée:', err);
   }
 });
