@@ -10,7 +10,7 @@
 <!-- Firebase SDKs -->
 <script type="module">
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
-import { getFirestore, collection, addDoc, onSnapshot, doc, updateDoc, deleteDoc, setDoc, getDoc, query, orderBy, serverTimestamp, getDocs } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
+import { getFirestore, collection, addDoc, onSnapshot, doc, updateDoc, deleteDoc, setDoc, getDoc, query, orderBy, serverTimestamp, getDocs, enableIndexedDbPersistence } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
 import { getAuth, signInAnonymously, onAuthStateChanged, signInWithEmailAndPassword, createUserWithEmailAndPassword, signOut, updatePassword } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js";
 
 const firebaseConfig = {
@@ -26,6 +26,17 @@ const firebaseConfig = {
 const fireApp = initializeApp(firebaseConfig);
 const db = getFirestore(fireApp);
 const auth = getAuth(fireApp);
+
+// Persistance hors-ligne Firestore : garde une copie locale (IndexedDB) de
+// tout ce qui a déjà été lu au moins une fois en ligne (profils utilisateurs,
+// ventes, stocks, crédits...), pour que l'app puisse s'ouvrir et fonctionner
+// même après un redémarrage complet du navigateur sans AUCUN internet.
+// "failed-precondition" = un autre onglet de l'app est déjà ouvert (la
+// persistance ne peut être active que dans un seul onglet à la fois — sans
+// gravité, cet onglet fonctionnera simplement sans le cache local).
+enableIndexedDbPersistence(db).catch(err => {
+  console.error('Persistance hors-ligne Firestore non activée:', err.code || err.message);
+});
 
 // Instance Firebase secondaire, dédiée à la création de comptes par un
 // admin : createUserWithEmailAndPassword() connecte automatiquement la
@@ -53,14 +64,29 @@ window._secondaryAuth = secondaryAuth;
 // Firestore exigent aussi un profil utilisateur reconnu, ce qu'une session
 // anonyme seule n'a pas.
 // L'app ne devient "prête" (fb-ready) qu'une fois cette connexion établie.
+//
+// IMPORTANT : Firebase Auth garde une session déjà connectée active
+// localement (même sans internet, même après un redémarrage complet du
+// navigateur) — onAuthStateChanged se déclenche avec cette session restaurée
+// automatiquement dès le chargement de la page, AVANT même de savoir si on a
+// internet. Si c'est un vrai compte (pas anonyme), on prévient le reste de
+// l'app via "fb-user-restored" pour reconnecter la personne automatiquement,
+// sans lui redemander son mot de passe — c'est ce qui permet à un vendeur ou
+// au gestionnaire de rouvrir l'app hors ligne sans être bloqué à l'écran de
+// connexion. On ne lance une session anonyme que si PERSONNE n'est
+// restauré (première visite, ou après une vraie déconnexion).
 onAuthStateChanged(auth, user => {
   if (user) {
     window._fbReady = true;
     window.dispatchEvent(new Event('fb-ready'));
+    if (!user.isAnonymous) {
+      window.dispatchEvent(new CustomEvent('fb-user-restored', { detail: { uid: user.uid } }));
+    }
+  } else {
+    signInAnonymously(auth).catch(err => {
+      console.error('Connexion anonyme Firebase échouée:', err);
+    });
   }
-});
-signInAnonymously(auth).catch(err => {
-  console.error('Connexion anonyme Firebase échouée:', err);
 });
 </script>
 
@@ -1613,6 +1639,25 @@ function finishLogin(user) {
   // charger depuis Firestore avant de générer le fichier de sauvegarde.
   setTimeout(() => { maybeAutoBackup(); }, 8000);
 }
+
+// Reconnexion automatique d'une session déjà active (voir le commentaire sur
+// "fb-user-restored" dans le script Firebase plus haut) : permet de rouvrir
+// l'app hors ligne sans repasser par le formulaire de connexion, tant que la
+// personne s'est déjà connectée au moins une fois auparavant (avec internet)
+// sur cet appareil et ne s'est pas explicitement déconnectée depuis.
+window.addEventListener('fb-user-restored', async (e) => {
+  if (STATE.currentUser) return; // déjà connecté par un autre chemin (formulaire) — rien à faire
+  try {
+    const profile = await fetchUserProfile(e.detail.uid);
+    if (profile && !STATE.currentUser) {
+      finishLogin({ uid: e.detail.uid, username: profile.username, role: profile.role });
+      if (!STATE.isOnline) showToast('🔌 Session reconnectée automatiquement (hors ligne).');
+    }
+  } catch(err) {
+    console.error('Reconnexion automatique échouée:', err);
+  }
+});
+
 async function saveAllData() {
   if (!STATE.isOnline || !STATE.fbReady) {
     showToast('⚠ Hors ligne — impossible de sauvegarder maintenant.','warn');
@@ -1667,7 +1712,16 @@ async function confirmLogout(action) {
   }
 }
 
-function performLogout() {
+async function performLogout() {
+  // Déconnexion réelle de Firebase Auth (pas seulement de l'interface) :
+  // sinon, comme la session reste active localement (voir "fb-user-restored"
+  // plus haut), la personne serait automatiquement reconnectée toute seule
+  // à la prochaine ouverture de l'app, comme si "Déconnexion" n'avait rien
+  // fait.
+  try {
+    const {signOut} = window._authFns;
+    if (signOut && window._auth) await signOut(window._auth);
+  } catch(e) { console.error('Déconnexion Firebase:', e); }
   unlockSaleForm();
   unlockCreditForm();
   unlockFournisseurPaymentForm();
