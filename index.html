@@ -3113,6 +3113,46 @@ function buildAnalyse() {
   });
 
   html += `</tbody></table></div>`;
+
+  // --- Tableau séparé : Moyenne taux de marge par produit vendu & Taux de
+  // manutention/transport, jour par jour et mois par mois. Recalculé à chaque
+  // rendu de buildAnalyse() à partir des mêmes données live (STATE), donc
+  // toujours synchronisé automatiquement avec le reste de l'Analyse financière.
+  html += `<div style="margin-top:1.8rem;font-weight:700;font-size:1rem;color:var(--text2);margin-bottom:.6rem;">📈 Moyenne taux de marge par produit vendu & Taux de manutention/transport — par jour et par mois</div>`;
+  html += `<div class="table-wrap"><table>
+    <thead><tr><th>Date</th><th>Moyenne taux de marge par produit vendu</th><th>Taux de manutention/transport</th></tr></thead>
+    <tbody>`;
+
+  sortedMonths.forEach(month => {
+    const mDays = monthGroups[month].sort((a,b)=>b.day.localeCompare(a.day));
+    const isCurrentMonth = month === currentMonth;
+    const label = isCurrentMonth ? `📅 CE MOIS-CI — ${formatMonthLabel(month)}` : formatMonthLabel(month);
+    html += `<tr style="background:${isCurrentMonth?'#1a56db':'#5a6282'};color:#fff;font-weight:700;">
+      <td colspan="3" style="padding:8px 10px;font-size:.9rem;">${label}</td>
+    </tr>`;
+
+    let mCa2=0, mTransport2=0, mManutention2=0;
+    mDays.forEach(d => {
+      mCa2+=d.ca; mTransport2+=d.transport; mManutention2+=d.manutention;
+      const mgJour = margeByDay[d.day];
+      const tmtJour = d.ca > 0 ? (d.transport+d.manutention)/d.ca*100 : null;
+      html += `<tr>
+        <td>${formatGroupLabel(d.day)}</td>
+        <td style="font-weight:600;color:${mgJour!=null?(mgJour>=0?'#1a7a4c':'#c0392b'):'var(--text3)'};">${mgJour!=null?mgJour.toFixed(1)+'%':'—'}</td>
+        <td>${tmtJour!=null?tmtJour.toFixed(1)+'%':'—'}</td>
+      </tr>`;
+    });
+
+    const mgMois = margeByMonth[month];
+    const tmtMois = mCa2 > 0 ? (mTransport2+mManutention2)/mCa2*100 : null;
+    html += `<tr style="background:var(--surface2);font-weight:700;border-top:2px solid var(--border);">
+      <td>📊 Total — ${formatMonthLabel(month)}</td>
+      <td style="color:${mgMois!=null?(mgMois>=0?'#1a7a4c':'#c0392b'):'var(--text3)'};">${mgMois!=null?mgMois.toFixed(1)+'%':'—'}</td>
+      <td>${tmtMois!=null?tmtMois.toFixed(1)+'%':'—'}</td>
+    </tr>`;
+  });
+
+  html += `</tbody></table></div>`;
   cont.innerHTML = html;
 }
 
@@ -3257,7 +3297,7 @@ function buildAnalyseSheetRows(vt, st) {
   const mg = st>0?(vt-st)/st*100:0;
   const {days, totals} = computeFinancialAnalysis();
   const {tauxMoyenPondere} = computeProductMarginRates();
-  const {byDay: margeByDay} = computeProductMarginRatesByPeriod();
+  const {byDay: margeByDay, byMonth: margeByMonth} = computeProductMarginRatesByPeriod();
   const rows = [
     ['Indicateur','Valeur'],
     ["Chiffre d'affaires total", vt],
@@ -3274,10 +3314,33 @@ function buildAnalyseSheetRows(vt, st) {
     ['Cumul jour après jour'],
     ["Date","Chiffre d'affaires",'Produits','Achats marchandises','Coût transport','Coût manutention','Valeur Ajoutée','Charges','Bénéfice Brut','Impôt','Bénéfice Net','Cumul Bénéfice Net','Taux moyen de marge produit (%)']
   ];
+  const monthAgg = {};
   days.forEach(d => {
     const mgJour = margeByDay[d.day];
     rows.push([d.day, d.ca, d.produits, d.achats, d.transport, d.manutention, d.va, d.charges, d.benBrut, d.impot, d.benNet, d.cumul, mgJour!=null?parseFloat(mgJour.toFixed(2)):'']);
+    const month = d.day.slice(0,7);
+    if (!monthAgg[month]) monthAgg[month] = {ca:0, transport:0, manutention:0};
+    monthAgg[month].ca += d.ca; monthAgg[month].transport += d.transport; monthAgg[month].manutention += d.manutention;
   });
+
+  // --- Section séparée : Moyenne taux de marge par produit vendu & Taux de
+  // manutention/transport, jour par jour et mois par mois (même contenu que
+  // le second tableau de l'onglet Comptabilité → Analyse financière).
+  rows.push([]);
+  rows.push(['Moyenne taux de marge par produit vendu & Taux de manutention/transport']);
+  rows.push(['Date','Moyenne taux de marge par produit vendu (%)','Taux de manutention/transport (%)']);
+  days.forEach(d => {
+    const mgJour = margeByDay[d.day];
+    const tmtJour = d.ca > 0 ? (d.transport+d.manutention)/d.ca*100 : null;
+    rows.push([d.day, mgJour!=null?parseFloat(mgJour.toFixed(2)):'', tmtJour!=null?parseFloat(tmtJour.toFixed(2)):'']);
+  });
+  Object.keys(monthAgg).sort().forEach(month => {
+    const a = monthAgg[month];
+    const mgMois = margeByMonth[month];
+    const tmtMois = a.ca > 0 ? (a.transport+a.manutention)/a.ca*100 : null;
+    rows.push([`Total ${month}`, mgMois!=null?parseFloat(mgMois.toFixed(2)):'', tmtMois!=null?parseFloat(tmtMois.toFixed(2)):'']);
+  });
+
   return rows;
 }
 
