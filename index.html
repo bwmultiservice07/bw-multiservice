@@ -301,6 +301,91 @@ tr:hover td{background:#f7f9ff;}
         <button class="send-btn" onclick="submitSale()">Envoyer ➤</button>
         <button id="btn-corriger-vente" class="btn btn-outline" style="margin-top:8px;font-size:.85rem;display:none;" onclick="corrigerDerniereVente()">✏️ Corriger dernière vente</button>
       </div>
+
+      <div class="card">
+        <div class="card-title">🧊 Enregistrer une vente glacée</div>
+        <div class="form-row">
+          <div class="form-group" style="flex:2;min-width:200px;">
+            <label>Description des marchandises (glacé)</label>
+            <select id="vg-desc">
+              <option value="">-- Choisir un produit --</option>
+              <option value="7up">7up</option>
+              <option value="Beller">Beller</option>
+              <option value="Couronne">Couronne</option>
+              <option value="Culligan">Culligan</option>
+              <option value="Dassani">Dassani</option>
+              <option value="Frooty">Frooty</option>
+              <option value="Generade">Generade</option>
+              <option value="Gros Frutop">Gros Frutop</option>
+              <option value="Gros Valle">Gros Valle</option>
+              <option value="Heineken">Heineken</option>
+              <option value="Kinanm">Kinanm</option>
+              <option value="Koka">Koka</option>
+              <option value="Kola Real">Kola Real</option>
+              <option value="Prestige">Prestige</option>
+              <option value="Prorade">Prorade</option>
+              <option value="Sprite">Sprite</option>
+              <option value="Tampico">Tampico</option>
+              <option value="Ti Frutop">Ti Frutop</option>
+              <option value="Ti Valle">Ti Valle</option>
+            </select>
+          </div>
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label>Quantité</label>
+            <input type="number" id="vg-qty" min="1" placeholder="Ex: 10" oninput="calcMontant('vg')"/>
+          </div>
+          <div class="form-group">
+            <label>Unité</label>
+            <select id="vg-unit" onchange="calcMontant('vg')">
+              <option value="caisse">Caisse (24 unités)</option>
+              <option value="bout">Bout (12 unités)</option>
+              <option value="caisse-1-2">Caisse et 1/2 (36 unités)</option>
+              <option value="bout-1-2">Bout et 1/2 (18 unités)</option>
+              <option value="caisse-beller">Caisse Beller (48 unités)</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label>Prix / Caisse (HTG)</label>
+            <input type="number" id="vg-prix-caisse" min="0" step="0.01" placeholder="Ex: 1200.00" oninput="calcPrixUnitaire('vg')"/>
+          </div>
+          <div class="form-group">
+            <label>Prix unitaire (HTG) — auto</label>
+            <input type="number" id="vg-prix" min="0" step="0.01" placeholder="Ex: 50.00" oninput="calcMontant('vg')" readonly style="background:#f0f2f7;"/>
+          </div>
+          <div class="form-group">
+            <label>Nombre d'unité</label>
+            <input type="number" id="vg-nb-unite" min="0" step="1" placeholder="Ex: 1, 2, 3..." oninput="calcMontant('vg')"/>
+          </div>
+          <div class="form-group">
+            <label>Montant total (HTG) — automatique</label>
+            <input type="number" id="vg-amount" min="0" step="0.01" placeholder="0.00" readonly style="background:#f0f2f7;font-weight:700;color:#1a56db;" oninput="calcBalance('vg')"/>
+          </div>
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label>Paiement cash (Gourdes HTG)</label>
+            <input type="number" id="vg-cash" min="0" step="0.01" placeholder="Ex: 300.00" oninput="calcBalance('vg')"/>
+          </div>
+          <div class="form-group">
+            <label>Crédit par client (Gourdes HTG)</label>
+            <input type="number" id="vg-credit" min="0" step="0.01" placeholder="Ex: 200.00" readonly style="background:#f0f2f7;"/>
+          </div>
+          <div class="form-group">
+            <label>Balance (HTG)</label>
+            <input type="number" id="vg-balance" min="0" step="0.01" placeholder="0.00" readonly style="background:#f0f2f7;font-weight:700;color:#c0392b;"/>
+          </div>
+        </div>
+        <div class="form-row">
+          <div class="form-group" style="flex:2;min-width:200px;">
+            <label>Nom du client</label>
+            <input type="text" id="vg-client" placeholder="Ex: Jean Pierre" autocomplete="off" list="vente-client-list" oninput="updateVenteClientList('vg')"/>
+          </div>
+        </div>
+        <button class="send-btn" onclick="submitSaleGlace()">Envoyer ➤</button>
+      </div>
+
       <div class="card">
         <div class="card-title" id="my-sales-title">📋 Vente du jour</div>
         <div class="table-wrap">
@@ -1606,31 +1691,36 @@ function formatCaissesDisplay(qtyCaisses, casseSize) {
   return sign + parts.join(' et ');
 }
 
-function calcPrixUnitaire() {
-  const prixCaisse = parseFloat(document.getElementById('v-prix-caisse').value) || 0;
-  const produit = document.getElementById('v-desc').value;
-  const unit = document.getElementById('v-unit').value;
+// prefix par défaut 'v' = le formulaire de vente normal ; 'vg' = le
+// formulaire de vente glacée, qui réutilise exactement la même logique de
+// calcul (prix caisse → prix unitaire → montant → balance).
+function calcPrixUnitaire(prefix) {
+  prefix = prefix || 'v';
+  const prixCaisse = parseFloat(document.getElementById(prefix+'-prix-caisse').value) || 0;
+  const produit = document.getElementById(prefix+'-desc').value;
+  const unit = document.getElementById(prefix+'-unit').value;
   const casseSize = getCasseSize(produit, unit);
   // Prix unitaire = prix caisse / nombre d'unités dans une caisse
   const prixUnit = prixCaisse > 0 ? prixCaisse / casseSize : 0;
-  document.getElementById('v-prix').value = prixUnit.toFixed(2);
-  calcMontant();
+  document.getElementById(prefix+'-prix').value = prixUnit.toFixed(2);
+  calcMontant(prefix);
 }
 
-function calcMontant() {
-  const qty = parseFloat(document.getElementById('v-qty').value) || 0;
-  const prixCaisse = parseFloat(document.getElementById('v-prix-caisse').value) || 0;
-  const prixUnit = parseFloat(document.getElementById('v-prix').value) || 0;
-  const unit = document.getElementById('v-unit').value;
-  const nbUnite = parseFloat(document.getElementById('v-nb-unite').value) || 0;
+function calcMontant(prefix) {
+  prefix = prefix || 'v';
+  const qty = parseFloat(document.getElementById(prefix+'-qty').value) || 0;
+  const prixCaisse = parseFloat(document.getElementById(prefix+'-prix-caisse').value) || 0;
+  const prixUnit = parseFloat(document.getElementById(prefix+'-prix').value) || 0;
+  const unit = document.getElementById(prefix+'-unit').value;
+  const nbUnite = parseFloat(document.getElementById(prefix+'-nb-unite').value) || 0;
 
   // Montant total = (Quantité × facteur de l'unité × Prix caisse)
   //               + (Nombre d'unité × Prix unitaire)
   const factor = UNIT_FACTORS[unit] !== undefined ? UNIT_FACTORS[unit] : 1;
   const montant = (qty * factor * prixCaisse) + (nbUnite * prixUnit);
 
-  document.getElementById('v-amount').value = montant.toFixed(2);
-  calcBalance();
+  document.getElementById(prefix+'-amount').value = montant.toFixed(2);
+  calcBalance(prefix);
 }
 
 // Seuls admin et gestionnaire ont le droit de corriger/modifier/supprimer
@@ -1732,17 +1822,19 @@ async function loadSaleForCorrection(id) {
   }
 }
 
-function calcBalance() {
-  const amount = parseFloat(document.getElementById('v-amount').value) || 0;
-  const cash = parseFloat(document.getElementById('v-cash').value) || 0;
+function calcBalance(prefix) {
+  prefix = prefix || 'v';
+  const amount = parseFloat(document.getElementById(prefix+'-amount').value) || 0;
+  const cash = parseFloat(document.getElementById(prefix+'-cash').value) || 0;
   const balance = amount - cash;
   const bal = balance >= 0 ? balance.toFixed(2) : '0.00';
-  document.getElementById('v-balance').value = bal;
-  document.getElementById('v-credit').value = bal;
+  document.getElementById(prefix+'-balance').value = bal;
+  document.getElementById(prefix+'-credit').value = bal;
 }
 
-function updateVenteClientList() {
-  const input = document.getElementById('v-client').value.trim().toLowerCase();
+function updateVenteClientList(prefix) {
+  prefix = prefix || 'v';
+  const input = document.getElementById(prefix+'-client').value.trim().toLowerCase();
   const datalist = document.getElementById('vente-client-list');
   if (!datalist) return;
   const clients = new Set();
@@ -1839,6 +1931,88 @@ async function submitSale() {
   document.getElementById('v-balance').value='';
   document.getElementById('v-client').value='';
   unlockSaleForm();
+}
+
+// Vente d'un produit "glacé" (même liste de produits, même logique de calcul
+// que submitSale() — voir formulaire 🧊 "Enregistrer une vente glacée"). La
+// description du produit reste identique (ex: "Sprite") pour rester compatible
+// avec le calcul du chiffre d'affaires, les taux de marge et Data Analyse ;
+// seul le champ isGlace:true distingue cette vente, affiché comme badge 🧊
+// dans "Vente du jour" (elle y apparaît automatiquement car type:'vente').
+async function submitSaleGlace() {
+  const desc = document.getElementById('vg-desc').value.trim();
+  const qty = parseFloat(document.getElementById('vg-qty').value);
+  const unit = document.getElementById('vg-unit').value;
+  const amount = parseFloat(document.getElementById('vg-amount').value);
+  const cash = parseFloat(document.getElementById('vg-cash').value) || 0;
+  const balance = parseFloat(document.getElementById('vg-balance').value) || 0;
+  const client = document.getElementById('vg-client').value.trim();
+  const prix = parseFloat(document.getElementById('vg-prix').value) || 0;
+  const nbUnite = parseFloat(document.getElementById('vg-nb-unite').value) || 0;
+  if (!desc||isNaN(qty)||qty<=0||prix<=0||isNaN(amount)||amount<=0) {
+    showToast('⚠ Veuillez remplir tous les champs obligatoires (produit, quantité, prix, montant).','warn'); return;
+  }
+  if (balance > 0 && !client) {
+    showToast('⚠ Le nom du client est obligatoire pour une vente à crédit.','warn'); return;
+  }
+  const saleDate = todayStr(), saleIsoDate = isoDate(), saleTime = nowStr();
+  const tx = {
+    type:'vente', date:saleDate, isoDate:saleIsoDate, time:saleTime,
+    seller:STATE.currentUser.username, description:desc, unit:unit||'caisse', isGlace:true,
+    quantity:qty, unitPrice:prix, nombreUnite:nbUnite, prixCaisse:parseFloat(document.getElementById('vg-prix-caisse').value)||0, amount:amount, cash:cash, credit:balance, balance:balance,
+    client:client||'', status:'sent', createdAt: new Date().toISOString()
+  };
+  if (balance > 0 && client) {
+    const cr = {
+      type:'credit', date:saleDate, isoDate:saleIsoDate, time:saleTime,
+      seller:STATE.currentUser.username, client:client, due:balance, paid:0, finalBalance:balance,
+      status:'partiel', source:'vente', createdAt: new Date().toISOString()
+    };
+    if (STATE.isOnline && STATE.fbReady) {
+      try {
+        const {collection, addDoc} = window._fbFns;
+        await addDoc(collection(window._db,'credits'), cr);
+      } catch(e) { console.error('Credit auto:', e); }
+    } else {
+      if (!STATE.credits) STATE.credits = [];
+      STATE.credits.push(cr);
+    }
+  }
+  if (STATE.isOnline && STATE.fbReady) {
+    try {
+      const {collection, addDoc} = window._fbFns;
+      const ref = await addDoc(collection(window._db,'transactions'), tx);
+      if (!STATE.transactions.find(t => t.id === ref.id)) {
+        STATE.transactions = [{id: ref.id, ...tx}, ...STATE.transactions];
+      }
+      showToast('✅ Vente glacée transmise en temps réel sur Firebase / bwmultiservice07@gmail.com');
+    } catch(e) {
+      STATE.pendingQueue.push({...tx, status:'pending'});
+      saveLocal();
+      showToast('⚠ Erreur Firebase — transaction en file d\'attente.','warn');
+    }
+  } else {
+    tx.status = 'pending';
+    STATE.pendingQueue.push(tx);
+    saveLocal();
+    showToast('📤 Hors ligne — transaction en file d\'attente.','warn');
+  }
+  updatePendingUI();
+  markUnsaved();
+  renderMySales();
+  renderDashboard();
+  renderDettes();
+  document.getElementById('vg-desc').value='';
+  document.getElementById('vg-qty').value='';
+  document.getElementById('vg-unit').value='caisse';
+  document.getElementById('vg-prix-caisse').value='';
+  document.getElementById('vg-prix').value='';
+  document.getElementById('vg-nb-unite').value='';
+  document.getElementById('vg-amount').value='';
+  document.getElementById('vg-cash').value='';
+  document.getElementById('vg-credit').value='';
+  document.getElementById('vg-balance').value='';
+  document.getElementById('vg-client').value='';
 }
 
 function getIsoFromTx(t) {
@@ -1950,7 +2124,7 @@ function renderMySales() {
           ? `<td style="cursor:pointer;text-decoration:underline;" onclick="loadSaleForCorrection('${t.id}')" title="Cliquer pour corriger cette vente">${badge}</td>`
           : `<td>${badge}</td>`;
         html += `<tr>
-          <td>${t.date}</td><td>${t.time}</td><td>${esc(t.description)}</td><td>${t.quantity}</td>
+          <td>${t.date}</td><td>${t.time}</td><td>${esc(t.description)}${t.isGlace?' <span title="Vente glacée" style="color:#1a73e8;">🧊</span>':''}</td><td>${t.quantity}</td>
           <td>${esc(formatUnitLabel(t.unit))}</td><td>${fmtHTG(t.unitPrice||0)}</td>
           <td>${fmtHTG(t.amount)}</td><td>${fmtHTG(t.cash||0)}</td>
           <td>${fmtHTG(t.credit||0)}</td><td>${fmtHTG(t.balance||0)}</td>
