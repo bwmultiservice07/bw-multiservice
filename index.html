@@ -10,8 +10,8 @@
 <!-- Firebase SDKs -->
 <script type="module">
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
-import { getFirestore, collection, addDoc, onSnapshot, doc, updateDoc, deleteDoc, query, orderBy, serverTimestamp, getDocs } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
-import { getAuth, signInAnonymously, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js";
+import { getFirestore, collection, addDoc, onSnapshot, doc, updateDoc, deleteDoc, setDoc, getDoc, query, orderBy, serverTimestamp, getDocs } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
+import { getAuth, signInAnonymously, onAuthStateChanged, signInWithEmailAndPassword, createUserWithEmailAndPassword, signOut } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js";
 
 const firebaseConfig = {
   apiKey: "AIzaSyBtk9kE-vJ-cNA3_1GMM5Zm63RbMMHjaNg",
@@ -27,15 +27,31 @@ const fireApp = initializeApp(firebaseConfig);
 const db = getFirestore(fireApp);
 const auth = getAuth(fireApp);
 
+// Instance Firebase secondaire, dédiée à la création de comptes par un
+// admin : createUserWithEmailAndPassword() connecte automatiquement la
+// session courante en tant que ce NOUVEL utilisateur (comportement natif de
+// Firebase Auth) — utiliser une appli secondaire évite de déconnecter
+// l'admin de sa propre session pendant qu'il crée un compte pour quelqu'un
+// d'autre.
+const secondaryApp = initializeApp(firebaseConfig, 'Secondary');
+const secondaryAuth = getAuth(secondaryApp);
+
 // Expose to global scope for use in non-module scripts
 window._db = db;
-window._fbFns = { collection, addDoc, onSnapshot, doc, updateDoc, deleteDoc, query, orderBy, serverTimestamp, getDocs };
+window._auth = auth;
+window._fbFns = { collection, addDoc, onSnapshot, doc, updateDoc, deleteDoc, setDoc, getDoc, query, orderBy, serverTimestamp, getDocs };
+window._authFns = { signInWithEmailAndPassword, createUserWithEmailAndPassword, signOut };
+window._secondaryAuth = secondaryAuth;
 
 // Connexion anonyme obligatoire avant d'autoriser l'accès à Firestore : ceci
 // permet de restreindre les règles de sécurité Firestore à
 // "allow read, write: if request.auth != null" au lieu de les laisser
 // ouvertes à tout le monde sur internet (faille de sécurité critique
-// corrigée le 13 juillet 2026 suite à une suppression de données).
+// corrigée le 13 juillet 2026 suite à une suppression de données). Un vrai
+// système de comptes (un compte Firebase réel par utilisateur, cf.
+// doLogin()/addUser()) vient compléter cette protection : les règles
+// Firestore exigent aussi un profil utilisateur reconnu, ce qu'une session
+// anonyme seule n'a pas.
 // L'app ne devient "prête" (fb-ready) qu'une fois cette connexion établie.
 onAuthStateChanged(auth, user => {
   if (user) {
@@ -1403,11 +1419,83 @@ async function flushPendingQueue() {
 // ============================================================
 // AUTH
 // ============================================================
-function doLogin() {
+// Convertit un nom d'utilisateur en "email" synthétique pour Firebase Auth
+// (Firebase Auth email/password exige un format d'email, mais celui-ci n'a
+// pas besoin d'être une vraie adresse joignable — aucun email n'est envoyé).
+function usernameToEmail(username) {
+  const safe = (username||'').trim().toLowerCase().replace(/[^a-z0-9._-]/g, '') || 'user';
+  return safe + '@bwmultiservice-users.internal';
+}
+
+// Récupère le profil (rôle, nom d'utilisateur) d'un compte Firebase réel,
+// stocké dans Firestore avec l'UID du compte comme identifiant de document —
+// c'est ce document qui permet aux règles Firestore de vérifier qu'il s'agit
+// bien d'un utilisateur reconnu (voir règles : exists(users/$(request.auth.uid))).
+async function fetchUserProfile(uid) {
+  try {
+    const {doc, getDoc} = window._fbFns;
+    const snap = await getDoc(doc(window._db, 'users', uid));
+    return snap.exists() ? snap.data() : null;
+  } catch(e) { console.error('fetchUserProfile:', e); return null; }
+}
+
+// Un utilisateur "historique" (des 5 comptes codés en dur ou ajoutés via
+// l'ancien système) qui se connecte avec succès via l'ancienne vérification
+// est migré silencieusement vers un vrai compte Firebase — avec le même mot
+// de passe, donc rien ne change pour lui — pour ne plus jamais dépendre du
+// mot de passe en clair visible dans le code source de l'application.
+async function migrateLegacyUserSilently(username, password, role) {
+  if (!STATE.isOnline || !STATE.fbReady) return;
+  try {
+    const {createUserWithEmailAndPassword} = window._authFns;
+    const {doc, setDoc} = window._fbFns;
+    const email = usernameToEmail(username);
+    const cred = await createUserWithEmailAndPassword(window._auth, email, password);
+    await setDoc(doc(window._db, 'users', cred.user.uid), { username, role });
+    console.log(`Compte sécurisé créé pour "${username}".`);
+  } catch(e) {
+    // "email-already-in-use" = déjà migré précédemment sur un autre appareil
+    // (ou cette même session) ; rien d'anormal, on ignore silencieusement.
+    if (e.code !== 'auth/email-already-in-use') console.error('Migration compte:', e);
+  }
+}
+
+// Connexion : essaie d'abord un vrai compte Firebase (sécurisé), et si
+// l'utilisateur n'a pas encore de compte réel (première connexion depuis la
+// mise en place du 13 juillet 2026), se rabat sur l'ancienne vérification en
+// clair puis migre silencieusement vers un vrai compte pour la prochaine
+// fois — transition transparente, sans que personne n'ait à changer son mot
+// de passe ni à refaire quoi que ce soit.
+async function doLogin() {
   const u = document.getElementById('login-user').value.trim();
   const p = document.getElementById('login-pass').value;
-  const user = STATE.users.find(x => x.username === u && x.password === p);
-  if (!user) { document.getElementById('auth-err').textContent = 'Identifiants incorrects.'; return; }
+  document.getElementById('auth-err').textContent = '';
+
+  if (STATE.isOnline && STATE.fbReady && window._authFns) {
+    try {
+      const {signInWithEmailAndPassword} = window._authFns;
+      const cred = await signInWithEmailAndPassword(window._auth, usernameToEmail(u), p);
+      const profile = await fetchUserProfile(cred.user.uid);
+      if (profile) {
+        finishLogin({ uid: cred.user.uid, username: profile.username || u, role: profile.role });
+        return;
+      }
+      // Compte Firebase existant mais sans profil (cas anormal) : retomber
+      // sur la vérification historique ci-dessous plutôt que de bloquer.
+    } catch (e) {
+      // "user-not-found"/"invalid-credential" = pas encore migré, ou mot de
+      // passe erroné — on tente le repli historique juste en dessous, qui
+      // fera l'arbitrage final.
+    }
+  }
+
+  const legacyUser = STATE.users.find(x => x.username === u && x.password === p);
+  if (!legacyUser) { document.getElementById('auth-err').textContent = 'Identifiants incorrects.'; return; }
+  finishLogin({ username: legacyUser.username, role: legacyUser.role });
+  migrateLegacyUserSilently(legacyUser.username, p, legacyUser.role);
+}
+
+function finishLogin(user) {
   STATE.currentUser = user;
   document.getElementById('auth-screen').style.display = 'none';
   document.getElementById('app').style.display = 'flex';
@@ -2779,24 +2867,38 @@ function closeAddUserModal() {
   document.getElementById('add-user-err').textContent='';
 }
 
+// Crée un vrai compte Firebase sécurisé pour le nouvel utilisateur (plus de
+// mot de passe en clair stocké dans Firestore). Utilise l'instance Firebase
+// "secondaire" (window._secondaryAuth) pour que la création du compte ne
+// déconnecte pas l'admin en train de l'ajouter — createUserWithEmailAndPassword
+// connecte automatiquement la session utilisée en tant que ce nouveau compte,
+// donc on utilise une session à part, jetée immédiatement après.
 async function addUser() {
   const u = document.getElementById('new-username').value.trim();
   const p = document.getElementById('new-password').value;
   const r = document.getElementById('new-role').value;
   if (!u||!p) { document.getElementById('add-user-err').textContent='Tous les champs sont requis.'; return; }
   if (STATE.users.find(x=>x.username===u)) { document.getElementById('add-user-err').textContent='Nom déjà utilisé.'; return; }
-  const newUser = {username:u, password:p, role:r};
-  if (STATE.isOnline && STATE.fbReady) {
-    try {
-      const {collection, addDoc} = window._fbFns;
-      await addDoc(collection(window._db,'users'), newUser);
-    } catch(e){}
+  if (!STATE.isOnline || !STATE.fbReady) { document.getElementById('add-user-err').textContent='Hors ligne — impossible de créer un compte sécurisé maintenant.'; return; }
+  try {
+    const {createUserWithEmailAndPassword, signOut} = window._authFns;
+    const {doc, setDoc} = window._fbFns;
+    const email = usernameToEmail(u);
+    const cred = await createUserWithEmailAndPassword(window._secondaryAuth, email, p);
+    const uid = cred.user.uid;
+    await setDoc(doc(window._db, 'users', uid), { username: u, role: r });
+    await signOut(window._secondaryAuth);
+    STATE.users.push({id: uid, username:u, role:r});
+    saveLocal();
+    renderUsers();
+    closeAddUserModal();
+    showToast(`✅ Utilisateur "${u}" ajouté avec un compte sécurisé.`);
+  } catch(e) {
+    const msg = e.code === 'auth/email-already-in-use' ? 'Ce nom d\'utilisateur est déjà pris.'
+      : e.code === 'auth/weak-password' ? 'Mot de passe trop faible (6 caractères minimum).'
+      : ('Erreur : ' + e.message);
+    document.getElementById('add-user-err').textContent = msg;
   }
-  STATE.users.push(newUser);
-  saveLocal();
-  renderUsers();
-  closeAddUserModal();
-  showToast(`✅ Utilisateur "${u}" ajouté.`);
 }
 
 async function deleteUser(username, fbId) {
