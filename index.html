@@ -351,9 +351,9 @@ tr:hover td{background:#f7f9ff;}
       <div class="card">
         <div class="card-title" id="my-sales-title">📋 Vente du jour</div>
         <div class="table-wrap">
-          <table>
-            <thead><tr><th>Date</th><th>Heure</th><th>Description</th><th>Qté</th><th>Unité</th><th>Prix unit.</th><th>Montant (HTG)</th><th>Cash (HTG)</th><th>Crédit (HTG)</th><th>Balance (HTG)</th><th>Client</th><th>Statut</th></tr></thead>
-            <tbody id="my-sales-body"><tr><td colspan="12" style="text-align:center;color:var(--text3);padding:1.5rem;">Aucune vente aujourd'hui.</td></tr></tbody>
+          <table style="min-width:1300px;">
+            <thead><tr><th>Date</th><th>Heure</th><th>Description</th><th>Qté</th><th>Unité</th><th>Prix Caisse/Bout</th><th>Prix unit.</th><th>Montant (HTG)</th><th>Cash (HTG)</th><th>Crédit (HTG)</th><th>Balance (HTG)</th><th>Client</th><th>Statut</th></tr></thead>
+            <tbody id="my-sales-body"><tr><td colspan="13" style="text-align:center;color:var(--text3);padding:1.5rem;">Aucune vente aujourd'hui.</td></tr></tbody>
           </table>
         </div>
       </div>
@@ -1998,7 +1998,7 @@ function renderMySales() {
     });
 
   if (!allRows.length) {
-    body.innerHTML='<tr><td colspan="12" style="text-align:center;color:var(--text3);padding:1.5rem;">Aucune vente.</td></tr>';
+    body.innerHTML='<tr><td colspan="13" style="text-align:center;color:var(--text3);padding:1.5rem;">Aucune vente.</td></tr>';
     return;
   }
 
@@ -2027,7 +2027,7 @@ function renderMySales() {
     const label = isCurrentMonth ? `📅 CE MOIS-CI — ${formatMonthLabel(month)}` : formatMonthLabel(month);
 
     html += `<tr style="background:${isCurrentMonth?'#1a56db':'#5a6282'};color:#fff;font-weight:700;">
-      <td colspan="12" style="padding:8px 10px;font-size:.9rem;">
+      <td colspan="13" style="padding:8px 10px;font-size:.9rem;">
         ${label} &nbsp;|&nbsp; ${ventes.length} vente(s)
       </td>
     </tr>`;
@@ -2050,7 +2050,7 @@ function renderMySales() {
       const dayTotBalance = dayVentes.reduce((a,t) => a+(t.balance||0), 0);
 
       html += `<tr style="background:#eef1f8;font-weight:600;">
-        <td colspan="12" style="padding:6px 10px;font-size:.82rem;color:#3a4260;">
+        <td colspan="13" style="padding:6px 10px;font-size:.82rem;color:#3a4260;">
           ${formatGroupLabel(day)} &nbsp;|&nbsp; ${dayVentes.length} vente(s)
         </td>
       </tr>`;
@@ -2063,7 +2063,7 @@ function renderMySales() {
           : `<td>${badge}</td>`;
         html += `<tr>
           <td>${t.date}</td><td>${t.time}</td><td>${esc(t.description)}${t.isGlace?' <span title="Vente glacée" style="color:#1a73e8;">🧊</span>':''}</td><td>${t.quantity}</td>
-          <td>${esc(formatUnitLabel(t.unit))}</td><td>${fmtHTG(t.unitPrice||0)}</td>
+          <td>${esc(formatUnitLabel(t.unit))}</td><td>${fmtHTG(t.prixCaisse||0)}</td><td>${fmtHTG(t.unitPrice||0)}</td>
           <td>${fmtHTG(t.amount)}</td><td>${fmtHTG(t.cash||0)}</td>
           <td>${fmtHTG(t.credit||0)}</td><td>${fmtHTG(t.balance||0)}</td>
           <td style="color:${(t.balance||0)>0?'#c0392b':'#0f7b4f'};font-weight:600;">${esc(t.client||'')}</td>
@@ -2073,7 +2073,7 @@ function renderMySales() {
 
       // Total du jour
       html += `<tr style="background:#f6f7fb;font-weight:600;border-top:1px solid var(--border);">
-        <td colspan="6" style="font-size:.82rem;">📊 Total jour — ${formatGroupLabel(day)}</td>
+        <td colspan="7" style="font-size:.82rem;">📊 Total jour — ${formatGroupLabel(day)}</td>
         <td>${fmtHTG(dayTotMontant)}</td>
         <td>${fmtHTG(dayTotCash)}</td>
         <td>${fmtHTG(dayTotCredit)}</td>
@@ -2084,7 +2084,7 @@ function renderMySales() {
 
     // Totaux du mois
     html += `<tr style="background:var(--surface2);font-weight:700;border-top:2px solid var(--border);">
-      <td colspan="6">📊 Totaux — ${formatMonthLabel(month)}</td>
+      <td colspan="7">📊 Totaux — ${formatMonthLabel(month)}</td>
       <td>${fmtHTG(totMontant)}</td>
       <td>${fmtHTG(totCash)}</td>
       <td>${fmtHTG(totCredit)}</td>
