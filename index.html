@@ -1454,9 +1454,38 @@ async function migrateLegacyUserSilently(username, password, role) {
     await setDoc(doc(window._db, 'users', cred.user.uid), { username, role });
     console.log(`Compte sécurisé créé pour "${username}".`);
   } catch(e) {
-    // "email-already-in-use" = déjà migré précédemment sur un autre appareil
-    // (ou cette même session) ; rien d'anormal, on ignore silencieusement.
-    if (e.code !== 'auth/email-already-in-use') console.error('Migration compte:', e);
+    if (e.code === 'auth/email-already-in-use') {
+      // Le compte Firebase existe déjà (migré précédemment) mais on est
+      // arrivé ici quand même — ça veut dire que le profil Firestore associé
+      // est probablement manquant (ex : la première migration a été
+      // interrompue avant l'écriture du profil). On se reconnecte à ce
+      // compte existant et on répare son profil plutôt que d'abandonner.
+      try {
+        const {signInWithEmailAndPassword} = window._authFns;
+        const email = usernameToEmail(username);
+        const cred = await signInWithEmailAndPassword(window._auth, email, password);
+        await repairUserProfile(cred.user.uid, username, role);
+      } catch(e2) {
+        console.error('Réparation profil (migration):', e2);
+      }
+    } else {
+      console.error('Migration compte:', e);
+    }
+  }
+}
+
+// (Re)crée le document de profil Firestore (users/{uid}) pour un compte
+// Firebase existant qui n'en a pas encore — nécessaire quand la création du
+// compte a réussi mais que l'écriture du profil a échoué ou a été
+// interrompue. Retourne true si la réparation a réussi.
+async function repairUserProfile(uid, username, role) {
+  try {
+    const {doc, setDoc} = window._fbFns;
+    await setDoc(doc(window._db, 'users', uid), { username, role });
+    return true;
+  } catch(e) {
+    console.error('repairUserProfile:', e);
+    return false;
   }
 }
 
@@ -1470,19 +1499,33 @@ async function doLogin() {
   const u = document.getElementById('login-user').value.trim();
   const p = document.getElementById('login-pass').value;
   document.getElementById('auth-err').textContent = '';
+  const DEBUG = true; // diagnostic temporaire — à retirer une fois la migration confirmée stable
 
   if (STATE.isOnline && STATE.fbReady && window._authFns) {
     try {
       const {signInWithEmailAndPassword} = window._authFns;
       const cred = await signInWithEmailAndPassword(window._auth, usernameToEmail(u), p);
+      if (DEBUG) showToast(`🔎 Connexion sécurisée réussie (UID: ${cred.user.uid.slice(0,8)}…)`);
       const profile = await fetchUserProfile(cred.user.uid);
       if (profile) {
+        if (DEBUG) showToast(`🔎 Profil trouvé — rôle : ${profile.role}`);
         finishLogin({ uid: cred.user.uid, username: profile.username || u, role: profile.role });
         return;
       }
-      // Compte Firebase existant mais sans profil (cas anormal) : retomber
-      // sur la vérification historique ci-dessous plutôt que de bloquer.
+      if (DEBUG) showToast('🔎 Compte sécurisé OK mais AUCUN profil trouvé — réparation en cours...', 'warn');
+      // Compte Firebase réel mais profil Firestore manquant (ex : migration
+      // interrompue) : on le recrée maintenant avec le rôle connu localement,
+      // sans repasser par la vérification historique.
+      const known = STATE.users.find(x => x.username === u);
+      const role = (known && known.role) || 'vendeur';
+      const repaired = await repairUserProfile(cred.user.uid, u, role);
+      if (repaired) {
+        if (DEBUG) showToast('🔎 Profil réparé avec succès.');
+        finishLogin({ uid: cred.user.uid, username: u, role });
+        return;
+      }
     } catch (e) {
+      if (DEBUG) showToast(`🔎 Connexion sécurisée échouée (${e.code||e.message}) — repli sur l'ancien système`, 'warn');
       // "user-not-found"/"invalid-credential" = pas encore migré, ou mot de
       // passe erroné — on tente le repli historique juste en dessous, qui
       // fera l'arbitrage final.
