@@ -1414,9 +1414,15 @@ async function flushPendingQueue() {
   let count = 0;
   for (const item of toFlush) {
     try {
-      const col = item.type === 'vente' ? 'transactions' : 'stocks';
-      delete item.id;
-      await addDoc(collection(db, col), item);
+      // colTarget indique la vraie collection Firestore visée. Ancien format
+      // (avant l'ajout du mode hors-ligne complet) : les items n'avaient que
+      // "type", on retombe alors sur l'ancienne heuristique pour ne pas
+      // casser une file d'attente déjà en cours au moment de la mise à jour.
+      const col = item.colTarget || (item.type === 'vente' ? 'transactions' : 'stocks');
+      const clean = {...item};
+      delete clean.id;
+      delete clean.colTarget;
+      await addDoc(collection(db, col), clean);
       count++;
     } catch(e) {
       STATE.pendingQueue.push(item);
@@ -2018,8 +2024,12 @@ async function submitSale() {
       try {
         const {collection, addDoc} = window._fbFns;
         await addDoc(collection(window._db,'credits'), cr);
-      } catch(e) { console.error('Credit auto:', e); }
+      } catch(e) {
+        console.error('Credit auto:', e);
+        STATE.pendingQueue.push({...cr, colTarget:'credits'});
+      }
     } else {
+      STATE.pendingQueue.push({...cr, colTarget:'credits'});
       if (!STATE.credits) STATE.credits = [];
       STATE.credits.push(cr);
     }
@@ -2335,6 +2345,24 @@ function updateStockSupplierList() {
     .map(s => `<option value="${esc(s)}">`).join('');
 }
 
+// Met en file d'attente les documents liés à un achat de stock (l'entrée de
+// stock elle-même, son journal dans "transactions", et — si achat à crédit —
+// la dette fournisseur) afin qu'ils se synchronisent automatiquement dès le
+// retour de la connexion, plutôt que de disparaître silencieusement.
+function queueStockPurchase(entry, desc, supplier, amount, paymentMode) {
+  STATE.pendingQueue.push({...entry, colTarget:'stocks'});
+  STATE.pendingQueue.push({...entry, colTarget:'transactions', description:`[ACHAT STOCK] ${desc}`, product:'Stock', status:'sent'});
+  if (paymentMode === 'credit') {
+    STATE.pendingQueue.push({
+      type:'fournisseur_payment', date:entry.date, isoDate:entry.isoDate, time:entry.time,
+      seller:STATE.currentUser.username, supplier:supplier, due:amount, paid:0, finalBalance:amount,
+      status:'partiel', source:'achat', createdAt: new Date().toISOString(), colTarget:'fournisseur_payments'
+    });
+  }
+  saveLocal();
+  updatePendingUI();
+}
+
 async function submitStock() {
   const desc = document.getElementById('s-desc').value;
   const qty = parseFloat(document.getElementById('s-qty').value) || 0;
@@ -2387,13 +2415,15 @@ async function submitStock() {
       }
       showToast('✅ Achat enregistré sur Firebase.');
     } catch(e) {
-      showToast('⚠ Erreur Firebase: '+e.message,'warn');
+      // Écriture échouée malgré la connexion (ex: perte réseau en cours de
+      // route) — on met tout de même en file d'attente au lieu de perdre
+      // l'achat, avec les 2-3 documents liés (stock, journal, dette fournisseur).
+      queueStockPurchase(entry, desc, supplier, amount, paymentMode);
+      showToast('⚠ Erreur Firebase — achat en file d\'attente.','warn');
     }
   } else {
-    STATE.pendingQueue.push({...entry, colTarget:'stocks'});
-    saveLocal();
-    showToast('📤 Hors ligne — entrée en file d\'attente.','warn');
-    updatePendingUI();
+    queueStockPurchase(entry, desc, supplier, amount, paymentMode);
+    showToast('📤 Hors ligne — achat en file d\'attente (sera synchronisé automatiquement).','warn');
   }
   renderStocks();
   renderStockActuel();
@@ -3147,18 +3177,31 @@ async function submitCharge() {
   if (isNaN(montant) || montant <= 0) {
     showToast('⚠ Veuillez indiquer un montant valide.','warn'); return;
   }
+  const entry = { date:date, isoDate:date, montant:montant, description:desc, note:note,
+    seller:STATE.currentUser.username, createdAt:new Date().toISOString() };
   if (!STATE.isOnline || !STATE.fbReady) {
-    showToast('⚠ Hors ligne — impossible d\'enregistrer maintenant.','warn'); return;
-  }
-  try {
-    const {collection, addDoc} = window._fbFns;
-    const entry = { date:date, isoDate:date, montant:montant, description:desc, note:note,
-      seller:STATE.currentUser.username, createdAt:new Date().toISOString() };
-    const ref = await addDoc(collection(window._db,'charges'), entry);
     if (!STATE.charges) STATE.charges = [];
-    if (!STATE.charges.find(c=>c.id===ref.id)) STATE.charges = [{id:ref.id, ...entry}, ...STATE.charges];
-    showToast('✅ Charge enregistrée.');
-  } catch(e) { showToast('⚠ Erreur: '+e.message,'warn'); }
+    STATE.charges.push(entry);
+    STATE.pendingQueue.push({...entry, colTarget:'charges'});
+    saveLocal();
+    updatePendingUI();
+    showToast("📤 Hors ligne — charge en file d'attente (sera synchronisée automatiquement).",'warn');
+  } else {
+    try {
+      const {collection, addDoc} = window._fbFns;
+      const ref = await addDoc(collection(window._db,'charges'), entry);
+      if (!STATE.charges) STATE.charges = [];
+      if (!STATE.charges.find(c=>c.id===ref.id)) STATE.charges = [{id:ref.id, ...entry}, ...STATE.charges];
+      showToast('✅ Charge enregistrée.');
+    } catch(e) {
+      if (!STATE.charges) STATE.charges = [];
+      STATE.charges.push(entry);
+      STATE.pendingQueue.push({...entry, colTarget:'charges'});
+      saveLocal();
+      updatePendingUI();
+      showToast('⚠ Erreur Firebase — charge en file d\'attente.','warn');
+    }
+  }
   renderChargesHistory();
   if (currentTab === 'compta') buildAnalyse();
   document.getElementById('ch-date').value='';
@@ -3223,18 +3266,31 @@ async function submitApport() {
   if (isNaN(montant) || montant <= 0) {
     showToast('⚠ Veuillez indiquer un montant valide.','warn'); return;
   }
+  const entry = { date:date, isoDate:date, montant:montant, source:source, note:note,
+    seller:STATE.currentUser.username, createdAt:new Date().toISOString() };
   if (!STATE.isOnline || !STATE.fbReady) {
-    showToast('⚠ Hors ligne — impossible d\'enregistrer maintenant.','warn'); return;
-  }
-  try {
-    const {collection, addDoc} = window._fbFns;
-    const entry = { date:date, isoDate:date, montant:montant, source:source, note:note,
-      seller:STATE.currentUser.username, createdAt:new Date().toISOString() };
-    const ref = await addDoc(collection(window._db,'apports'), entry);
     if (!STATE.apports) STATE.apports = [];
-    if (!STATE.apports.find(a=>a.id===ref.id)) STATE.apports = [{id:ref.id, ...entry}, ...STATE.apports];
-    showToast('✅ Apport enregistré.');
-  } catch(e) { showToast('⚠ Erreur: '+e.message,'warn'); }
+    STATE.apports.push(entry);
+    STATE.pendingQueue.push({...entry, colTarget:'apports'});
+    saveLocal();
+    updatePendingUI();
+    showToast("📤 Hors ligne — apport en file d'attente (sera synchronisé automatiquement).",'warn');
+  } else {
+    try {
+      const {collection, addDoc} = window._fbFns;
+      const ref = await addDoc(collection(window._db,'apports'), entry);
+      if (!STATE.apports) STATE.apports = [];
+      if (!STATE.apports.find(a=>a.id===ref.id)) STATE.apports = [{id:ref.id, ...entry}, ...STATE.apports];
+      showToast('✅ Apport enregistré.');
+    } catch(e) {
+      if (!STATE.apports) STATE.apports = [];
+      STATE.apports.push(entry);
+      STATE.pendingQueue.push({...entry, colTarget:'apports'});
+      saveLocal();
+      updatePendingUI();
+      showToast('⚠ Erreur Firebase — apport en file d\'attente.','warn');
+    }
+  }
   renderApports();
   if (currentTab === 'compta') buildAnalyse();
   document.getElementById('ap-date').value='';
@@ -3288,18 +3344,31 @@ async function submitDepenseDom() {
   if (isNaN(montant) || montant <= 0) {
     showToast('⚠ Veuillez indiquer un montant valide.','warn'); return;
   }
+  const entry = { date:date, isoDate:date, montant:montant, description:description, note:note,
+    seller:STATE.currentUser.username, createdAt:new Date().toISOString() };
   if (!STATE.isOnline || !STATE.fbReady) {
-    showToast('⚠ Hors ligne — impossible d\'enregistrer maintenant.','warn'); return;
-  }
-  try {
-    const {collection, addDoc} = window._fbFns;
-    const entry = { date:date, isoDate:date, montant:montant, description:description, note:note,
-      seller:STATE.currentUser.username, createdAt:new Date().toISOString() };
-    const ref = await addDoc(collection(window._db,'depenses_domestiques'), entry);
     if (!STATE.depensesDomestiques) STATE.depensesDomestiques = [];
-    if (!STATE.depensesDomestiques.find(d=>d.id===ref.id)) STATE.depensesDomestiques = [{id:ref.id, ...entry}, ...STATE.depensesDomestiques];
-    showToast('✅ Dépense domestique enregistrée.');
-  } catch(e) { showToast('⚠ Erreur: '+e.message,'warn'); }
+    STATE.depensesDomestiques.push(entry);
+    STATE.pendingQueue.push({...entry, colTarget:'depenses_domestiques'});
+    saveLocal();
+    updatePendingUI();
+    showToast("📤 Hors ligne — dépense en file d'attente (sera synchronisée automatiquement).",'warn');
+  } else {
+    try {
+      const {collection, addDoc} = window._fbFns;
+      const ref = await addDoc(collection(window._db,'depenses_domestiques'), entry);
+      if (!STATE.depensesDomestiques) STATE.depensesDomestiques = [];
+      if (!STATE.depensesDomestiques.find(d=>d.id===ref.id)) STATE.depensesDomestiques = [{id:ref.id, ...entry}, ...STATE.depensesDomestiques];
+      showToast('✅ Dépense domestique enregistrée.');
+    } catch(e) {
+      if (!STATE.depensesDomestiques) STATE.depensesDomestiques = [];
+      STATE.depensesDomestiques.push(entry);
+      STATE.pendingQueue.push({...entry, colTarget:'depenses_domestiques'});
+      saveLocal();
+      updatePendingUI();
+      showToast('⚠ Erreur Firebase — dépense en file d\'attente.','warn');
+    }
+  }
   renderDepensesDom();
   renderChargesHistory();
   if (currentTab === 'compta') buildAnalyse();
@@ -4285,11 +4354,17 @@ async function submitCredit() {
       showToast('✅ Paiement enregistré sur Firebase.');
     } catch(e) {
       STATE.credits.push(cr);
-      showToast('⚠ Erreur Firebase — paiement en attente.','warn');
+      STATE.pendingQueue.push({...cr, colTarget:'credits'});
+      saveLocal();
+      updatePendingUI();
+      showToast('⚠ Erreur Firebase — paiement en file d\'attente.','warn');
     }
   } else {
     STATE.credits.push(cr);
-    showToast("📤 Hors ligne — paiement en file d'attente.","warn");
+    STATE.pendingQueue.push({...cr, colTarget:'credits'});
+    saveLocal();
+    updatePendingUI();
+    showToast("📤 Hors ligne — paiement en file d'attente (sera synchronisé automatiquement).","warn");
   }
   // Si balance finale > 0, reporter automatiquement
   if (final > 0) {
@@ -4656,11 +4731,17 @@ async function submitFournisseurPayment(prefix) {
       showToast('✅ Paiement enregistré sur Firebase.');
     } catch(e) {
       STATE.fournisseurPayments.push(fp);
-      showToast('⚠ Erreur Firebase — paiement en attente.','warn');
+      STATE.pendingQueue.push({...fp, colTarget:'fournisseur_payments'});
+      saveLocal();
+      updatePendingUI();
+      showToast('⚠ Erreur Firebase — paiement en file d\'attente.','warn');
     }
   } else {
     STATE.fournisseurPayments.push(fp);
-    showToast("📤 Hors ligne — paiement en file d'attente.","warn");
+    STATE.pendingQueue.push({...fp, colTarget:'fournisseur_payments'});
+    saveLocal();
+    updatePendingUI();
+    showToast("📤 Hors ligne — paiement en file d'attente (sera synchronisé automatiquement).","warn");
   }
   if (final > 0) {
     showToast(`⚠ Balance restante de ${fmtHTG(final)} reportée pour ${supplier}.`,'warn');
@@ -4943,11 +5024,16 @@ async function submitStockDepart() {
         STATE.stockDepart = [{id: ref.id, ...entry}, ...(STATE.stockDepart||[])];
       }
       showToast('✅ Stock de départ enregistré.');
-    } catch(e) { showToast('⚠ Erreur: '+e.message,'warn'); }
+    } catch(e) {
+      STATE.pendingQueue.push({...entry, colTarget:'stock_depart'});
+      saveLocal();
+      updatePendingUI();
+      showToast('⚠ Erreur Firebase — entrée en file d\'attente.','warn');
+    }
   } else {
     STATE.pendingQueue.push({...entry, colTarget:'stock_depart'});
     saveLocal();
-    showToast('📤 Hors ligne — entrée en file d\'attente.','warn');
+    showToast('📤 Hors ligne — entrée en file d\'attente (sera synchronisée automatiquement).','warn');
     updatePendingUI();
   }
   renderStockDepart();
@@ -5055,10 +5141,26 @@ async function submitCaisse() {
   if (isNaN(ouverture) || ouverture < 0) {
     showToast('⚠ Veuillez indiquer un montant d\'ouverture valide.','warn'); return;
   }
-  if (!STATE.isOnline || !STATE.fbReady) {
-    showToast('⚠ Hors ligne — impossible d\'enregistrer maintenant.','warn'); return;
-  }
   const existing = (STATE.caisse||[]).find(c => c.isoDate === date);
+  if (!STATE.isOnline || !STATE.fbReady) {
+    if (existing && existing.id) {
+      // Corriger une ouverture déjà synchronisée nécessite une connexion
+      // (mise à jour d'un document existant, non prise en charge hors ligne).
+      showToast('⚠ Hors ligne — impossible de corriger cette ouverture déjà synchronisée maintenant.','warn');
+      return;
+    }
+    const entry = { date:date, isoDate:date, montantOuverture:ouverture, seller:STATE.currentUser.username, createdAt:new Date().toISOString() };
+    if (!STATE.caisse) STATE.caisse = [];
+    STATE.caisse.push(entry);
+    STATE.pendingQueue.push({...entry, colTarget:'caisse'});
+    saveLocal();
+    updatePendingUI();
+    showToast("📤 Hors ligne — ouverture de caisse en file d'attente (sera synchronisée automatiquement).",'warn');
+    renderCaisse();
+    document.getElementById('cx-date').value='';
+    document.getElementById('cx-ouverture').value='';
+    return;
+  }
   try {
     const {collection, addDoc, doc, updateDoc} = window._fbFns;
     if (existing && existing.id) {
@@ -5093,18 +5195,31 @@ async function submitRetraitCaisse() {
   if (!personne || !objet) {
     showToast('⚠ Veuillez indiquer le nom de la personne et l\'objet du retrait.','warn'); return;
   }
+  const entry = { date:date, isoDate:date, time:nowStr(), montant:montant, personne:personne, objet:objet,
+    seller:STATE.currentUser.username, createdAt:new Date().toISOString() };
   if (!STATE.isOnline || !STATE.fbReady) {
-    showToast('⚠ Hors ligne — impossible d\'enregistrer maintenant.','warn'); return;
-  }
-  try {
-    const {collection, addDoc} = window._fbFns;
-    const entry = { date:date, isoDate:date, time:nowStr(), montant:montant, personne:personne, objet:objet,
-      seller:STATE.currentUser.username, createdAt:new Date().toISOString() };
-    const ref = await addDoc(collection(window._db,'caisse_retraits'), entry);
     if (!STATE.caisseRetraits) STATE.caisseRetraits = [];
-    if (!STATE.caisseRetraits.find(c=>c.id===ref.id)) STATE.caisseRetraits = [{id:ref.id, ...entry}, ...STATE.caisseRetraits];
-    showToast('✅ Retrait de caisse enregistré.');
-  } catch(e) { showToast('⚠ Erreur: '+e.message,'warn'); }
+    STATE.caisseRetraits.push(entry);
+    STATE.pendingQueue.push({...entry, colTarget:'caisse_retraits'});
+    saveLocal();
+    updatePendingUI();
+    showToast("📤 Hors ligne — retrait en file d'attente (sera synchronisé automatiquement).",'warn');
+  } else {
+    try {
+      const {collection, addDoc} = window._fbFns;
+      const ref = await addDoc(collection(window._db,'caisse_retraits'), entry);
+      if (!STATE.caisseRetraits) STATE.caisseRetraits = [];
+      if (!STATE.caisseRetraits.find(c=>c.id===ref.id)) STATE.caisseRetraits = [{id:ref.id, ...entry}, ...STATE.caisseRetraits];
+      showToast('✅ Retrait de caisse enregistré.');
+    } catch(e) {
+      if (!STATE.caisseRetraits) STATE.caisseRetraits = [];
+      STATE.caisseRetraits.push(entry);
+      STATE.pendingQueue.push({...entry, colTarget:'caisse_retraits'});
+      saveLocal();
+      updatePendingUI();
+      showToast('⚠ Erreur Firebase — retrait en file d\'attente.','warn');
+    }
+  }
   renderCaisseRetraits();
   renderCaisse();
   renderDashboard();
@@ -5427,6 +5542,17 @@ function renderAll() {
 setInterval(() => {
   if (STATE.currentUser && currentTab === 'ventes') renderMySales();
 }, 30000);
+
+// Enregistrement du Service Worker : permet d'ouvrir l'application même sans
+// AUCUNE connexion internet dès le départ (pas seulement après l'ouverture).
+// sw.js doit se trouver dans le même dossier que index.html sur GitHub.
+// Réseau prioritaire (toujours la dernière version en ligne), secours sur la
+// version mise en cache uniquement si le réseau est indisponible.
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('./sw.js').catch(err => console.error('Service worker non enregistré:', err));
+  });
+}
 </script>
 </body>
 </html>
