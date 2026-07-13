@@ -134,6 +134,10 @@ tr:hover td{background:#f7f9ff;}
 .acc-tab.active{background:#1a56db;color:#fff;border-color:#1a56db;}
 .acc-sheet{display:none;}
 .acc-sheet.active{display:block;}
+.credit-sub-tab{padding:5px 14px;border:1.5px solid var(--border);border-radius:20px;font-size:.82rem;cursor:pointer;background:transparent;color:var(--text2);font-weight:500;transition:all .18s;}
+.credit-sub-tab.active{background:#1a56db;color:#fff;border-color:#1a56db;}
+.credit-sub-sheet{display:none;}
+.credit-sub-sheet.active{display:block;}
 
 @media(max-width:600px){
   .main-content{padding:.7rem;}
@@ -186,8 +190,8 @@ tr:hover td{background:#f7f9ff;}
 
   <div class="tabs">
     <button class="active" onclick="switchTab('ventes')">🧾 Ventes</button>
-    <button id="tab-credit-btn" onclick="switchTab('credit')">💳 Crédit Client</button>
-    <button id="tab-dettes-btn" onclick="switchTab('dettes')">📋 Liste dettes clients</button>
+    <button id="tab-credit-btn" onclick="switchTab('credit')">💳 Crédits clients/Dettes envers fournisseurs</button>
+    <button id="tab-dettes-btn" onclick="switchTab('dettes')">📋 Liste dettes clients/dettes envers fournisseurs</button>
     <button id="tab-caisse-btn" onclick="switchTab('caisse')" style="display:none;">💰 Mouvement Caisse</button>
     <button id="tab-apport-btn" onclick="switchTab('apport')" style="display:none;">🪙 Apport</button>
     <button id="tab-autres-charges-btn" onclick="switchTab('autres-charges')" style="display:none;">💸 Charges hors marchandises</button>
@@ -308,43 +312,90 @@ tr:hover td{background:#f7f9ff;}
       </div>
     </div>
 
-    <!-- CREDIT CLIENT -->
+    <!-- CREDIT CLIENT / DETTES FOURNISSEURS -->
     <div class="tab-content" id="tab-credit">
-      <div class="card">
-        <div class="card-title">💳 Paiement Client — Remboursement de crédit</div>
-        <div id="credit-correction-banner" style="display:none;background:#fef3e2;color:#8a5a00;border:1px solid #f5d59a;border-radius:8px;padding:8px 12px;margin-bottom:12px;font-size:.85rem;font-weight:600;">
-          ✏️ Modification en cours — <span id="credit-correction-banner-text"></span>. Le nom du client est figé ; le montant remboursé peut être corrigé.
-        </div>
-        <div class="form-row">
-          <div class="form-group" style="flex:2;min-width:200px;">
-            <label>Nom du client</label>
-            <input type="text" id="cr-client" placeholder="Ex: Jean Pierre" oninput="loadClientBalance();updateClientList()" autocomplete="off" list="client-list"/>
-            <datalist id="client-list"></datalist>
-          </div>
-          <div class="form-group">
-            <label>Balance dette du client (HTG)</label>
-            <input type="number" id="cr-balance-due" placeholder="0.00" readonly style="background:#fdecea;font-weight:700;color:#c0392b;"/>
-          </div>
-        </div>
-        <div class="form-row">
-          <div class="form-group">
-            <label>Montant remboursé (HTG)</label>
-            <input type="number" id="cr-paid" min="0" step="0.01" placeholder="Ex: 500.00" oninput="calcCreditBalance()"/>
-          </div>
-          <div class="form-group">
-            <label>Balance finale (HTG)</label>
-            <input type="number" id="cr-final" placeholder="0.00" readonly style="background:#f0f2f7;font-weight:700;color:#0f7b4f;"/>
-          </div>
-        </div>
-        <button class="send-btn" onclick="submitCredit()">Enregistrer paiement ➤</button>
+      <div class="accounting-tabs">
+        <button class="credit-sub-tab active" onclick="switchCreditSubTab('clients',this)">💳 Paiement Clients — Remboursement de crédit</button>
+        <button class="credit-sub-tab" onclick="switchCreditSubTab('fournisseurs',this)">🚚 Paiement Dettes envers Fournisseurs</button>
       </div>
-      <div class="card">
-        <div class="card-title">📋 Historique des crédits clients</div>
-        <div class="table-wrap">
-          <table>
-            <thead><tr><th>Date</th><th>Heure</th><th>Client</th><th>Balance dette</th><th>Montant remboursé</th><th>Balance finale</th><th>Statut</th><th>Actions</th></tr></thead>
-            <tbody id="credit-table-body"><tr><td colspan="9" style="text-align:center;color:var(--text3);padding:1.5rem;">Aucun paiement enregistré.</td></tr></tbody>
-          </table>
+
+      <div class="credit-sub-sheet active" id="credit-sub-clients">
+        <div class="card">
+          <div class="card-title">💳 Paiement Client — Remboursement de crédit</div>
+          <div id="credit-correction-banner" style="display:none;background:#fef3e2;color:#8a5a00;border:1px solid #f5d59a;border-radius:8px;padding:8px 12px;margin-bottom:12px;font-size:.85rem;font-weight:600;">
+            ✏️ Modification en cours — <span id="credit-correction-banner-text"></span>. Le nom du client est figé ; le montant remboursé peut être corrigé.
+          </div>
+          <div class="form-row">
+            <div class="form-group" style="flex:2;min-width:200px;">
+              <label>Nom du client</label>
+              <input type="text" id="cr-client" placeholder="Ex: Jean Pierre" oninput="loadClientBalance();updateClientList()" autocomplete="off" list="client-list"/>
+              <datalist id="client-list"></datalist>
+            </div>
+            <div class="form-group">
+              <label>Balance dette du client (HTG)</label>
+              <input type="number" id="cr-balance-due" placeholder="0.00" readonly style="background:#fdecea;font-weight:700;color:#c0392b;"/>
+            </div>
+          </div>
+          <div class="form-row">
+            <div class="form-group">
+              <label>Montant remboursé (HTG)</label>
+              <input type="number" id="cr-paid" min="0" step="0.01" placeholder="Ex: 500.00" oninput="calcCreditBalance()"/>
+            </div>
+            <div class="form-group">
+              <label>Balance finale (HTG)</label>
+              <input type="number" id="cr-final" placeholder="0.00" readonly style="background:#f0f2f7;font-weight:700;color:#0f7b4f;"/>
+            </div>
+          </div>
+          <button class="send-btn" onclick="submitCredit()">Enregistrer paiement ➤</button>
+        </div>
+        <div class="card">
+          <div class="card-title">📋 Historique des crédits clients</div>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>Date</th><th>Heure</th><th>Client</th><th>Balance dette</th><th>Montant remboursé</th><th>Balance finale</th><th>Statut</th><th>Actions</th></tr></thead>
+              <tbody id="credit-table-body"><tr><td colspan="9" style="text-align:center;color:var(--text3);padding:1.5rem;">Aucun paiement enregistré.</td></tr></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <div class="credit-sub-sheet" id="credit-sub-fournisseurs">
+        <div class="card">
+          <div class="card-title">🚚 Paiement Fournisseur — Remboursement de dette</div>
+          <div id="fp-correction-banner" style="display:none;background:#fef3e2;color:#8a5a00;border:1px solid #f5d59a;border-radius:8px;padding:8px 12px;margin-bottom:12px;font-size:.85rem;font-weight:600;">
+            ✏️ Modification en cours — <span id="fp-correction-banner-text"></span>. Le nom du fournisseur est figé ; le montant remboursé peut être corrigé.
+          </div>
+          <div class="form-row">
+            <div class="form-group" style="flex:2;min-width:200px;">
+              <label>Nom du fournisseur</label>
+              <input type="text" id="fp-supplier" placeholder="Ex: Marché central" oninput="loadSupplierBalance();updateSupplierList()" autocomplete="off" list="supplier-list"/>
+              <datalist id="supplier-list"></datalist>
+            </div>
+            <div class="form-group">
+              <label>Balance dette envers le fournisseur (HTG)</label>
+              <input type="number" id="fp-balance-due" placeholder="0.00" readonly style="background:#fdecea;font-weight:700;color:#c0392b;"/>
+            </div>
+          </div>
+          <div class="form-row">
+            <div class="form-group">
+              <label>Montant remboursé (HTG)</label>
+              <input type="number" id="fp-paid" min="0" step="0.01" placeholder="Ex: 500.00" oninput="calcFournisseurBalance()"/>
+            </div>
+            <div class="form-group">
+              <label>Balance finale (HTG)</label>
+              <input type="number" id="fp-final" placeholder="0.00" readonly style="background:#f0f2f7;font-weight:700;color:#0f7b4f;"/>
+            </div>
+          </div>
+          <button class="send-btn" onclick="submitFournisseurPayment()">Enregistrer paiement ➤</button>
+        </div>
+        <div class="card">
+          <div class="card-title">📋 Historique des dettes envers fournisseurs</div>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>Date</th><th>Heure</th><th>Fournisseur</th><th>Balance dette</th><th>Montant remboursé</th><th>Balance finale</th><th>Statut</th><th>Actions</th></tr></thead>
+              <tbody id="fp-table-body"><tr><td colspan="8" style="text-align:center;color:var(--text3);padding:1.5rem;">Aucun paiement enregistré.</td></tr></tbody>
+            </table>
+          </div>
         </div>
       </div>
     </div>
@@ -357,6 +408,15 @@ tr:hover td{background:#f7f9ff;}
           <table>
             <thead><tr><th>Client</th><th>Total Dû (HTG)</th><th>Total Payé (HTG)</th><th>Balance Restante (HTG)</th><th>Statut</th></tr></thead>
             <tbody id="dettes-table-body"><tr><td colspan="5" style="text-align:center;color:var(--text3);padding:1.5rem;">Aucune dette enregistrée.</td></tr></tbody>
+          </table>
+        </div>
+      </div>
+      <div class="card">
+        <div class="card-title">🚚 Liste des fournisseurs avec balance de dettes</div>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Fournisseur</th><th>Total Dû (HTG)</th><th>Total Payé (HTG)</th><th>Balance Restante (HTG)</th><th>Statut</th></tr></thead>
+            <tbody id="dettes-fournisseurs-table-body"><tr><td colspan="5" style="text-align:center;color:var(--text3);padding:1.5rem;">Aucune dette enregistrée.</td></tr></tbody>
           </table>
         </div>
       </div>
@@ -681,8 +741,16 @@ tr:hover td{background:#f7f9ff;}
             <input type="number" id="s-qty-caisses" step="0.01" readonly style="background:#f0f2f7;font-weight:700;color:#1a56db;"/>
           </div>
           <div class="form-group">
-            <label>Fournisseur</label>
-            <input type="text" id="s-supplier" placeholder="Ex: Marché central"/>
+            <label id="s-supplier-label">Fournisseur</label>
+            <input type="text" id="s-supplier" placeholder="Ex: Marché central" oninput="updateStockSupplierList()" autocomplete="off" list="stock-supplier-list"/>
+            <datalist id="stock-supplier-list"></datalist>
+          </div>
+          <div class="form-group">
+            <label>Mode de paiement</label>
+            <select id="s-payment" onchange="toggleStockSupplierRequired()">
+              <option value="cash">Cash</option>
+              <option value="credit">Crédit (dette envers le fournisseur)</option>
+            </select>
           </div>
         </div>
         <button class="send-btn" onclick="submitStock()">Enregistrer ➤</button>
@@ -965,6 +1033,7 @@ let STATE = {
   charges: [],        // synced from Firestore (autres charges : transport, manutention, charges diverses, impôt...)
   apports: [],        // synced from Firestore (apports / injections de capital)
   depensesDomestiques: [], // synced from Firestore (dépenses domestiques, comptées comme des charges)
+  fournisseurPayments: [], // synced from Firestore (paiements/dettes envers les fournisseurs, achats à crédit)
   pendingQueue: [],   // offline queue
   currentUser: null,
   isOnline: navigator.onLine,
@@ -1011,7 +1080,7 @@ loadLocal();
 // ============================================================
 // FIREBASE LISTENERS
 // ============================================================
-let unsubCredits = null, unsubStockDepart = null, unsubCaisse = null, unsubCaisseRetraits = null, unsubCharges = null, unsubApports = null, unsubDepensesDom = null;
+let unsubCredits = null, unsubStockDepart = null, unsubCaisse = null, unsubCaisseRetraits = null, unsubCharges = null, unsubApports = null, unsubDepensesDom = null, unsubFournisseurPayments = null;
 
 function startFirebaseListeners() {
   if (!window._fbReady || !window._db) return;
@@ -1048,6 +1117,7 @@ function startFirebaseListeners() {
       renderStocks();
       renderDashboard();
       renderStockActuel();
+      renderDettesFournisseurs();
     },
     err => console.error('Stock listener:', err)
   );
@@ -1063,6 +1133,18 @@ function startFirebaseListeners() {
       renderMySales();
     },
     err => console.error('Credits listener:', err)
+  );
+
+  // FOURNISSEUR PAYMENTS - Synchronisation globale (dettes envers fournisseurs)
+  if (unsubFournisseurPayments) unsubFournisseurPayments();
+  unsubFournisseurPayments = onSnapshot(
+    query(collection(db, 'fournisseur_payments'), orderBy('isoDate','desc')),
+    snap => {
+      STATE.fournisseurPayments = snap.docs.map(d => ({id: d.id, ...d.data()}));
+      renderFournisseurPayments();
+      renderDettesFournisseurs();
+    },
+    err => console.error('Fournisseur payments listener:', err)
   );
 
   // STOCK DEPART - Synchronisation globale
@@ -1340,6 +1422,7 @@ async function confirmLogout(action) {
 function performLogout() {
   unlockSaleForm();
   unlockCreditForm();
+  unlockFournisseurPaymentForm();
   unlockStockDepartForm();
   if (unsubTrans) unsubTrans();
   if (unsubStocks) unsubStocks();
@@ -1351,6 +1434,7 @@ function performLogout() {
   if (unsubCharges) unsubCharges();
   if (unsubApports) unsubApports();
   if (unsubDepensesDom) unsubDepensesDom();
+  if (unsubFournisseurPayments) unsubFournisseurPayments();
   STATE.currentUser = null;
   document.getElementById('auth-screen').style.display = 'flex';
   document.getElementById('app').style.display = 'none';
@@ -1380,8 +1464,8 @@ function switchTab(tab) {
   if (tab==='tableau') renderDashboard();
   if (tab==='data-analyse') renderDataAnalyse();
   if (tab==='stocks') renderStocks();
-  if (tab==='credit') renderCredits();
-  if (tab==='dettes') renderDettes();
+  if (tab==='credit') { renderCredits(); renderFournisseurPayments(); }
+  if (tab==='dettes') { renderDettes(); renderDettesFournisseurs(); }
   if (tab==='caisse') { renderCaisse(); renderCaisseRetraits(); }
   if (tab==='apport') renderApports();
   if (tab==='autres-charges') renderChargesHistory();
@@ -1903,6 +1987,27 @@ function calcStockPrixUnitaire() {
   document.getElementById('s-prix-unitaire').value = prixUnit.toFixed(2);
 }
 
+// Bascule le libellé du champ Fournisseur en rouge/obligatoire dès que le
+// mode de paiement "Crédit" est choisi (le fournisseur devient obligatoire
+// pour enregistrer un achat à crédit — dette envers ce fournisseur).
+function toggleStockSupplierRequired() {
+  const payment = document.getElementById('s-payment').value;
+  const label = document.getElementById('s-supplier-label');
+  if (!label) return;
+  label.innerHTML = payment === 'credit' ? 'Fournisseur <span style="color:#c0392b;">*obligatoire (achat à crédit)</span>' : 'Fournisseur';
+}
+
+function updateStockSupplierList() {
+  const input = document.getElementById('s-supplier').value.trim().toLowerCase();
+  const datalist = document.getElementById('stock-supplier-list');
+  if (!datalist) return;
+  const suppliers = new Set();
+  (STATE.stocks||[]).forEach(s => { if (s.supplier) suppliers.add(s.supplier); });
+  datalist.innerHTML = [...suppliers]
+    .filter(s => s.toLowerCase().includes(input))
+    .map(s => `<option value="${esc(s)}">`).join('');
+}
+
 async function submitStock() {
   const desc = document.getElementById('s-desc').value;
   const qty = parseFloat(document.getElementById('s-qty').value) || 0;
@@ -1912,14 +2017,19 @@ async function submitStock() {
   const price = parseFloat(document.getElementById('s-price').value) || 0;
   const prixUnitaire = parseFloat(document.getElementById('s-prix-unitaire').value) || 0;
   const supplier = document.getElementById('s-supplier').value.trim();
+  const paymentMode = document.getElementById('s-payment').value || 'cash';
   if (!desc||qty<=0||price<=0) {
     showToast('⚠ Veuillez remplir tous les champs obligatoires.','warn'); return;
   }
+  if (paymentMode === 'credit' && !supplier) {
+    showToast('⚠ Le nom du fournisseur est obligatoire pour un achat à crédit.','warn'); return;
+  }
+  const amount = qtyCaisses*price;
   const entry = {
     type:'stock-in', date:todayStr(), isoDate:isoDate(), time:nowStr(),
     seller:STATE.currentUser.username, description:desc, supplier:supplier||'',
     quantity:qty, unit:unit, extraUnits:extra, quantityCaisses:qtyCaisses,
-    unitPrice:price, prixUnitaire:prixUnitaire, amount:qtyCaisses*price, createdAt: new Date().toISOString()
+    unitPrice:price, prixUnitaire:prixUnitaire, amount:amount, paymentMode:paymentMode, createdAt: new Date().toISOString()
   };
   if (STATE.isOnline && STATE.fbReady) {
     try {
@@ -1932,6 +2042,22 @@ async function submitStock() {
       await addDoc(collection(window._db,'transactions'), {
         ...entry, description:`[ACHAT STOCK] ${desc}`, product:'Stock', status:'sent'
       });
+      // Achat à crédit = dette envers le fournisseur : on enregistre l'événement
+      // dans l'historique des dettes fournisseurs (due=montant, payé=0), même
+      // principe que la création automatique d'une entrée "credits" pour une
+      // vente à crédit.
+      if (paymentMode === 'credit') {
+        const fp = {
+          type:'fournisseur_payment', date:entry.date, isoDate:entry.isoDate, time:entry.time,
+          seller:STATE.currentUser.username, supplier:supplier, due:amount, paid:0, finalBalance:amount,
+          status:'partiel', source:'achat', createdAt: new Date().toISOString()
+        };
+        try {
+          const ref2 = await addDoc(collection(window._db,'fournisseur_payments'), fp);
+          if (!STATE.fournisseurPayments) STATE.fournisseurPayments = [];
+          if (!STATE.fournisseurPayments.find(p=>p.id===ref2.id)) STATE.fournisseurPayments = [{id:ref2.id, ...fp}, ...STATE.fournisseurPayments];
+        } catch(e) { console.error('Fournisseur payment auto:', e); }
+      }
       showToast('✅ Achat enregistré sur Firebase.');
     } catch(e) {
       showToast('⚠ Erreur Firebase: '+e.message,'warn');
@@ -1945,6 +2071,8 @@ async function submitStock() {
   renderStocks();
   renderStockActuel();
   renderDashboard();
+  renderDettesFournisseurs();
+  renderFournisseurPayments();
   document.getElementById('s-desc').value='';
   document.getElementById('s-qty').value='';
   document.getElementById('s-unit').value='caisse';
@@ -1953,6 +2081,8 @@ async function submitStock() {
   document.getElementById('s-price').value='';
   document.getElementById('s-prix-unitaire').value='';
   document.getElementById('s-supplier').value='';
+  document.getElementById('s-payment').value='cash';
+  toggleStockSupplierRequired();
 }
 
 function renderStocks() {
@@ -3873,6 +4003,310 @@ function renderDettes() {
     <td><span class="badge badge-pending">⚠ En cours</span></td>
   </tr>`).join('') + `<tr style="background:var(--surface2);font-weight:700;border-top:2px solid var(--border);">
     <td>📊 TOTAL (${debtors.length} client(s))</td>
+    <td>${fmtHTG(debtors.reduce((a,d)=>a+d.totalDu,0))}</td>
+    <td>${fmtHTG(debtors.reduce((a,d)=>a+d.totalPaye,0))}</td>
+    <td style="color:#c0392b;">${fmtHTG(debtors.reduce((a,d)=>a+d.balanceRestante,0))}</td>
+    <td></td>
+  </tr>`;
+}
+
+// ============================================================
+// DETTES ENVERS FOURNISSEURS (achats de stock enregistrés en mode "Crédit")
+// Même principe que Crédit Client / Liste des Dettes, appliqué aux
+// fournisseurs : STATE.stocks (achats à crédit) = la dette elle-même,
+// STATE.fournisseurPayments = l'historique des remboursements effectués.
+// ============================================================
+let _pendingFournisseurPaymentEditId = null;
+
+function switchCreditSubTab(name, btn) {
+  document.querySelectorAll('.credit-sub-tab').forEach(el => el.classList.remove('active'));
+  document.querySelectorAll('.credit-sub-sheet').forEach(el => el.classList.remove('active'));
+  document.getElementById('credit-sub-'+name).classList.add('active');
+  if (btn) btn.classList.add('active');
+  renderCredits();
+  renderFournisseurPayments();
+}
+
+function updateSupplierList() {
+  const input = document.getElementById('fp-supplier').value.trim().toLowerCase();
+  const datalist = document.getElementById('supplier-list');
+  if (!datalist) return;
+  const suppliers = new Set();
+  (STATE.stocks||[]).forEach(s => { if (s.supplier) suppliers.add(s.supplier); });
+  (STATE.fournisseurPayments||[]).forEach(p => { if (p.supplier) suppliers.add(p.supplier); });
+  datalist.innerHTML = [...suppliers]
+    .filter(s => s.toLowerCase().includes(input))
+    .map(s => `<option value="${esc(s)}">`).join('');
+}
+
+// Dette totale d'un fournisseur = somme des achats enregistrés en mode
+// "Crédit" moins la somme des remboursements effectués (hors événement de
+// création de la dette elle-même, source:'achat', qui a toujours paid=0).
+function getSupplierDebt(supplierName) {
+  const name = (supplierName||'').toLowerCase();
+  const achatsDette = (STATE.stocks||[])
+    .filter(s => s.paymentMode==='credit' && (s.supplier||'').toLowerCase()===name)
+    .reduce((a,s) => a + (s.amount||0), 0);
+  const paiementsFaits = (STATE.fournisseurPayments||[])
+    .filter(p => (p.supplier||'').toLowerCase()===name && p.source!=='achat')
+    .reduce((a,p) => a + (p.paid||0), 0);
+  return Math.max(0, achatsDette - paiementsFaits);
+}
+
+function loadSupplierBalance() {
+  const supplierInput = document.getElementById('fp-supplier').value.trim();
+  if (!supplierInput) { document.getElementById('fp-balance-due').value = ''; return; }
+  const remaining = getSupplierDebt(supplierInput);
+  document.getElementById('fp-balance-due').value = remaining.toFixed(2);
+  calcFournisseurBalance();
+}
+
+function calcFournisseurBalance() {
+  const due = parseFloat(document.getElementById('fp-balance-due').value) || 0;
+  const paid = parseFloat(document.getElementById('fp-paid').value) || 0;
+  const final = Math.max(0, due - paid);
+  document.getElementById('fp-final').value = final.toFixed(2);
+}
+
+async function submitFournisseurPayment() {
+  const supplier = document.getElementById('fp-supplier').value.trim();
+  const due = parseFloat(document.getElementById('fp-balance-due').value) || 0;
+  const paid = parseFloat(document.getElementById('fp-paid').value) || 0;
+  const final = parseFloat(document.getElementById('fp-final').value) || 0;
+  if (!supplier || paid <= 0) { showToast('⚠ Veuillez remplir tous les champs.','warn'); return; }
+
+  if (_pendingFournisseurPaymentEditId) {
+    if (!requireAdminOrGest()) return;
+    const id = _pendingFournisseurPaymentEditId;
+    if (STATE.isOnline && STATE.fbReady) {
+      try {
+        const {doc, updateDoc} = window._fbFns;
+        await updateDoc(doc(window._db,'fournisseur_payments',id), {
+          paid:paid, finalBalance:final, status: final===0?'soldé':'partiel',
+          editedBy: STATE.currentUser.username, editedAt: new Date().toISOString()
+        });
+        showToast('✅ Paiement modifié.');
+        markUnsaved();
+        const idx = (STATE.fournisseurPayments||[]).findIndex(p=>p.id===id);
+        if (idx>=0) STATE.fournisseurPayments[idx] = {...STATE.fournisseurPayments[idx], paid, finalBalance:final, status: final===0?'soldé':'partiel'};
+        renderFournisseurPayments();
+        renderDettesFournisseurs();
+      } catch(e) { showToast('⚠ Erreur: '+e.message,'warn'); }
+    } else {
+      showToast('⚠ Hors ligne — impossible de modifier ce paiement maintenant.','warn');
+      return;
+    }
+    document.getElementById('fp-supplier').value = '';
+    document.getElementById('fp-balance-due').value = '';
+    document.getElementById('fp-paid').value = '';
+    document.getElementById('fp-final').value = '';
+    unlockFournisseurPaymentForm();
+    return;
+  }
+
+  const fp = {
+    type:'fournisseur_payment', date:todayStr(), isoDate:isoDate(), time:nowStr(),
+    seller:STATE.currentUser.username, supplier:supplier, due:due, paid:paid, finalBalance:final,
+    status: final === 0 ? 'soldé' : 'partiel', createdAt: new Date().toISOString()
+  };
+  if (!STATE.fournisseurPayments) STATE.fournisseurPayments = [];
+  if (STATE.isOnline && STATE.fbReady) {
+    try {
+      const {collection, addDoc} = window._fbFns;
+      await addDoc(collection(window._db,'fournisseur_payments'), fp);
+      showToast('✅ Paiement enregistré sur Firebase.');
+    } catch(e) {
+      STATE.fournisseurPayments.push(fp);
+      showToast('⚠ Erreur Firebase — paiement en attente.','warn');
+    }
+  } else {
+    STATE.fournisseurPayments.push(fp);
+    showToast("📤 Hors ligne — paiement en file d'attente.","warn");
+  }
+  if (final > 0) {
+    showToast(`⚠ Balance restante de ${fmtHTG(final)} reportée pour ${supplier}.`,'warn');
+  }
+  renderFournisseurPayments();
+  renderDettesFournisseurs();
+  document.getElementById('fp-supplier').value = '';
+  document.getElementById('fp-balance-due').value = '';
+  document.getElementById('fp-paid').value = '';
+  document.getElementById('fp-final').value = '';
+}
+
+function renderFournisseurPayments() {
+  if (!STATE.fournisseurPayments) STATE.fournisseurPayments = [];
+  const body = document.getElementById('fp-table-body');
+  if (!body) return;
+  // On n'affiche que les paiements réels (pas l'événement de création de la
+  // dette lui-même, paid=0, source:'achat') dans cet historique de remboursements.
+  const sorted = [...STATE.fournisseurPayments].filter(p=>p.source!=='achat' || (p.paid||0)>0).sort((a,b) => {
+    const da = getIsoFromTx ? getIsoFromTx(a) : (a.isoDate||a.date||'');
+    const db = getIsoFromTx ? getIsoFromTx(b) : (b.isoDate||b.date||'');
+    if (db !== da) return db.localeCompare(da);
+    return (b.time||'').localeCompare(a.time||'');
+  });
+  if (!sorted.length) {
+    body.innerHTML = '<tr><td colspan="8" style="text-align:center;color:var(--text3);padding:1.5rem;">Aucun paiement enregistré.</td></tr>';
+    return;
+  }
+  const currentMonth = localMonthStr();
+  const groups = {};
+  sorted.forEach(p => {
+    const month = (getIsoFromTx ? getIsoFromTx(p) : (p.isoDate||p.date||'')).slice(0,7);
+    if (!groups[month]) groups[month] = [];
+    groups[month].push(p);
+  });
+  const sortedMonths = Object.keys(groups).sort((a,b) => b.localeCompare(a));
+
+  let rows = [];
+  sortedMonths.forEach(month => {
+    const isCurrentMonth = month === currentMonth;
+    const label = isCurrentMonth ? `📅 CE MOIS-CI — ${formatMonthLabel(month)}` : formatMonthLabel(month);
+    rows.push(`<tr style="background:${isCurrentMonth?'#1a56db':'#5a6282'};color:#fff;font-weight:700;">
+      <td colspan="8" style="padding:8px 10px;font-size:.9rem;">${label}</td>
+    </tr>`);
+
+    const dayGroups = {};
+    groups[month].forEach(p => {
+      const day = getIsoFromTx ? getIsoFromTx(p) : (p.isoDate||p.date||'');
+      if (!dayGroups[day]) dayGroups[day] = [];
+      dayGroups[day].push(p);
+    });
+    const sortedDays = Object.keys(dayGroups).sort((a,b) => b.localeCompare(a));
+
+    sortedDays.forEach(day => {
+      const dayPayments = dayGroups[day];
+      rows.push(`<tr style="background:#eef1f8;font-weight:600;">
+        <td colspan="8" style="padding:6px 10px;font-size:.82rem;color:#3a4260;">${formatGroupLabel(day)}</td>
+      </tr>`);
+
+      dayPayments.forEach(p => {
+        const currentDebt = getSupplierDebt(p.supplier);
+        const hasDebt = currentDebt > 0;
+        const supplierColor = hasDebt ? 'color:#c0392b;font-weight:700;' : 'color:#0f7b4f;font-weight:700;';
+        rows.push(`<tr>
+          <td>${p.date}</td><td>${p.time}</td>
+          <td style="${supplierColor}">${esc(p.supplier)}</td>
+          <td>${fmtHTG(p.due)}</td><td>${fmtHTG(p.paid||0)}</td>
+          <td style="${supplierColor}">${fmtHTG(p.finalBalance||0)}</td>
+          <td><span class="badge ${hasDebt?'badge-pending':'badge-sent'}">${hasDebt?'⏳ Partiel':'✅ Soldé'}</span></td>
+          <td style="white-space:nowrap;">${STATE.currentUser&&(STATE.currentUser.role==='admin'||STATE.currentUser.role==='gestionnaire')?`<button class="btn btn-outline" style="font-size:.75rem;padding:3px 10px;" onclick="openEditFournisseurPayment('${p.id||''}','${esc(p.supplier)}',${p.due||0},${p.paid||0},${p.finalBalance||0},'${esc(p.date||'')}','${esc(p.time||'')}')">✏</button><button class="btn" style="font-size:.75rem;padding:3px 10px;background:var(--danger-bg);color:var(--danger);border:1px solid #f5b7b1;margin-left:4px;" onclick="deleteFournisseurPayment('${p.id||''}')">🗑</button>`:'—'}</td>
+        </tr>`);
+      });
+
+      const dayTotRemb = dayPayments.reduce((a,p) => a+(p.paid||0), 0);
+      rows.push(`<tr style="background:#f6f7fb;font-weight:600;border-top:1px solid var(--border);">
+        <td colspan="4" style="font-size:.82rem;">📊 Total remboursement jour — ${formatGroupLabel(day)}</td>
+        <td>${fmtHTG(dayTotRemb)}</td>
+        <td colspan="3" style="font-size:.8rem;">${dayPayments.length} paiement(s)</td>
+      </tr>`);
+    });
+
+    const monthTotRemb = groups[month].reduce((a,p) => a+(p.paid||0), 0);
+    rows.push(`<tr style="background:var(--surface2);font-weight:700;border-top:2px solid var(--border);">
+      <td colspan="4">📊 Total remboursement — ${formatMonthLabel(month)}</td>
+      <td>${fmtHTG(monthTotRemb)}</td>
+      <td colspan="3">${groups[month].length} paiement(s)</td>
+    </tr>`);
+  });
+  body.innerHTML = rows.join('');
+}
+
+function openEditFournisseurPayment(id, supplier, due, paid, finalBalance, date, time) {
+  if (!requireAdminOrGest()) return;
+  if (!id) { showToast('⚠ Paiement introuvable.','warn'); return; }
+  document.getElementById('fp-supplier').value = supplier || '';
+  document.getElementById('fp-balance-due').value = (due||0).toFixed(2);
+  document.getElementById('fp-paid').value = paid || '';
+  document.getElementById('fp-final').value = (finalBalance||0).toFixed(2);
+  const supplierInput = document.getElementById('fp-supplier');
+  supplierInput.readOnly = true;
+  supplierInput.style.background = '#f0f2f7';
+  _pendingFournisseurPaymentEditId = id;
+  const banner = document.getElementById('fp-correction-banner');
+  const bannerText = document.getElementById('fp-correction-banner-text');
+  if (banner && bannerText) {
+    bannerText.textContent = `paiement de ${supplier} du ${date||''} à ${time||''}`;
+    banner.style.display = 'block';
+  }
+  supplierInput.scrollIntoView({behavior:'smooth', block:'center'});
+  showToast('✏️ Paiement chargé dans le formulaire — corrigez le montant puis cliquez sur Enregistrer.');
+}
+
+function unlockFournisseurPaymentForm() {
+  _pendingFournisseurPaymentEditId = null;
+  const supplierInput = document.getElementById('fp-supplier');
+  if (supplierInput) { supplierInput.readOnly = false; supplierInput.style.background = ''; }
+  const banner = document.getElementById('fp-correction-banner');
+  if (banner) banner.style.display = 'none';
+}
+
+async function deleteFournisseurPayment(id) {
+  if (!requireAdminOrGest()) return;
+  if (!confirm('Supprimer ce paiement fournisseur ?')) return;
+  if (STATE.isOnline && STATE.fbReady && id) {
+    try {
+      const {doc, deleteDoc} = window._fbFns;
+      await deleteDoc(doc(window._db,'fournisseur_payments',id));
+      showToast('🗑 Paiement supprimé.','warn');
+      markUnsaved();
+      STATE.fournisseurPayments = (STATE.fournisseurPayments||[]).filter(p => p.id !== id);
+      renderFournisseurPayments();
+      renderDettesFournisseurs();
+    } catch(e) { showToast('⚠ Erreur: '+e.message,'warn'); }
+  } else {
+    STATE.fournisseurPayments = (STATE.fournisseurPayments||[]).filter(p => p.id !== id);
+    renderFournisseurPayments();
+    renderDettesFournisseurs();
+  }
+}
+
+function renderDettesFournisseurs() {
+  const body = document.getElementById('dettes-fournisseurs-table-body');
+  if (!body) return;
+
+  const suppliers = new Set();
+  (STATE.stocks||[]).forEach(s => { if (s.supplier && s.paymentMode==='credit') suppliers.add(s.supplier); });
+  (STATE.fournisseurPayments||[]).forEach(p => { if (p.supplier) suppliers.add(p.supplier); });
+
+  if (!suppliers.size) {
+    body.innerHTML = '<tr><td colspan="5" style="text-align:center;color:var(--text3);padding:1.5rem;">Aucune dette enregistrée.</td></tr>';
+    return;
+  }
+
+  const supplierData = [];
+  suppliers.forEach(supplier => {
+    const name = supplier.toLowerCase();
+    const totalDu = (STATE.stocks||[])
+      .filter(s => s.paymentMode==='credit' && (s.supplier||'').toLowerCase()===name)
+      .reduce((a,s) => a+(s.amount||0), 0);
+    const totalPaye = (STATE.fournisseurPayments||[])
+      .filter(p => (p.supplier||'').toLowerCase()===name && p.source!=='achat')
+      .reduce((a,p) => a+(p.paid||0), 0);
+    const balanceRestante = Math.max(0, totalDu - totalPaye);
+    if (totalDu > 0 || totalPaye > 0) {
+      supplierData.push({ supplier, totalDu, totalPaye, balanceRestante });
+    }
+  });
+
+  supplierData.sort((a,b) => b.balanceRestante - a.balanceRestante);
+
+  const debtors = supplierData.filter(d => d.balanceRestante > 0);
+
+  if (!debtors.length) {
+    body.innerHTML = '<tr><td colspan="5" style="text-align:center;color:#0f7b4f;padding:1.5rem;">✅ Aucune dette en cours — tous les fournisseurs sont à jour !</td></tr>';
+    return;
+  }
+
+  body.innerHTML = debtors.map(d => `<tr>
+    <td style="font-weight:700;color:#c0392b;">${esc(d.supplier)}</td>
+    <td>${fmtHTG(d.totalDu)}</td>
+    <td>${fmtHTG(d.totalPaye)}</td>
+    <td style="font-weight:700;color:#c0392b;">${fmtHTG(d.balanceRestante)}</td>
+    <td><span class="badge badge-pending">⚠ En cours</span></td>
+  </tr>`).join('') + `<tr style="background:var(--surface2);font-weight:700;border-top:2px solid var(--border);">
+    <td>📊 TOTAL (${debtors.length} fournisseur(s))</td>
     <td>${fmtHTG(debtors.reduce((a,d)=>a+d.totalDu,0))}</td>
     <td>${fmtHTG(debtors.reduce((a,d)=>a+d.totalPaye,0))}</td>
     <td style="color:#c0392b;">${fmtHTG(debtors.reduce((a,d)=>a+d.balanceRestante,0))}</td>
