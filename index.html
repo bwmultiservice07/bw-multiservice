@@ -35,10 +35,10 @@ const auth = getAuth(fireApp);
 // persistance ne peut être active que dans un seul onglet à la fois — sans
 // gravité, cet onglet fonctionnera simplement sans le cache local).
 enableIndexedDbPersistence(db).then(() => {
-  setTimeout(() => { if (window._DEBUG_OFFLINE && window.showToast) window.showToast('🔎 Persistance Firestore (IndexedDB) activée avec succès.'); }, 300);
+  setTimeout(() => { if (window._DEBUG_OFFLINE && window._logDebugOffline) window._logDebugOffline('Persistance Firestore (IndexedDB) activée avec succès.'); }, 300);
 }).catch(err => {
   console.error('Persistance hors-ligne Firestore non activée:', err.code || err.message);
-  setTimeout(() => { if (window._DEBUG_OFFLINE && window.showToast) window.showToast('🔎 Persistance Firestore ÉCHOUÉE: ' + (err.code || err.message), 'warn'); }, 300);
+  setTimeout(() => { if (window._DEBUG_OFFLINE && window._logDebugOffline) window._logDebugOffline('Persistance Firestore ÉCHOUÉE: ' + (err.code || err.message)); }, 300);
 });
 
 // Instance Firebase secondaire, dédiée à la création de comptes par un
@@ -84,8 +84,8 @@ window._secondaryAuth = secondaryAuth;
 // échoue chez certains utilisateurs.
 window._DEBUG_OFFLINE = true;
 onAuthStateChanged(auth, user => {
-  if (window._DEBUG_OFFLINE && window.showToast) {
-    window.showToast('🔎 onAuthStateChanged: ' + (user ? (user.isAnonymous ? 'session anonyme' : 'session réelle uid=' + user.uid.slice(0,8)) : 'aucune session'));
+  if (window._DEBUG_OFFLINE && window._logDebugOffline) {
+    window._logDebugOffline('onAuthStateChanged: ' + (user ? (user.isAnonymous ? 'session anonyme' : 'session réelle uid=' + user.uid.slice(0,8)) : 'aucune session'));
   }
   if (user) {
     window._fbReady = true;
@@ -1139,6 +1139,11 @@ tr:hover td{background:#f7f9ff;}
 
 <div id="toast"></div>
 
+<!-- Panneau de diagnostic temporaire (hors-ligne) : contrairement au toast qui
+     efface le message précédent, ce panneau accumule chaque ligne et reste
+     affiché, pour pouvoir capturer toute la séquence d'un coup d'œil. -->
+<div id="debug-offline-panel" style="display:none;position:fixed;bottom:10px;left:10px;right:10px;max-width:520px;max-height:50vh;overflow-y:auto;background:#111;color:#0f0;font:12px/1.4 monospace;padding:10px 12px;border-radius:8px;z-index:99999;box-shadow:0 4px 20px rgba(0,0,0,.4);white-space:pre-wrap;"></div>
+
 <script>
 // ============================================================
 // STATE (localStorage + Firebase)
@@ -1657,20 +1662,20 @@ function finishLogin(user) {
 // personne s'est déjà connectée au moins une fois auparavant (avec internet)
 // sur cet appareil et ne s'est pas explicitement déconnectée depuis.
 window.addEventListener('fb-user-restored', async (e) => {
-  if (window._DEBUG_OFFLINE) showToast('🔎 fb-user-restored reçu (uid=' + e.detail.uid.slice(0,8) + ') — recherche du profil...');
+  if (window._DEBUG_OFFLINE) window._logDebugOffline('fb-user-restored reçu (uid=' + e.detail.uid.slice(0,8) + ') — recherche du profil...');
   if (STATE.currentUser) {
-    if (window._DEBUG_OFFLINE) showToast('🔎 Déjà connecté par un autre chemin — ignoré.');
+    if (window._DEBUG_OFFLINE) window._logDebugOffline('Déjà connecté par un autre chemin — ignoré.');
     return; // déjà connecté par un autre chemin (formulaire) — rien à faire
   }
   try {
     const profile = await fetchUserProfile(e.detail.uid);
-    if (window._DEBUG_OFFLINE) showToast(profile ? ('🔎 Profil trouvé: ' + profile.username + ' (' + profile.role + ')') : '🔎 AUCUN profil trouvé (cache local vide pour cet uid)', profile ? undefined : 'warn');
+    if (window._DEBUG_OFFLINE) window._logDebugOffline(profile ? ('Profil trouvé: ' + profile.username + ' (' + profile.role + ')') : 'AUCUN profil trouvé (cache local vide pour cet uid)');
     if (profile && !STATE.currentUser) {
       finishLogin({ uid: e.detail.uid, username: profile.username, role: profile.role });
-      if (!STATE.isOnline) showToast('🔌 Session reconnectée automatiquement (hors ligne).');
+      if (window._DEBUG_OFFLINE) window._logDebugOffline('finishLogin() appelé — reconnexion automatique effectuée.');
     }
   } catch(err) {
-    if (window._DEBUG_OFFLINE) showToast('🔎 fetchUserProfile a échoué: ' + (err.code || err.message), 'warn');
+    if (window._DEBUG_OFFLINE) window._logDebugOffline('fetchUserProfile a ÉCHOUÉ: ' + (err.code || err.message));
     console.error('Reconnexion automatique échouée:', err);
   }
 });
@@ -1832,6 +1837,20 @@ function showToast(msg, type) {
   t.classList.add('show');
   setTimeout(()=>t.classList.remove('show'), 3500);
 }
+
+// DIAGNOSTIC TEMPORAIRE : contrairement à showToast (qui efface le message
+// précédent après 3.5s et peut donc faire disparaître une étape avant qu'on
+// ait le temps de la voir si plusieurs surviennent rapidement), ce panneau
+// accumule chaque ligne et reste affiché à l'écran pour une capture d'écran
+// complète de toute la séquence.
+window._logDebugOffline = function(msg) {
+  const panel = document.getElementById('debug-offline-panel');
+  if (!panel) return;
+  panel.style.display = 'block';
+  const time = new Date().toLocaleTimeString('fr-FR');
+  panel.textContent += `[${time}] ${msg}\n`;
+  panel.scrollTop = panel.scrollHeight;
+};
 
 // ============================================================
 // SALES
