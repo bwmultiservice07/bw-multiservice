@@ -85,8 +85,9 @@ window._secondaryAuth = secondaryAuth;
 // au gestionnaire de rouvrir l'app hors ligne sans être bloqué à l'écran de
 // connexion. On ne lance une session anonyme que si PERSONNE n'est
 // restauré (première visite, ou après une vraie déconnexion).
-// Diagnostic hors ligne — confirmé stable, désactivé (laisser à false).
-window._DEBUG_OFFLINE = false;
+// Diagnostic hors ligne — réactivé temporairement pour trouver pourquoi la
+// connexion hors ligne via cache local de mot de passe échoue.
+window._DEBUG_OFFLINE = true;
 onAuthStateChanged(auth, user => {
   if (window._DEBUG_OFFLINE && window._logDebugOffline) {
     window._logDebugOffline('onAuthStateChanged: ' + (user ? (user.isAnonymous ? 'session anonyme' : 'session réelle uid=' + user.uid.slice(0,8)) : 'aucune session'));
@@ -240,6 +241,8 @@ tr:hover td{background:#f7f9ff;}
     </div>
     <button class="btn btn-primary" onclick="doLogin()">Se connecter →</button>
     <div class="auth-err" id="auth-err"></div>
+    <div id="offline-cred-status" style="margin-top:14px;font-size:.72rem;color:#94a3b8;text-align:center;line-height:1.5;"></div>
+    <div style="margin-top:6px;font-size:.65rem;color:#cbd5e1;text-align:center;">build 2026-07-14-0410</div>
   </div>
 </div>
 
@@ -1232,6 +1235,7 @@ function loadLocal() {
       if (p.users) STATE.users = p.users;
       if (p.pendingQueue) STATE.pendingQueue = p.pendingQueue;
       if (p.lastSession) STATE.lastSession = p.lastSession;
+      if (p.localCreds) STATE.localCreds = p.localCreds;
     }
   } catch(e){}
 }
@@ -1240,12 +1244,52 @@ function saveLocal() {
     localStorage.setItem('bw_local', JSON.stringify({
       users: STATE.users,
       pendingQueue: STATE.pendingQueue,
-      lastSession: STATE.lastSession || null
+      lastSession: STATE.lastSession || null,
+      localCreds: STATE.localCreds || {}
     }));
   } catch(e){}
 }
 
+// Empreinte (hash) du mot de passe — jamais le mot de passe lui-même —
+// gardée sur CET appareil dès qu'une connexion réelle réussit (en ligne).
+// Sert ensuite à vérifier une connexion hors ligne, même si l'app n'a
+// JAMAIS réussi à joindre internet depuis son tout premier lancement
+// (situation fréquente : coupures internet dès le départ).
+async function hashPass(password) {
+  try {
+    const enc = new TextEncoder().encode(password);
+    const buf = await crypto.subtle.digest('SHA-256', enc);
+    return Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2,'0')).join('');
+  } catch(e) { return null; }
+}
+async function cacheLocalCred(username, password, role, uid) {
+  const hash = await hashPass(password);
+  if (!hash) {
+    if (window._DEBUG_OFFLINE) window._logDebugOffline(`cacheLocalCred("${username}") — ÉCHEC du hash (crypto.subtle indisponible?).`);
+    return;
+  }
+  if (!STATE.localCreds) STATE.localCreds = {};
+  STATE.localCreds[username] = { hash, role, uid: uid || null };
+  saveLocal();
+  if (window._DEBUG_OFFLINE) window._logDebugOffline(`cacheLocalCred("${username}") — empreinte du mot de passe mise en cache localement (role=${role}).`);
+  updateOfflineCredStatus();
+}
+
+// Affiche directement sur l'écran de connexion, en clair, pour quels noms
+// d'utilisateur une connexion hors ligne est possible sur CET appareil —
+// évite d'avoir à chercher dans un panneau de diagnostic caché pour savoir
+// si la mise en cache a fonctionné.
+function updateOfflineCredStatus() {
+  const el = document.getElementById('offline-cred-status');
+  if (!el) return;
+  const names = STATE.localCreds ? Object.keys(STATE.localCreds) : [];
+  el.textContent = names.length
+    ? `🔓 Connexion hors ligne possible pour : ${names.join(', ')}`
+    : `🔒 Aucune connexion hors ligne enregistrée sur cet appareil pour l'instant.`;
+}
+
 loadLocal();
+updateOfflineCredStatus();
 
 // Filet de sécurité pour la reconnexion automatique hors ligne : Firebase
 // Auth a un comportement observé peu fiable pour restaurer une session déjà
@@ -1422,8 +1466,14 @@ function startFirebaseListeners() {
   }, err => console.error('Users listener:', err));
 
   STATE.fbReady = true;
-  document.getElementById('fb-banner').classList.add('show');
-  showToast('🔥 Firebase connecté — synchronisation globale activée sur tous les appareils.');
+  // On n'affiche le bandeau/toast "connecté à Firebase" que si on est
+  // VRAIMENT en ligne — sinon (cache Firestore hors ligne qui répond
+  // localement), ça affichait un message trompeur "connecté" en même
+  // temps que le bandeau "Hors ligne".
+  if (STATE.isOnline) {
+    document.getElementById('fb-banner').classList.add('show');
+    showToast('🔥 Firebase connecté — synchronisation globale activée sur tous les appareils.');
+  }
   markSaved();
 
   // Flush pending queue
@@ -1447,6 +1497,7 @@ function updateConnStatus() {
     dot.className = 'status-dot online';
     lbl.textContent = 'En ligne';
     banner.classList.remove('show');
+    if (STATE.fbReady) document.getElementById('fb-banner').classList.add('show');
     flushPendingQueue();
   } else {
     dot.className = 'status-dot';
@@ -1609,6 +1660,7 @@ async function doLogin() {
       const profile = await fetchUserProfile(cred.user.uid);
       if (profile) {
         if (DEBUG) showToast(`🔎 Profil trouvé — rôle : ${profile.role}`);
+        await cacheLocalCred(u, p, profile.role, cred.user.uid);
         finishLogin({ uid: cred.user.uid, username: profile.username || u, role: profile.role });
         return;
       }
@@ -1621,6 +1673,7 @@ async function doLogin() {
       const repaired = await repairUserProfile(cred.user.uid, u, role);
       if (repaired) {
         if (DEBUG) showToast('🔎 Profil réparé avec succès.');
+        await cacheLocalCred(u, p, role, cred.user.uid);
         finishLogin({ uid: cred.user.uid, username: u, role });
         return;
       }
@@ -1633,6 +1686,22 @@ async function doLogin() {
     }
   }
 
+  // Repli hors ligne (ou après échec de connexion réelle) : vérifie le VRAI
+  // mot de passe actuel via son empreinte, mise en cache sur CET appareil la
+  // dernière fois que ce compte s'est connecté avec succès — fonctionne
+  // même si l'app n'a jamais réussi à joindre internet depuis son ouverture
+  // (situation courante en cas de coupures internet fréquentes).
+  if (window._DEBUG_OFFLINE) window._logDebugOffline(`Vérification cache local pour "${u}": ${STATE.localCreds && STATE.localCreds[u] ? 'entrée trouvée (role=' + STATE.localCreds[u].role + ')' : 'AUCUNE entrée trouvée'}.`);
+  if (STATE.localCreds && STATE.localCreds[u]) {
+    const hash = await hashPass(p);
+    if (window._DEBUG_OFFLINE) window._logDebugOffline(`Comparaison d'empreinte pour "${u}": ${hash === STATE.localCreds[u].hash ? 'CORRESPOND' : 'NE correspond PAS'}.`);
+    if (hash && hash === STATE.localCreds[u].hash) {
+      if (window._DEBUG_OFFLINE) window._logDebugOffline(`Connexion via le cache local du mot de passe pour "${u}".`);
+      finishLogin({ uid: STATE.localCreds[u].uid, username: u, role: STATE.localCreds[u].role });
+      return;
+    }
+  }
+
   const legacyUser = STATE.users.find(x => x.username === u && x.password === p);
   if (!legacyUser) {
     if (window._DEBUG_OFFLINE) window._logDebugOffline(`Repli ancien système: AUCUNE correspondance pour "${u}" (probablement déjà migré, sans mot de passe stocké localement).`);
@@ -1640,6 +1709,7 @@ async function doLogin() {
     return;
   }
   if (window._DEBUG_OFFLINE) window._logDebugOffline(`Repli ancien système: connecté via mot de passe local — migration/réparation en cours...`);
+  await cacheLocalCred(legacyUser.username, p, legacyUser.role, null);
   finishLogin({ username: legacyUser.username, role: legacyUser.role });
   migrateLegacyUserSilently(legacyUser.username, p, legacyUser.role);
 }
@@ -1818,6 +1888,7 @@ async function performLogout() {
   document.getElementById('app').style.display = 'none';
   document.getElementById('login-user').value = '';
   document.getElementById('login-pass').value = '';
+  updateOfflineCredStatus();
   document.getElementById('auth-err').textContent = '';
   document.getElementById('tab-admin-btn').style.display = 'none';
   document.getElementById('tab-compta-btn').style.display = 'none';
