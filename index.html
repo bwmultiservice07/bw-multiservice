@@ -301,8 +301,8 @@ tr:hover td{background:#f7f9ff;}
         </div>
         <div class="form-row">
           <div class="form-group" style="flex:2;min-width:200px;">
-            <label>Description des marchandises</label>
-            <select id="v-desc">
+            <label>Description des marchandises <span style="color:#c0392b;">*</span></label>
+            <select id="v-desc" required>
               <option value="">-- Choisir un produit --</option>
               <option value="7up">7up</option>
               <option value="Beller">Beller</option>
@@ -339,6 +339,7 @@ tr:hover td{background:#f7f9ff;}
               <option value="caisse-1-2">Caisse et 1/2 (36 unités)</option>
               <option value="bout-1-2">Bout et 1/2 (18 unités)</option>
               <option value="caisse-beller">Caisse Beller (48 unités)</option>
+              <option value="unite">Unité (1 unité)</option>
             </select>
           </div>
           <div class="form-group">
@@ -559,6 +560,30 @@ tr:hover td{background:#f7f9ff;}
     <div class="tab-content" id="tab-dettes">
       <div class="card">
         <div class="card-title">📋 Liste des clients avec balance de dettes</div>
+        <div id="manual-client-debt-form-wrap" style="display:none;background:var(--surface2);border-radius:10px;padding:.9rem 1rem;margin-bottom:1rem;">
+          <div style="font-size:.82rem;font-weight:600;margin-bottom:.5rem;color:var(--text2);">➕ Ajouter une créance client préexistante (dette d'avant la création de l'application)</div>
+          <div class="form-row">
+            <div class="form-group">
+              <label>Nom du client</label>
+              <input type="text" id="mcd-client" placeholder="Ex: Jean Pierre" list="client-list"/>
+            </div>
+            <div class="form-group">
+              <label>Montant dû (HTG)</label>
+              <input type="number" id="mcd-amount" min="0" step="0.01" placeholder="Ex: 5000.00"/>
+            </div>
+            <div class="form-group" style="flex:2;min-width:200px;">
+              <label>Note (optionnel)</label>
+              <input type="text" id="mcd-note" placeholder="Ex: Dette avant la création de l'application"/>
+            </div>
+          </div>
+          <button class="send-btn" onclick="submitManualClientDebt()">Ajouter la créance ➤</button>
+          <div class="table-wrap" style="margin-top:.8rem;">
+            <table>
+              <thead><tr><th>Date</th><th>Client</th><th>Montant (HTG)</th><th>Note</th><th>Actions</th></tr></thead>
+              <tbody id="manual-client-debts-list-body"><tr><td colspan="5" style="text-align:center;color:var(--text3);padding:1rem;">Aucune créance préexistante ajoutée.</td></tr></tbody>
+            </table>
+          </div>
+        </div>
         <div class="table-wrap">
           <table>
             <thead><tr><th>Client</th><th>Total Dû (HTG)</th><th>Total Payé (HTG)</th><th>Balance Restante (HTG)</th><th>Statut</th></tr></thead>
@@ -568,6 +593,30 @@ tr:hover td{background:#f7f9ff;}
       </div>
       <div class="card">
         <div class="card-title">🚚 Liste des fournisseurs avec balance de dettes</div>
+        <div id="manual-supplier-debt-form-wrap" style="display:none;background:var(--surface2);border-radius:10px;padding:.9rem 1rem;margin-bottom:1rem;">
+          <div style="font-size:.82rem;font-weight:600;margin-bottom:.5rem;color:var(--text2);">➕ Ajouter une dette fournisseur préexistante (dette d'avant la création de l'application)</div>
+          <div class="form-row">
+            <div class="form-group">
+              <label>Nom du fournisseur</label>
+              <input type="text" id="msd-supplier" placeholder="Ex: Distributeur ABC" list="supplier-list"/>
+            </div>
+            <div class="form-group">
+              <label>Montant dû (HTG)</label>
+              <input type="number" id="msd-amount" min="0" step="0.01" placeholder="Ex: 5000.00"/>
+            </div>
+            <div class="form-group" style="flex:2;min-width:200px;">
+              <label>Note (optionnel)</label>
+              <input type="text" id="msd-note" placeholder="Ex: Dette avant la création de l'application"/>
+            </div>
+          </div>
+          <button class="send-btn" onclick="submitManualSupplierDebt()">Ajouter la dette ➤</button>
+          <div class="table-wrap" style="margin-top:.8rem;">
+            <table>
+              <thead><tr><th>Date</th><th>Fournisseur</th><th>Montant (HTG)</th><th>Note</th><th>Actions</th></tr></thead>
+              <tbody id="manual-supplier-debts-list-body"><tr><td colspan="5" style="text-align:center;color:var(--text3);padding:1rem;">Aucune dette préexistante ajoutée.</td></tr></tbody>
+            </table>
+          </div>
+        </div>
         <div class="table-wrap">
           <table>
             <thead><tr><th>Fournisseur</th><th>Total Dû (HTG)</th><th>Total Payé (HTG)</th><th>Balance Restante (HTG)</th><th>Statut</th></tr></thead>
@@ -1210,6 +1259,8 @@ let STATE = {
   apports: [],        // synced from Firestore (apports / injections de capital)
   depensesDomestiques: [], // synced from Firestore (dépenses domestiques, comptées comme des charges)
   fournisseurPayments: [], // synced from Firestore (paiements/dettes envers les fournisseurs, achats à crédit)
+  manualClientDebts: [],    // synced from Firestore (créances clients préexistantes, ajoutées manuellement)
+  manualSupplierDebts: [],  // synced from Firestore (dettes fournisseurs préexistantes, ajoutées manuellement)
   pendingQueue: [],   // offline queue
   currentUser: null,
   isOnline: navigator.onLine,
@@ -1318,6 +1369,7 @@ if (!navigator.onLine && STATE.lastSession && STATE.lastSession.username) {
 // FIREBASE LISTENERS
 // ============================================================
 let unsubCredits = null, unsubStockDepart = null, unsubCaisse = null, unsubCaisseRetraits = null, unsubCharges = null, unsubApports = null, unsubDepensesDom = null, unsubFournisseurPayments = null;
+let unsubManualClientDebts = null, unsubManualSupplierDebts = null;
 
 function startFirebaseListeners() {
   if (!window._fbReady || !window._db) return;
@@ -1454,6 +1506,28 @@ function startFirebaseListeners() {
       if (currentTab === 'compta') buildAnalyse();
     },
     err => console.error('DepensesDom listener:', err)
+  );
+
+  // DETTES CLIENTS/FOURNISSEURS PRÉEXISTANTES (ajoutées manuellement par
+  // l'admin/gestionnaire pour des créances/dettes qui existaient déjà avant
+  // la création de l'application) - Synchronisation globale
+  if (unsubManualClientDebts) unsubManualClientDebts();
+  unsubManualClientDebts = onSnapshot(
+    query(collection(db, 'manual_client_debts'), orderBy('isoDate','desc')),
+    snap => {
+      STATE.manualClientDebts = snap.docs.map(d => ({id: d.id, ...d.data()}));
+      if (currentTab === 'dettes') renderDettes();
+    },
+    err => console.error('ManualClientDebts listener:', err)
+  );
+  if (unsubManualSupplierDebts) unsubManualSupplierDebts();
+  unsubManualSupplierDebts = onSnapshot(
+    query(collection(db, 'manual_supplier_debts'), orderBy('isoDate','desc')),
+    snap => {
+      STATE.manualSupplierDebts = snap.docs.map(d => ({id: d.id, ...d.data()}));
+      if (currentTab === 'dettes') renderDettesFournisseurs();
+    },
+    err => console.error('ManualSupplierDebts listener:', err)
   );
 
   // USERS - Synchronisation globale
@@ -1970,6 +2044,8 @@ async function performLogout() {
   if (unsubApports) unsubApports();
   if (unsubDepensesDom) unsubDepensesDom();
   if (unsubFournisseurPayments) unsubFournisseurPayments();
+  if (unsubManualClientDebts) unsubManualClientDebts();
+  if (unsubManualSupplierDebts) unsubManualSupplierDebts();
   STATE.currentUser = null;
   STATE.lastSession = null; // efface aussi le filet de sécurité local hors ligne
   saveLocal();
@@ -2093,6 +2169,10 @@ function getCasseSize(produit, unit) {
 // (ex: un Bout = 12 unités, une Caisse et 1/2 = 36 unités). Le prix de vente
 // unitaire = prix de vente d'une seule unité = Prix caisse/bout ÷ ce nombre.
 function getUnitsPerSelection(produit, unit) {
+  // "unite" = exactement 1 unité individuelle, quelle que soit la taille
+  // réelle d'une caisse pour ce produit (24 ou 48 pour Beller) — pas une
+  // valeur fixe dans UNIT_FACTORS, calculée à part.
+  if (unit === 'unite') return 1;
   const casseSize = getCasseSize(produit, unit);
   const factor = UNIT_FACTORS[unit] !== undefined ? UNIT_FACTORS[unit] : 1;
   return casseSize * factor;
@@ -2104,7 +2184,8 @@ const UNIT_LABELS = {
   'bout': 'Bout',
   'caisse-1-2': 'Caisse et 1/2',
   'bout-1-2': 'Bout et 1/2',
-  'caisse-beller': 'Caisse Beller'
+  'caisse-beller': 'Caisse Beller',
+  'unite': 'Unité'
 };
 function formatUnitLabel(unit) {
   return UNIT_LABELS[unit] || unit || '';
@@ -2156,11 +2237,16 @@ function calcMontant(prefix) {
   const prixCaisse = parseFloat(document.getElementById(prefix+'-prix-caisse').value) || 0;
   const prixUnit = parseFloat(document.getElementById(prefix+'-prix').value) || 0;
   const unit = document.getElementById(prefix+'-unit').value;
+  const descEl = document.getElementById(prefix+'-desc');
+  const produit = descEl ? descEl.value : '';
   const nbUnite = parseFloat(document.getElementById(prefix+'-nb-unite').value) || 0;
 
   // Montant total = (Quantité × facteur de l'unité × Prix caisse)
   //               + (Nombre d'unité × Prix unitaire)
-  const factor = UNIT_FACTORS[unit] !== undefined ? UNIT_FACTORS[unit] : 1;
+  // "unite" = 1 unité individuelle : son facteur dépend de la taille réelle
+  // d'une caisse pour ce produit (24, ou 48 pour Beller), donc calculé à
+  // part plutôt que dans la table fixe UNIT_FACTORS.
+  const factor = unit === 'unite' ? (1 / getCasseSize(produit, unit)) : (UNIT_FACTORS[unit] !== undefined ? UNIT_FACTORS[unit] : 1);
   const montant = (qty * factor * prixCaisse) + (nbUnite * prixUnit);
 
   document.getElementById(prefix+'-amount').value = montant.toFixed(2);
@@ -2300,8 +2386,11 @@ async function submitSale() {
   const prix = parseFloat(document.getElementById('v-prix').value) || 0;
   const nbUnite = parseFloat(document.getElementById('v-nb-unite').value) || 0;
   const clientCheck = document.getElementById('v-client').value.trim();
-  if (!desc||isNaN(qty)||qty<=0||prix<=0||isNaN(amount)||amount<=0) {
-    showToast('⚠ Veuillez remplir tous les champs obligatoires (produit, quantité, prix, montant).','warn'); return;
+  if (!desc) {
+    showToast('⚠ La description du produit est obligatoire.','warn'); return;
+  }
+  if (isNaN(qty)||qty<=0||prix<=0||isNaN(amount)||amount<=0) {
+    showToast('⚠ Veuillez remplir tous les champs obligatoires (quantité, prix, montant).','warn'); return;
   }
   if (balance > 0 && !client) {
     showToast('⚠ Le nom du client est obligatoire pour une vente à crédit.','warn'); return;
@@ -4436,9 +4525,10 @@ function buildFullWorkbook() {
   const clientsSet = new Set();
   sales.forEach(t=>{ if (t.client) clientsSet.add(t.client); });
   (STATE.credits||[]).forEach(c=>{ if (c.client) clientsSet.add(c.client); });
+  (STATE.manualClientDebts||[]).forEach(m=>{ if (m.client) clientsSet.add(m.client); });
   const debtors = [...clientsSet].map(client=>{
     const name = client.toLowerCase();
-    const totalDu = sales.filter(t=>(t.client||'').toLowerCase()===name && (t.balance||0)>0).reduce((a,t)=>a+(t.balance||0),0);
+    const totalDu = sales.filter(t=>(t.client||'').toLowerCase()===name && (t.balance||0)>0).reduce((a,t)=>a+(t.balance||0),0) + getManualClientDebt(client);
     const totalPaye = (STATE.credits||[]).filter(c=>(c.client||'').toLowerCase()===name && c.source!=='vente').reduce((a,c)=>a+(c.paid||0),0);
     return { client, totalDu, totalPaye, balanceRestante: Math.max(0, totalDu-totalPaye) };
   }).filter(d=>d.balanceRestante>0).sort((a,b)=>b.balanceRestante-a.balanceRestante);
@@ -4693,16 +4783,34 @@ async function submitCredit() {
   document.getElementById('cr-final').value = '';
 }
 
+// Créances clients ajoutées manuellement (admin/gestionnaire) pour des
+// dettes qui existaient déjà avant la création de l'application — ajoutées
+// au total dû comme si elles venaient d'une vente à crédit.
+function getManualClientDebt(clientName) {
+  const name = (clientName||'').toLowerCase();
+  return (STATE.manualClientDebts||[])
+    .filter(m => (m.client||'').toLowerCase()===name)
+    .reduce((a,m) => a + (m.amount||0), 0);
+}
+function getManualSupplierDebt(supplierName) {
+  const name = (supplierName||'').toLowerCase();
+  return (STATE.manualSupplierDebts||[])
+    .filter(m => (m.supplier||'').toLowerCase()===name)
+    .reduce((a,m) => a + (m.amount||0), 0);
+}
+
 function getClientDebt(clientName) {
-  // Calculer la dette totale d'un client: somme des balances de ventes - somme des paiements
+  // Calculer la dette totale d'un client: somme des balances de ventes +
+  // créances préexistantes ajoutées manuellement - somme des paiements
   const name = (clientName||'').toLowerCase();
   const salesBalance = (STATE.transactions||[])
     .filter(t => t.type==='vente' && (t.client||'').toLowerCase()===name)
     .reduce((a,t) => a + (t.balance||0), 0);
+  const manualDebt = getManualClientDebt(clientName);
   const paymentsDone = (STATE.credits||[])
     .filter(c => (c.client||'').toLowerCase()===name && c.source!=='vente')
     .reduce((a,c) => a + (c.paid||0), 0);
-  return Math.max(0, salesBalance - paymentsDone);
+  return Math.max(0, salesBalance + manualDebt - paymentsDone);
 }
 
 function renderCredits() {
@@ -4866,27 +4974,35 @@ async function deleteCredit(id) {
 function renderDettes() {
   const body = document.getElementById('dettes-table-body');
   if (!body) { console.log('dettes-table-body not found'); return; }
-  
-  // Collecter tous les clients uniques
+
+  renderManualClientDebtsForm();
+  renderManualClientDebtsList();
+
+  // Collecter tous les clients uniques (y compris ceux ajoutés seulement
+  // via une créance manuelle préexistante, sans aucune vente enregistrée).
   const clients = new Set();
   (STATE.transactions||[]).forEach(t => { if(t.client && t.type==='vente') clients.add(t.client); });
   (STATE.credits||[]).forEach(c => { if(c.client) clients.add(c.client); });
-  
+  (STATE.manualClientDebts||[]).forEach(m => { if(m.client) clients.add(m.client); });
+
   if (!clients.size) {
     body.innerHTML = '<tr><td colspan="5" style="text-align:center;color:var(--text3);padding:1.5rem;">Aucune dette enregistrée.</td></tr>';
     return;
   }
-  
+
   const isAdminOrGest = STATE.currentUser && (STATE.currentUser.role==='admin' || STATE.currentUser.role==='gestionnaire');
-  
+
   // Calculer la dette de chaque client
   const clientData = [];
   clients.forEach(client => {
     const name = client.toLowerCase();
-    // Total dû = somme des balances de ventes à crédit
-    const totalDu = (STATE.transactions||[])
+    // Total dû = somme des balances de ventes à crédit + créances
+    // préexistantes ajoutées manuellement (dettes d'avant l'application)
+    const totalDuVentes = (STATE.transactions||[])
       .filter(t => t.type==='vente' && (t.client||'').toLowerCase()===name && (t.balance||0) > 0)
       .reduce((a,t) => a+(t.balance||0), 0);
+    const totalDuManuel = getManualClientDebt(client);
+    const totalDu = totalDuVentes + totalDuManuel;
     // Total payé = somme des paiements effectués (hors source vente)
     const totalPaye = (STATE.credits||[])
       .filter(c => (c.client||'').toLowerCase()===name && c.source!=='vente')
@@ -4896,23 +5012,23 @@ function renderDettes() {
       clientData.push({ client, totalDu, totalPaye, balanceRestante });
     }
   });
-  
+
   // Trier par balance restante décroissante (plus grosse dette en haut)
   clientData.sort((a,b) => b.balanceRestante - a.balanceRestante);
-  
+
   if (!clientData.length) {
     body.innerHTML = '<tr><td colspan="5" style="text-align:center;color:var(--text3);padding:1.5rem;">Aucune dette enregistrée.</td></tr>';
     return;
   }
-  
+
   // Filtrer seulement les clients avec balance > 0
   const debtors = clientData.filter(d => d.balanceRestante > 0);
-  
+
   if (!debtors.length) {
     body.innerHTML = '<tr><td colspan="5" style="text-align:center;color:#0f7b4f;padding:1.5rem;">✅ Aucune dette en cours — tous les clients sont à jour !</td></tr>';
     return;
   }
-  
+
   body.innerHTML = debtors.map(d => `<tr>
     <td style="font-weight:700;color:#c0392b;">${esc(d.client)}</td>
     <td>${fmtHTG(d.totalDu)}</td>
@@ -4926,6 +5042,166 @@ function renderDettes() {
     <td style="color:#c0392b;">${fmtHTG(debtors.reduce((a,d)=>a+d.balanceRestante,0))}</td>
     <td></td>
   </tr>`;
+}
+
+// ============================================================
+// CRÉANCES CLIENTS / DETTES FOURNISSEURS PRÉEXISTANTES (ajoutées
+// manuellement par l'admin/gestionnaire pour intégrer dans les calculs des
+// dettes qui existaient déjà avant la création de l'application).
+// ============================================================
+function renderManualClientDebtsForm() {
+  const el = document.getElementById('manual-client-debt-form-wrap');
+  if (!el) return;
+  const isAdminOrGest = STATE.currentUser && (STATE.currentUser.role==='admin' || STATE.currentUser.role==='gestionnaire');
+  el.style.display = isAdminOrGest ? 'block' : 'none';
+}
+function renderManualSupplierDebtsForm() {
+  const el = document.getElementById('manual-supplier-debt-form-wrap');
+  if (!el) return;
+  const isAdminOrGest = STATE.currentUser && (STATE.currentUser.role==='admin' || STATE.currentUser.role==='gestionnaire');
+  el.style.display = isAdminOrGest ? 'block' : 'none';
+}
+
+async function submitManualClientDebt() {
+  if (!requireAdminOrGest()) return;
+  const client = document.getElementById('mcd-client').value.trim();
+  const amount = parseFloat(document.getElementById('mcd-amount').value);
+  const note = document.getElementById('mcd-note').value.trim();
+  const date = todayStr(), isoD = isoDate();
+  if (!client || isNaN(amount) || amount <= 0) {
+    showToast('⚠ Nom du client et montant sont obligatoires.','warn'); return;
+  }
+  const entry = { client, amount, note, date, isoDate: isoD,
+    addedBy: STATE.currentUser.username, createdAt: new Date().toISOString() };
+  if (!STATE.isOnline || !STATE.fbReady) {
+    if (!STATE.manualClientDebts) STATE.manualClientDebts = [];
+    STATE.manualClientDebts.push(entry);
+    STATE.pendingQueue.push({...entry, colTarget:'manual_client_debts'});
+    saveLocal();
+    updatePendingUI();
+    showToast("📤 Hors ligne — créance en file d'attente (sera synchronisée automatiquement).",'warn');
+  } else {
+    try {
+      const {collection, addDoc} = window._fbFns;
+      const ref = await addDoc(collection(window._db,'manual_client_debts'), entry);
+      if (!STATE.manualClientDebts) STATE.manualClientDebts = [];
+      if (!STATE.manualClientDebts.find(m=>m.id===ref.id)) STATE.manualClientDebts = [{id:ref.id, ...entry}, ...STATE.manualClientDebts];
+      showToast('✅ Créance préexistante ajoutée pour '+client+'.');
+    } catch(e) {
+      if (!STATE.manualClientDebts) STATE.manualClientDebts = [];
+      STATE.manualClientDebts.push(entry);
+      STATE.pendingQueue.push({...entry, colTarget:'manual_client_debts'});
+      saveLocal();
+      updatePendingUI();
+      showToast('⚠ Erreur Firebase — créance en file d\'attente.','warn');
+    }
+  }
+  renderDettes();
+  document.getElementById('mcd-client').value='';
+  document.getElementById('mcd-amount').value='';
+  document.getElementById('mcd-note').value='';
+}
+
+async function deleteManualClientDebt(id) {
+  if (!requireAdminOrGest()) return;
+  if (!confirm('Supprimer cette créance préexistante ?')) return;
+  if (STATE.isOnline && STATE.fbReady && id) {
+    try {
+      const {doc, deleteDoc} = window._fbFns;
+      await deleteDoc(doc(window._db,'manual_client_debts',id));
+    } catch(e) { showToast('⚠ Erreur: '+e.message,'warn'); return; }
+  }
+  STATE.manualClientDebts = (STATE.manualClientDebts||[]).filter(m => m.id !== id);
+  renderDettes();
+  showToast('🗑 Créance supprimée.','warn');
+}
+
+function renderManualClientDebtsList() {
+  const body = document.getElementById('manual-client-debts-list-body');
+  if (!body) return;
+  const entries = [...(STATE.manualClientDebts||[])].sort((a,b)=>(b.isoDate||'').localeCompare(a.isoDate||''));
+  if (!entries.length) {
+    body.innerHTML = '<tr><td colspan="5" style="text-align:center;color:var(--text3);padding:1rem;">Aucune créance préexistante ajoutée.</td></tr>';
+    return;
+  }
+  body.innerHTML = entries.map(m => `<tr>
+    <td>${m.date||''}</td>
+    <td>${esc(m.client)}</td>
+    <td>${fmtHTG(m.amount||0)}</td>
+    <td>${esc(m.note||'')}</td>
+    <td>${m.id ? `<button class="del-btn" onclick="deleteManualClientDebt('${m.id}')">×</button>` : '<span style="color:var(--text3);font-size:.75rem;">en attente</span>'}</td>
+  </tr>`).join('');
+}
+
+async function submitManualSupplierDebt() {
+  if (!requireAdminOrGest()) return;
+  const supplier = document.getElementById('msd-supplier').value.trim();
+  const amount = parseFloat(document.getElementById('msd-amount').value);
+  const note = document.getElementById('msd-note').value.trim();
+  const date = todayStr(), isoD = isoDate();
+  if (!supplier || isNaN(amount) || amount <= 0) {
+    showToast('⚠ Nom du fournisseur et montant sont obligatoires.','warn'); return;
+  }
+  const entry = { supplier, amount, note, date, isoDate: isoD,
+    addedBy: STATE.currentUser.username, createdAt: new Date().toISOString() };
+  if (!STATE.isOnline || !STATE.fbReady) {
+    if (!STATE.manualSupplierDebts) STATE.manualSupplierDebts = [];
+    STATE.manualSupplierDebts.push(entry);
+    STATE.pendingQueue.push({...entry, colTarget:'manual_supplier_debts'});
+    saveLocal();
+    updatePendingUI();
+    showToast("📤 Hors ligne — dette en file d'attente (sera synchronisée automatiquement).",'warn');
+  } else {
+    try {
+      const {collection, addDoc} = window._fbFns;
+      const ref = await addDoc(collection(window._db,'manual_supplier_debts'), entry);
+      if (!STATE.manualSupplierDebts) STATE.manualSupplierDebts = [];
+      if (!STATE.manualSupplierDebts.find(m=>m.id===ref.id)) STATE.manualSupplierDebts = [{id:ref.id, ...entry}, ...STATE.manualSupplierDebts];
+      showToast('✅ Dette préexistante ajoutée pour '+supplier+'.');
+    } catch(e) {
+      if (!STATE.manualSupplierDebts) STATE.manualSupplierDebts = [];
+      STATE.manualSupplierDebts.push(entry);
+      STATE.pendingQueue.push({...entry, colTarget:'manual_supplier_debts'});
+      saveLocal();
+      updatePendingUI();
+      showToast('⚠ Erreur Firebase — dette en file d\'attente.','warn');
+    }
+  }
+  renderDettesFournisseurs();
+  document.getElementById('msd-supplier').value='';
+  document.getElementById('msd-amount').value='';
+  document.getElementById('msd-note').value='';
+}
+
+async function deleteManualSupplierDebt(id) {
+  if (!requireAdminOrGest()) return;
+  if (!confirm('Supprimer cette dette préexistante ?')) return;
+  if (STATE.isOnline && STATE.fbReady && id) {
+    try {
+      const {doc, deleteDoc} = window._fbFns;
+      await deleteDoc(doc(window._db,'manual_supplier_debts',id));
+    } catch(e) { showToast('⚠ Erreur: '+e.message,'warn'); return; }
+  }
+  STATE.manualSupplierDebts = (STATE.manualSupplierDebts||[]).filter(m => m.id !== id);
+  renderDettesFournisseurs();
+  showToast('🗑 Dette supprimée.','warn');
+}
+
+function renderManualSupplierDebtsList() {
+  const body = document.getElementById('manual-supplier-debts-list-body');
+  if (!body) return;
+  const entries = [...(STATE.manualSupplierDebts||[])].sort((a,b)=>(b.isoDate||'').localeCompare(a.isoDate||''));
+  if (!entries.length) {
+    body.innerHTML = '<tr><td colspan="5" style="text-align:center;color:var(--text3);padding:1rem;">Aucune dette préexistante ajoutée.</td></tr>';
+    return;
+  }
+  body.innerHTML = entries.map(m => `<tr>
+    <td>${m.date||''}</td>
+    <td>${esc(m.supplier)}</td>
+    <td>${fmtHTG(m.amount||0)}</td>
+    <td>${esc(m.note||'')}</td>
+    <td>${m.id ? `<button class="del-btn" onclick="deleteManualSupplierDebt('${m.id}')">×</button>` : '<span style="color:var(--text3);font-size:.75rem;">en attente</span>'}</td>
+  </tr>`).join('');
 }
 
 // ============================================================
@@ -4970,10 +5246,11 @@ function getSupplierDebt(supplierName) {
   const achatsDette = (STATE.stocks||[])
     .filter(s => s.paymentMode==='credit' && (s.supplier||'').toLowerCase()===name)
     .reduce((a,s) => a + (s.amount||0), 0);
+  const manualDette = getManualSupplierDebt(supplierName);
   const paiementsFaits = (STATE.fournisseurPayments||[])
     .filter(p => (p.supplier||'').toLowerCase()===name && p.source!=='achat')
     .reduce((a,p) => a + (p.paid||0), 0);
-  return Math.max(0, achatsDette - paiementsFaits);
+  return Math.max(0, achatsDette + manualDette - paiementsFaits);
 }
 
 function loadSupplierBalance(prefix) {
@@ -5200,9 +5477,13 @@ function renderDettesFournisseurs() {
   const body = document.getElementById('dettes-fournisseurs-table-body');
   if (!body) return;
 
+  renderManualSupplierDebtsForm();
+  renderManualSupplierDebtsList();
+
   const suppliers = new Set();
   (STATE.stocks||[]).forEach(s => { if (s.supplier && s.paymentMode==='credit') suppliers.add(s.supplier); });
   (STATE.fournisseurPayments||[]).forEach(p => { if (p.supplier) suppliers.add(p.supplier); });
+  (STATE.manualSupplierDebts||[]).forEach(m => { if (m.supplier) suppliers.add(m.supplier); });
 
   if (!suppliers.size) {
     body.innerHTML = '<tr><td colspan="5" style="text-align:center;color:var(--text3);padding:1.5rem;">Aucune dette enregistrée.</td></tr>';
@@ -5212,9 +5493,11 @@ function renderDettesFournisseurs() {
   const supplierData = [];
   suppliers.forEach(supplier => {
     const name = supplier.toLowerCase();
-    const totalDu = (STATE.stocks||[])
+    const totalDuAchats = (STATE.stocks||[])
       .filter(s => s.paymentMode==='credit' && (s.supplier||'').toLowerCase()===name)
       .reduce((a,s) => a+(s.amount||0), 0);
+    const totalDuManuel = getManualSupplierDebt(supplier);
+    const totalDu = totalDuAchats + totalDuManuel;
     const totalPaye = (STATE.fournisseurPayments||[])
       .filter(p => (p.supplier||'').toLowerCase()===name && p.source!=='achat')
       .reduce((a,p) => a+(p.paid||0), 0);
@@ -5677,6 +5960,7 @@ function getQtyCaisses(t) {
     case 'bout': qtyCaisses = qty*0.5; break;
     case 'caisse-1-2': qtyCaisses = qty*1.5; break;
     case 'bout-1-2': qtyCaisses = qty*0.75; break;
+    case 'unite': qtyCaisses = qty/casseSize; break;
     // Anciennes valeurs d'unité (ventes historiques conservées telles quelles)
     case 'caisse 1/2': qtyCaisses = qty*0.5; break;
     case 'caisse+3': qtyCaisses = qty + 3/casseSize; break;
