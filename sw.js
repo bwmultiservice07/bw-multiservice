@@ -8,7 +8,7 @@
 // qu'on sert la dernière version mise en cache. Ainsi, le flux de travail
 // habituel (uploader index.html sur GitHub, l'utilisateur voit la mise à
 // jour immédiatement dès qu'il a internet) n'est jamais affecté.
-const CACHE_NAME = 'bw-multiservice-v1';
+const CACHE_NAME = 'bw-multiservice-v2';
 const APP_SHELL = './index.html';
 
 self.addEventListener('install', event => {
