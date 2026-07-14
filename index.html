@@ -1588,6 +1588,7 @@ async function flushPendingQueue() {
   STATE.pendingQueue = [];
   saveLocal();
   let count = 0;
+  let lastErr = null;
   for (const item of toFlush) {
     try {
       // colTarget indique la vraie collection Firestore visée. Ancien format
@@ -1601,12 +1602,20 @@ async function flushPendingQueue() {
       await addDoc(collection(db, col), clean);
       count++;
     } catch(e) {
+      lastErr = e;
+      console.error('Échec de synchronisation d\'une transaction en attente:', e.code || e.message, item);
       STATE.pendingQueue.push(item);
     }
   }
   saveLocal();
   updatePendingUI();
   if (count > 0) showToast(`✅ ${count} transaction(s) synchronisée(s) avec Firebase.`);
+  if (STATE.pendingQueue.length > 0 && lastErr) {
+    // Ne plus jamais échouer en silence : si des transactions restent
+    // bloquées après une tentative, on l'affiche clairement au lieu de
+    // laisser croire que "ça va finir par se synchroniser tout seul".
+    showToast(`⚠ ${STATE.pendingQueue.length} transaction(s) n'ont pas pu être envoyées (${lastErr.code || lastErr.message}). Réessaie de sauvegarder, ou contacte l'administrateur si ça persiste.`, 'warn');
+  }
 }
 
 // ============================================================
