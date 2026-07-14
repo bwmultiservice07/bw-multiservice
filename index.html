@@ -1878,6 +1878,12 @@ async function saveAllData() {
   // Envoyer la file d'attente si elle existe
   if (STATE.pendingQueue.length > 0) {
     await flushPendingQueue();
+    if (STATE.pendingQueue.length > 0) {
+      // flushPendingQueue() a déjà affiché un avertissement précis avec le
+      // code d'erreur exact — ne pas prétendre que tout est sauvegardé
+      // par-dessus, ça masquait complètement l'échec jusqu'ici.
+      return false;
+    }
   }
   markSaved();
   showToast('✅ Toutes les données sont sauvegardées sur Firebase.');
