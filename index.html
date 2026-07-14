@@ -261,6 +261,12 @@ tr:hover td{background:#f7f9ff;}
   </div>
   <div class="offline-banner" id="offline-banner">⚠ Hors ligne — les transactions seront envoyées dès le retour d'internet (<span id="pending-count">0</span> en attente)</div>
   <div class="fb-banner" id="fb-banner">✅ Connecté à Firebase — synchronisation en temps réel active sur bwmultiservice07@gmail.com</div>
+  <div id="resync-banner" style="display:none;background:#fef3e2;color:#92400e;font-size:.8rem;padding:8px 1.2rem;text-align:center;border-bottom:1px solid #f7c948;">
+    ⚠ Internet est revenu, mais il faut retaper ton mot de passe pour envoyer les transactions en attente (<span id="resync-count">0</span>).
+    <input type="password" id="resync-pass" placeholder="mot de passe" style="margin-left:8px;padding:3px 8px;border-radius:6px;border:1px solid #f0c36d;font-size:.78rem;width:140px;"/>
+    <button class="btn btn-primary" style="padding:3px 12px;font-size:.78rem;margin-left:6px;" onclick="attemptResync()">Synchroniser</button>
+    <span id="resync-err" style="color:#b91c1c;margin-left:8px;"></span>
+  </div>
 
   <div class="tabs">
     <button class="active" onclick="switchTab('ventes')">🧾 Ventes</button>
@@ -1502,6 +1508,7 @@ function updateConnStatus() {
     lbl.textContent = 'Hors ligne';
     banner.classList.add('show');
     document.getElementById('fb-banner').classList.remove('show');
+    hideResyncBanner();
   }
   updatePendingUI();
 }
@@ -1519,8 +1526,62 @@ function updatePendingUI() {
   if (pc) pc.textContent = c;
 }
 
+// Vrai si Firebase Auth a réellement authentifié CE compte (pas juste la
+// session anonyme de secours). Important : la reconnexion hors ligne
+// (STATE.lastSession / cache local de mot de passe) ne fait JAMAIS de vraie
+// authentification Firebase — elle ne fait que restaurer l'écran de l'app.
+// Résultat : tant qu'aucune vraie connexion Firebase n'a eu lieu pendant
+// cette visite, la session Firebase réelle reste anonyme, et les règles de
+// sécurité Firestore (qui exigent un compte reconnu pour écrire) rejettent
+// alors silencieusement l'envoi des transactions en attente — même une fois
+// internet revenu. D'où la nécessité de redemander le mot de passe une fois
+// avant de pouvoir synchroniser.
+function isRealFirebaseSession() {
+  return !!(window._auth && window._auth.currentUser && !window._auth.currentUser.isAnonymous);
+}
+
+function showResyncBanner() {
+  const banner = document.getElementById('resync-banner');
+  if (!banner) return;
+  document.getElementById('resync-count').textContent = STATE.pendingQueue.length;
+  banner.style.display = 'block';
+}
+function hideResyncBanner() {
+  const banner = document.getElementById('resync-banner');
+  if (banner) banner.style.display = 'none';
+  const err = document.getElementById('resync-err');
+  if (err) err.textContent = '';
+}
+
+async function attemptResync() {
+  const err = document.getElementById('resync-err');
+  const pass = document.getElementById('resync-pass').value;
+  if (!STATE.currentUser || !pass) return;
+  err.textContent = '';
+  try {
+    const {signInWithEmailAndPassword} = window._authFns;
+    const email = usernameToEmail(STATE.currentUser.username);
+    await signInWithEmailAndPassword(window._auth, email, pass);
+    await cacheLocalCred(STATE.currentUser.username, pass, STATE.currentUser.role, window._auth.currentUser.uid);
+    document.getElementById('resync-pass').value = '';
+    hideResyncBanner();
+    showToast('🔓 Reconnexion confirmée — synchronisation en cours...');
+    await flushPendingQueue();
+  } catch(e) {
+    err.textContent = 'Mot de passe incorrect.';
+  }
+}
+
 async function flushPendingQueue() {
   if (!STATE.isOnline || !STATE.fbReady || STATE.pendingQueue.length === 0) return;
+  if (!isRealFirebaseSession()) {
+    // Écrire échouerait silencieusement (règles Firestore) tant que la
+    // session Firebase réelle n'est pas établie — on prévient plutôt que de
+    // réessayer indéfiniment sans jamais rien dire.
+    showResyncBanner();
+    return;
+  }
+  hideResyncBanner();
   const {collection, addDoc} = window._fbFns;
   const db = window._db;
   const toFlush = [...STATE.pendingQueue];
