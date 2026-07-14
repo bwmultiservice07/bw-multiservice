@@ -267,6 +267,7 @@ tr:hover td{background:#f7f9ff;}
     <button class="btn btn-primary" style="padding:3px 12px;font-size:.78rem;margin-left:6px;" onclick="attemptResync()">Synchroniser</button>
     <span id="resync-err" style="color:#b91c1c;margin-left:8px;"></span>
   </div>
+  <div id="sync-error-banner" style="display:none;background:#fee2e2;color:#991b1b;font-size:.8rem;padding:8px 1.2rem;text-align:center;border-bottom:1px solid #fca5a5;"></div>
 
   <div class="tabs">
     <button class="active" onclick="switchTab('ventes')">🧾 Ventes</button>
@@ -1613,8 +1614,17 @@ async function flushPendingQueue() {
   if (STATE.pendingQueue.length > 0 && lastErr) {
     // Ne plus jamais échouer en silence : si des transactions restent
     // bloquées après une tentative, on l'affiche clairement au lieu de
-    // laisser croire que "ça va finir par se synchroniser tout seul".
-    showToast(`⚠ ${STATE.pendingQueue.length} transaction(s) n'ont pas pu être envoyées (${lastErr.code || lastErr.message}). Réessaie de sauvegarder, ou contacte l'administrateur si ça persiste.`, 'warn');
+    // laisser croire que "ça va finir par se synchroniser tout seul". Un
+    // bandeau PERSISTANT (pas juste un toast qui disparaît en 3.5s) pour
+    // qu'on puisse en faire une capture d'écran sans se presser.
+    const banner = document.getElementById('sync-error-banner');
+    if (banner) {
+      banner.textContent = `⚠ ${STATE.pendingQueue.length} transaction(s) bloquée(s) — erreur : ${lastErr.code || lastErr.message}`;
+      banner.style.display = 'block';
+    }
+  } else {
+    const banner = document.getElementById('sync-error-banner');
+    if (banner) banner.style.display = 'none';
   }
 }
 
