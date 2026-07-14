@@ -1600,6 +1600,11 @@ async function flushPendingQueue() {
       const clean = {...item};
       delete clean.id;
       delete clean.colTarget;
+      // "pending" n'a de sens que côté local, avant l'envoi — une fois
+      // écrit dans Firestore avec succès, c'est bien "sent" (voir le
+      // commentaire sur reallySent dans renderMySales pour le bug que ça a
+      // causé quand ce champ restait à "pending" pour toujours).
+      if (clean.status === 'pending') clean.status = 'sent';
       await addDoc(collection(db, col), clean);
       count++;
     } catch(e) {
@@ -2558,7 +2563,17 @@ function renderMySales() {
 
       dayVentes.forEach(t => {
         const clickable = isAdminOrGest && t.id;
-        const badge = `<span class="badge ${t.status==='sent'?'badge-sent':'badge-pending'}">${t.status==='sent'?'✓ Envoyé':'⏳ En attente'}</span>`;
+        // IMPORTANT : se fier à la présence d'un id Firestore (t.id), pas au
+        // champ "status" stocké dans la donnée elle-même. "status" ne sert
+        // qu'à marquer une vente CÔTÉ LOCAL avant l'envoi ; une fois envoyée
+        // avec succès via flushPendingQueue(), le document est écrit dans
+        // Firestore avec ce même champ "status: pending" toujours présent
+        // (jamais mis à jour à "sent" après coup) — ce qui affichait "en
+        // attente" pour toujours sur des ventes en réalité bien synchronisées
+        // (bug trouvé le 14 juillet 2026). Un item sans id = encore
+        // seulement local (STATE.pendingQueue) = vraiment en attente.
+        const reallySent = !!t.id;
+        const badge = `<span class="badge ${reallySent?'badge-sent':'badge-pending'}">${reallySent?'✓ Envoyé':'⏳ En attente'}</span>`;
         const statutCell = clickable
           ? `<td style="cursor:pointer;text-decoration:underline;" onclick="loadSaleForCorrection('${t.id}')" title="Cliquer pour corriger cette vente">${badge}</td>`
           : `<td>${badge}</td>`;
