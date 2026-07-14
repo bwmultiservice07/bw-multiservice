@@ -78,11 +78,8 @@ window._secondaryAuth = secondaryAuth;
 // au gestionnaire de rouvrir l'app hors ligne sans être bloqué à l'écran de
 // connexion. On ne lance une session anonyme que si PERSONNE n'est
 // restauré (première visite, ou après une vraie déconnexion).
-// DIAGNOSTIC TEMPORAIRE (à retirer une fois le hors-ligne confirmé stable) :
-// affiche ce qu'onAuthStateChanged reçoit réellement à chaque chargement,
-// pour identifier précisément où la reconnexion automatique hors ligne
-// échoue chez certains utilisateurs.
-window._DEBUG_OFFLINE = true;
+// Diagnostic hors ligne — confirmé stable, désactivé (laisser à false).
+window._DEBUG_OFFLINE = false;
 onAuthStateChanged(auth, user => {
   if (window._DEBUG_OFFLINE && window._logDebugOffline) {
     window._logDebugOffline('onAuthStateChanged: ' + (user ? (user.isAnonymous ? 'session anonyme' : 'session réelle uid=' + user.uid.slice(0,8)) : 'aucune session'));
