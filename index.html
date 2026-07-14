@@ -1227,6 +1227,7 @@ function loadLocal() {
       const p = JSON.parse(s);
       if (p.users) STATE.users = p.users;
       if (p.pendingQueue) STATE.pendingQueue = p.pendingQueue;
+      if (p.lastSession) STATE.lastSession = p.lastSession;
     }
   } catch(e){}
 }
@@ -1234,12 +1235,31 @@ function saveLocal() {
   try {
     localStorage.setItem('bw_local', JSON.stringify({
       users: STATE.users,
-      pendingQueue: STATE.pendingQueue
+      pendingQueue: STATE.pendingQueue,
+      lastSession: STATE.lastSession || null
     }));
   } catch(e){}
 }
 
 loadLocal();
+
+// Filet de sécurité pour la reconnexion automatique hors ligne : Firebase
+// Auth a un comportement observé peu fiable pour restaurer une session déjà
+// active quand la page se recharge SANS connexion (contrairement à un
+// rechargement en ligne, qui fonctionne bien) — probablement lié à une
+// tentative de rafraîchissement de jeton en arrière-plan qui échoue
+// silencieusement sans réseau. Plutôt que de dépendre uniquement de Firebase
+// pour ça, on garde nous-mêmes une trace locale (STATE.lastSession, voir
+// finishLogin) de qui était connecté en dernier sur cet appareil, et on
+// l'utilise directement si on démarre hors ligne — sans attendre Firebase.
+if (!navigator.onLine && STATE.lastSession && STATE.lastSession.username) {
+  setTimeout(() => {
+    if (!STATE.currentUser) {
+      if (window._logDebugOffline) window._logDebugOffline('Démarrage hors ligne détecté — reconnexion via le filet de sécurité local (STATE.lastSession).');
+      finishLogin(STATE.lastSession);
+    }
+  }, 50);
+}
 
 // ============================================================
 // FIREBASE LISTENERS
@@ -1622,6 +1642,11 @@ async function doLogin() {
 
 function finishLogin(user) {
   STATE.currentUser = user;
+  // Filet de sécurité local pour la reconnexion automatique hors ligne (voir
+  // le commentaire près de loadLocal()) — indépendant de la restauration de
+  // session de Firebase Auth, qui s'est montrée peu fiable hors ligne.
+  STATE.lastSession = { uid: user.uid || null, username: user.username, role: user.role };
+  saveLocal();
   document.getElementById('auth-screen').style.display = 'none';
   document.getElementById('app').style.display = 'flex';
   document.getElementById('app').style.flexDirection = 'column';
@@ -1783,6 +1808,8 @@ async function performLogout() {
   if (unsubDepensesDom) unsubDepensesDom();
   if (unsubFournisseurPayments) unsubFournisseurPayments();
   STATE.currentUser = null;
+  STATE.lastSession = null; // efface aussi le filet de sécurité local hors ligne
+  saveLocal();
   document.getElementById('auth-screen').style.display = 'flex';
   document.getElementById('app').style.display = 'none';
   document.getElementById('login-user').value = '';
