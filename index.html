@@ -564,12 +564,24 @@ tr:hover td{background:#f7f9ff;}
           <div style="font-size:.82rem;font-weight:600;margin-bottom:.5rem;color:var(--text2);">➕ Ajouter une créance client préexistante (dette d'avant la création de l'application)</div>
           <div class="form-row">
             <div class="form-group">
-              <label>Nom du client</label>
+              <label>Client</label>
               <input type="text" id="mcd-client" placeholder="Ex: Jean Pierre" list="client-list"/>
             </div>
             <div class="form-group">
-              <label>Montant dû (HTG)</label>
-              <input type="number" id="mcd-amount" min="0" step="0.01" placeholder="Ex: 5000.00"/>
+              <label>Total Dû (HTG)</label>
+              <input type="number" id="mcd-due" min="0" step="0.01" placeholder="Ex: 5000.00" oninput="calcManualClientPreview()"/>
+            </div>
+            <div class="form-group">
+              <label>Total Payé (HTG)</label>
+              <input type="number" id="mcd-paid" min="0" step="0.01" placeholder="Ex: 2000.00" oninput="calcManualClientPreview()"/>
+            </div>
+            <div class="form-group">
+              <label>Balance Restante (HTG) — auto</label>
+              <input type="number" id="mcd-balance" readonly style="background:#f0f2f7;"/>
+            </div>
+            <div class="form-group">
+              <label>Statut — auto</label>
+              <input type="text" id="mcd-statut" readonly style="background:#f0f2f7;"/>
             </div>
             <div class="form-group" style="flex:2;min-width:200px;">
               <label>Note (optionnel)</label>
@@ -579,8 +591,8 @@ tr:hover td{background:#f7f9ff;}
           <button class="send-btn" onclick="submitManualClientDebt()">Ajouter la créance ➤</button>
           <div class="table-wrap" style="margin-top:.8rem;">
             <table>
-              <thead><tr><th>Date</th><th>Client</th><th>Montant (HTG)</th><th>Note</th><th>Actions</th></tr></thead>
-              <tbody id="manual-client-debts-list-body"><tr><td colspan="5" style="text-align:center;color:var(--text3);padding:1rem;">Aucune créance préexistante ajoutée.</td></tr></tbody>
+              <thead><tr><th>Date</th><th>Client</th><th>Total Dû (HTG)</th><th>Total Payé (HTG)</th><th>Balance Restante (HTG)</th><th>Statut</th><th>Actions</th></tr></thead>
+              <tbody id="manual-client-debts-list-body"><tr><td colspan="7" style="text-align:center;color:var(--text3);padding:1rem;">Aucune créance préexistante ajoutée.</td></tr></tbody>
             </table>
           </div>
         </div>
@@ -597,12 +609,24 @@ tr:hover td{background:#f7f9ff;}
           <div style="font-size:.82rem;font-weight:600;margin-bottom:.5rem;color:var(--text2);">➕ Ajouter une dette fournisseur préexistante (dette d'avant la création de l'application)</div>
           <div class="form-row">
             <div class="form-group">
-              <label>Nom du fournisseur</label>
+              <label>Fournisseur</label>
               <input type="text" id="msd-supplier" placeholder="Ex: Distributeur ABC" list="supplier-list"/>
             </div>
             <div class="form-group">
-              <label>Montant dû (HTG)</label>
-              <input type="number" id="msd-amount" min="0" step="0.01" placeholder="Ex: 5000.00"/>
+              <label>Total Dû (HTG)</label>
+              <input type="number" id="msd-due" min="0" step="0.01" placeholder="Ex: 5000.00" oninput="calcManualSupplierPreview()"/>
+            </div>
+            <div class="form-group">
+              <label>Total Payé (HTG)</label>
+              <input type="number" id="msd-paid" min="0" step="0.01" placeholder="Ex: 2000.00" oninput="calcManualSupplierPreview()"/>
+            </div>
+            <div class="form-group">
+              <label>Balance Restante (HTG) — auto</label>
+              <input type="number" id="msd-balance" readonly style="background:#f0f2f7;"/>
+            </div>
+            <div class="form-group">
+              <label>Statut — auto</label>
+              <input type="text" id="msd-statut" readonly style="background:#f0f2f7;"/>
             </div>
             <div class="form-group" style="flex:2;min-width:200px;">
               <label>Note (optionnel)</label>
@@ -612,8 +636,8 @@ tr:hover td{background:#f7f9ff;}
           <button class="send-btn" onclick="submitManualSupplierDebt()">Ajouter la dette ➤</button>
           <div class="table-wrap" style="margin-top:.8rem;">
             <table>
-              <thead><tr><th>Date</th><th>Fournisseur</th><th>Montant (HTG)</th><th>Note</th><th>Actions</th></tr></thead>
-              <tbody id="manual-supplier-debts-list-body"><tr><td colspan="5" style="text-align:center;color:var(--text3);padding:1rem;">Aucune dette préexistante ajoutée.</td></tr></tbody>
+              <thead><tr><th>Date</th><th>Fournisseur</th><th>Total Dû (HTG)</th><th>Total Payé (HTG)</th><th>Balance Restante (HTG)</th><th>Statut</th><th>Actions</th></tr></thead>
+              <tbody id="manual-supplier-debts-list-body"><tr><td colspan="7" style="text-align:center;color:var(--text3);padding:1rem;">Aucune dette préexistante ajoutée.</td></tr></tbody>
             </table>
           </div>
         </div>
@@ -4529,7 +4553,7 @@ function buildFullWorkbook() {
   const debtors = [...clientsSet].map(client=>{
     const name = client.toLowerCase();
     const totalDu = sales.filter(t=>(t.client||'').toLowerCase()===name && (t.balance||0)>0).reduce((a,t)=>a+(t.balance||0),0) + getManualClientDebt(client);
-    const totalPaye = (STATE.credits||[]).filter(c=>(c.client||'').toLowerCase()===name && c.source!=='vente').reduce((a,c)=>a+(c.paid||0),0);
+    const totalPaye = (STATE.credits||[]).filter(c=>(c.client||'').toLowerCase()===name && c.source!=='vente').reduce((a,c)=>a+(c.paid||0),0) + getManualClientPaid(client);
     return { client, totalDu, totalPaye, balanceRestante: Math.max(0, totalDu-totalPaye) };
   }).filter(d=>d.balanceRestante>0).sort((a,b)=>b.balanceRestante-a.balanceRestante);
   XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([
@@ -4783,34 +4807,51 @@ async function submitCredit() {
   document.getElementById('cr-final').value = '';
 }
 
-// Créances clients ajoutées manuellement (admin/gestionnaire) pour des
-// dettes qui existaient déjà avant la création de l'application — ajoutées
-// au total dû comme si elles venaient d'une vente à crédit.
+// Créances clients / dettes fournisseurs ajoutées manuellement
+// (admin/gestionnaire) pour des dettes qui existaient déjà avant la
+// création de l'application. Chaque entrée porte son propre "Total Dû" et
+// "Total Payé" (comme une dette entière avec son historique déjà réglé en
+// partie avant l'app) — les deux sont intégrés séparément dans les calculs
+// globaux de balance restante.
 function getManualClientDebt(clientName) {
   const name = (clientName||'').toLowerCase();
   return (STATE.manualClientDebts||[])
     .filter(m => (m.client||'').toLowerCase()===name)
-    .reduce((a,m) => a + (m.amount||0), 0);
+    .reduce((a,m) => a + (m.due||0), 0);
+}
+function getManualClientPaid(clientName) {
+  const name = (clientName||'').toLowerCase();
+  return (STATE.manualClientDebts||[])
+    .filter(m => (m.client||'').toLowerCase()===name)
+    .reduce((a,m) => a + (m.paid||0), 0);
 }
 function getManualSupplierDebt(supplierName) {
   const name = (supplierName||'').toLowerCase();
   return (STATE.manualSupplierDebts||[])
     .filter(m => (m.supplier||'').toLowerCase()===name)
-    .reduce((a,m) => a + (m.amount||0), 0);
+    .reduce((a,m) => a + (m.due||0), 0);
+}
+function getManualSupplierPaid(supplierName) {
+  const name = (supplierName||'').toLowerCase();
+  return (STATE.manualSupplierDebts||[])
+    .filter(m => (m.supplier||'').toLowerCase()===name)
+    .reduce((a,m) => a + (m.paid||0), 0);
 }
 
 function getClientDebt(clientName) {
   // Calculer la dette totale d'un client: somme des balances de ventes +
   // créances préexistantes ajoutées manuellement - somme des paiements
+  // (y compris ceux déjà enregistrés directement sur la créance préexistante)
   const name = (clientName||'').toLowerCase();
   const salesBalance = (STATE.transactions||[])
     .filter(t => t.type==='vente' && (t.client||'').toLowerCase()===name)
     .reduce((a,t) => a + (t.balance||0), 0);
   const manualDebt = getManualClientDebt(clientName);
+  const manualPaid = getManualClientPaid(clientName);
   const paymentsDone = (STATE.credits||[])
     .filter(c => (c.client||'').toLowerCase()===name && c.source!=='vente')
     .reduce((a,c) => a + (c.paid||0), 0);
-  return Math.max(0, salesBalance + manualDebt - paymentsDone);
+  return Math.max(0, salesBalance + manualDebt - paymentsDone - manualPaid);
 }
 
 function renderCredits() {
@@ -5003,10 +5044,11 @@ function renderDettes() {
       .reduce((a,t) => a+(t.balance||0), 0);
     const totalDuManuel = getManualClientDebt(client);
     const totalDu = totalDuVentes + totalDuManuel;
-    // Total payé = somme des paiements effectués (hors source vente)
+    // Total payé = somme des paiements effectués (hors source vente) +
+    // paiements déjà réglés sur les créances préexistantes elles-mêmes.
     const totalPaye = (STATE.credits||[])
       .filter(c => (c.client||'').toLowerCase()===name && c.source!=='vente')
-      .reduce((a,c) => a+(c.paid||0), 0);
+      .reduce((a,c) => a+(c.paid||0), 0) + getManualClientPaid(client);
     const balanceRestante = Math.max(0, totalDu - totalPaye);
     if (totalDu > 0 || totalPaye > 0) {
       clientData.push({ client, totalDu, totalPaye, balanceRestante });
@@ -5065,13 +5107,15 @@ function renderManualSupplierDebtsForm() {
 async function submitManualClientDebt() {
   if (!requireAdminOrGest()) return;
   const client = document.getElementById('mcd-client').value.trim();
-  const amount = parseFloat(document.getElementById('mcd-amount').value);
+  const due = parseFloat(document.getElementById('mcd-due').value);
+  let paid = parseFloat(document.getElementById('mcd-paid').value);
   const note = document.getElementById('mcd-note').value.trim();
   const date = todayStr(), isoD = isoDate();
-  if (!client || isNaN(amount) || amount <= 0) {
-    showToast('⚠ Nom du client et montant sont obligatoires.','warn'); return;
+  if (!client || isNaN(due) || due <= 0) {
+    showToast('⚠ Nom du client et Total Dû sont obligatoires.','warn'); return;
   }
-  const entry = { client, amount, note, date, isoDate: isoD,
+  if (isNaN(paid) || paid < 0) paid = 0;
+  const entry = { client, due, paid, note, date, isoDate: isoD,
     addedBy: STATE.currentUser.username, createdAt: new Date().toISOString() };
   if (!STATE.isOnline || !STATE.fbReady) {
     if (!STATE.manualClientDebts) STATE.manualClientDebts = [];
@@ -5098,8 +5142,21 @@ async function submitManualClientDebt() {
   }
   renderDettes();
   document.getElementById('mcd-client').value='';
-  document.getElementById('mcd-amount').value='';
+  document.getElementById('mcd-due').value='';
+  document.getElementById('mcd-paid').value='';
   document.getElementById('mcd-note').value='';
+  document.getElementById('mcd-balance').value='';
+  document.getElementById('mcd-statut').value='';
+}
+
+// Calcule en direct la Balance Restante et le Statut pendant la saisie
+// d'une créance client préexistante (Total Dû / Total Payé).
+function calcManualClientPreview() {
+  const due = parseFloat(document.getElementById('mcd-due').value) || 0;
+  const paid = parseFloat(document.getElementById('mcd-paid').value) || 0;
+  const balance = Math.max(0, due - paid);
+  document.getElementById('mcd-balance').value = balance.toFixed(2);
+  document.getElementById('mcd-statut').value = due<=0 ? '' : (balance<=0 ? 'Soldé' : (paid>0 ? 'Partiel' : 'Non soldé'));
 }
 
 async function deleteManualClientDebt(id) {
@@ -5121,28 +5178,44 @@ function renderManualClientDebtsList() {
   if (!body) return;
   const entries = [...(STATE.manualClientDebts||[])].sort((a,b)=>(b.isoDate||'').localeCompare(a.isoDate||''));
   if (!entries.length) {
-    body.innerHTML = '<tr><td colspan="5" style="text-align:center;color:var(--text3);padding:1rem;">Aucune créance préexistante ajoutée.</td></tr>';
+    body.innerHTML = '<tr><td colspan="7" style="text-align:center;color:var(--text3);padding:1rem;">Aucune créance préexistante ajoutée.</td></tr>';
     return;
   }
-  body.innerHTML = entries.map(m => `<tr>
+  body.innerHTML = entries.map(m => {
+    const due = m.due||0, paid = m.paid||0;
+    const balance = Math.max(0, due-paid);
+    const statut = balance<=0 ? 'Soldé' : (paid>0 ? 'Partiel' : 'Non soldé');
+    return `<tr>
     <td>${m.date||''}</td>
     <td>${esc(m.client)}</td>
-    <td>${fmtHTG(m.amount||0)}</td>
-    <td>${esc(m.note||'')}</td>
+    <td>${fmtHTG(due)}</td>
+    <td>${fmtHTG(paid)}</td>
+    <td style="font-weight:700;${balance>0?'color:#c0392b;':''}">${fmtHTG(balance)}</td>
+    <td><span class="badge ${balance<=0?'badge-sent':'badge-pending'}">${statut}</span></td>
     <td>${m.id ? `<button class="del-btn" onclick="deleteManualClientDebt('${m.id}')">×</button>` : '<span style="color:var(--text3);font-size:.75rem;">en attente</span>'}</td>
-  </tr>`).join('');
+  </tr>`;
+  }).join('') + `<tr style="background:var(--surface2);font-weight:700;border-top:2px solid var(--border);">
+    <td colspan="2">📊 GRAND TOTAL (${entries.length} créance(s))</td>
+    <td>${fmtHTG(entries.reduce((a,m)=>a+(m.due||0),0))}</td>
+    <td>${fmtHTG(entries.reduce((a,m)=>a+(m.paid||0),0))}</td>
+    <td style="color:#c0392b;">${fmtHTG(entries.reduce((a,m)=>a+Math.max(0,(m.due||0)-(m.paid||0)),0))}</td>
+    <td></td>
+    <td></td>
+  </tr>`;
 }
 
 async function submitManualSupplierDebt() {
   if (!requireAdminOrGest()) return;
   const supplier = document.getElementById('msd-supplier').value.trim();
-  const amount = parseFloat(document.getElementById('msd-amount').value);
+  const due = parseFloat(document.getElementById('msd-due').value);
+  let paid = parseFloat(document.getElementById('msd-paid').value);
   const note = document.getElementById('msd-note').value.trim();
   const date = todayStr(), isoD = isoDate();
-  if (!supplier || isNaN(amount) || amount <= 0) {
-    showToast('⚠ Nom du fournisseur et montant sont obligatoires.','warn'); return;
+  if (!supplier || isNaN(due) || due <= 0) {
+    showToast('⚠ Nom du fournisseur et Total Dû sont obligatoires.','warn'); return;
   }
-  const entry = { supplier, amount, note, date, isoDate: isoD,
+  if (isNaN(paid) || paid < 0) paid = 0;
+  const entry = { supplier, due, paid, note, date, isoDate: isoD,
     addedBy: STATE.currentUser.username, createdAt: new Date().toISOString() };
   if (!STATE.isOnline || !STATE.fbReady) {
     if (!STATE.manualSupplierDebts) STATE.manualSupplierDebts = [];
@@ -5169,8 +5242,21 @@ async function submitManualSupplierDebt() {
   }
   renderDettesFournisseurs();
   document.getElementById('msd-supplier').value='';
-  document.getElementById('msd-amount').value='';
+  document.getElementById('msd-due').value='';
+  document.getElementById('msd-paid').value='';
   document.getElementById('msd-note').value='';
+  document.getElementById('msd-balance').value='';
+  document.getElementById('msd-statut').value='';
+}
+
+// Calcule en direct la Balance Restante et le Statut pendant la saisie
+// d'une dette fournisseur préexistante (Total Dû / Total Payé).
+function calcManualSupplierPreview() {
+  const due = parseFloat(document.getElementById('msd-due').value) || 0;
+  const paid = parseFloat(document.getElementById('msd-paid').value) || 0;
+  const balance = Math.max(0, due - paid);
+  document.getElementById('msd-balance').value = balance.toFixed(2);
+  document.getElementById('msd-statut').value = due<=0 ? '' : (balance<=0 ? 'Soldé' : (paid>0 ? 'Partiel' : 'Non soldé'));
 }
 
 async function deleteManualSupplierDebt(id) {
@@ -5192,16 +5278,30 @@ function renderManualSupplierDebtsList() {
   if (!body) return;
   const entries = [...(STATE.manualSupplierDebts||[])].sort((a,b)=>(b.isoDate||'').localeCompare(a.isoDate||''));
   if (!entries.length) {
-    body.innerHTML = '<tr><td colspan="5" style="text-align:center;color:var(--text3);padding:1rem;">Aucune dette préexistante ajoutée.</td></tr>';
+    body.innerHTML = '<tr><td colspan="7" style="text-align:center;color:var(--text3);padding:1rem;">Aucune dette préexistante ajoutée.</td></tr>';
     return;
   }
-  body.innerHTML = entries.map(m => `<tr>
+  body.innerHTML = entries.map(m => {
+    const due = m.due||0, paid = m.paid||0;
+    const balance = Math.max(0, due-paid);
+    const statut = balance<=0 ? 'Soldé' : (paid>0 ? 'Partiel' : 'Non soldé');
+    return `<tr>
     <td>${m.date||''}</td>
     <td>${esc(m.supplier)}</td>
-    <td>${fmtHTG(m.amount||0)}</td>
-    <td>${esc(m.note||'')}</td>
+    <td>${fmtHTG(due)}</td>
+    <td>${fmtHTG(paid)}</td>
+    <td style="font-weight:700;${balance>0?'color:#c0392b;':''}">${fmtHTG(balance)}</td>
+    <td><span class="badge ${balance<=0?'badge-sent':'badge-pending'}">${statut}</span></td>
     <td>${m.id ? `<button class="del-btn" onclick="deleteManualSupplierDebt('${m.id}')">×</button>` : '<span style="color:var(--text3);font-size:.75rem;">en attente</span>'}</td>
-  </tr>`).join('');
+  </tr>`;
+  }).join('') + `<tr style="background:var(--surface2);font-weight:700;border-top:2px solid var(--border);">
+    <td colspan="2">📊 GRAND TOTAL (${entries.length} dette(s))</td>
+    <td>${fmtHTG(entries.reduce((a,m)=>a+(m.due||0),0))}</td>
+    <td>${fmtHTG(entries.reduce((a,m)=>a+(m.paid||0),0))}</td>
+    <td style="color:#c0392b;">${fmtHTG(entries.reduce((a,m)=>a+Math.max(0,(m.due||0)-(m.paid||0)),0))}</td>
+    <td></td>
+    <td></td>
+  </tr>`;
 }
 
 // ============================================================
@@ -5247,10 +5347,11 @@ function getSupplierDebt(supplierName) {
     .filter(s => s.paymentMode==='credit' && (s.supplier||'').toLowerCase()===name)
     .reduce((a,s) => a + (s.amount||0), 0);
   const manualDette = getManualSupplierDebt(supplierName);
+  const manualPaye = getManualSupplierPaid(supplierName);
   const paiementsFaits = (STATE.fournisseurPayments||[])
     .filter(p => (p.supplier||'').toLowerCase()===name && p.source!=='achat')
     .reduce((a,p) => a + (p.paid||0), 0);
-  return Math.max(0, achatsDette + manualDette - paiementsFaits);
+  return Math.max(0, achatsDette + manualDette - paiementsFaits - manualPaye);
 }
 
 function loadSupplierBalance(prefix) {
@@ -5500,7 +5601,7 @@ function renderDettesFournisseurs() {
     const totalDu = totalDuAchats + totalDuManuel;
     const totalPaye = (STATE.fournisseurPayments||[])
       .filter(p => (p.supplier||'').toLowerCase()===name && p.source!=='achat')
-      .reduce((a,p) => a+(p.paid||0), 0);
+      .reduce((a,p) => a+(p.paid||0), 0) + getManualSupplierPaid(supplier);
     const balanceRestante = Math.max(0, totalDu - totalPaye);
     if (totalDu > 0 || totalPaye > 0) {
       supplierData.push({ supplier, totalDu, totalPaye, balanceRestante });
