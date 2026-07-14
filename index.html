@@ -85,9 +85,8 @@ window._secondaryAuth = secondaryAuth;
 // au gestionnaire de rouvrir l'app hors ligne sans être bloqué à l'écran de
 // connexion. On ne lance une session anonyme que si PERSONNE n'est
 // restauré (première visite, ou après une vraie déconnexion).
-// Diagnostic hors ligne — réactivé temporairement pour trouver pourquoi la
-// connexion hors ligne via cache local de mot de passe échoue.
-window._DEBUG_OFFLINE = true;
+// Diagnostic hors ligne — confirmé stable le 14 juillet 2026, désactivé.
+window._DEBUG_OFFLINE = false;
 onAuthStateChanged(auth, user => {
   if (window._DEBUG_OFFLINE && window._logDebugOffline) {
     window._logDebugOffline('onAuthStateChanged: ' + (user ? (user.isAnonymous ? 'session anonyme' : 'session réelle uid=' + user.uid.slice(0,8)) : 'aucune session'));
@@ -242,7 +241,6 @@ tr:hover td{background:#f7f9ff;}
     <button class="btn btn-primary" onclick="doLogin()">Se connecter →</button>
     <div class="auth-err" id="auth-err"></div>
     <div id="offline-cred-status" style="margin-top:14px;font-size:.72rem;color:#94a3b8;text-align:center;line-height:1.5;"></div>
-    <div style="margin-top:6px;font-size:.65rem;color:#cbd5e1;text-align:center;">build 2026-07-14-0410</div>
   </div>
 </div>
 
