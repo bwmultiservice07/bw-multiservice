@@ -299,51 +299,62 @@ tr:hover td{background:#f7f9ff;}
         <div id="correction-banner" style="display:none;background:#fef3e2;color:#8a5a00;border:1px solid #f5d59a;border-radius:8px;padding:8px 12px;margin-bottom:12px;font-size:.85rem;font-weight:600;">
           ✏️ Correction en cours — <span id="correction-banner-text"></span>. La date et le client sont figés ; les autres champs peuvent être modifiés.
         </div>
-        <div class="form-row">
-          <div class="form-group" style="flex:2;min-width:200px;">
-            <label>Description des marchandises <span style="color:#c0392b;">*</span></label>
-            <input type="text" id="v-desc" list="produit-list" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" placeholder="Tapez le nom du produit..." required
-              oninput="updateProduitList('v-desc')" onchange="normalizeProduitField('v-desc')" onfocus="updateProduitList('v-desc')"/>
-            <datalist id="produit-list"></datalist>
+        <div id="v-products-container">
+          <div class="v-product-row" data-row-index="0" style="border:1px solid var(--border);border-radius:10px;padding:10px 10px 2px;margin-bottom:10px;">
+            <div class="form-row">
+              <div class="form-group" style="flex:2;min-width:200px;">
+                <label>Description des marchandises <span style="color:#c0392b;">*</span></label>
+                <input type="text" id="v-desc" list="produit-list" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" placeholder="Tapez le nom du produit..." required
+                  oninput="updateProduitList('v-desc')" onchange="normalizeProduitField('v-desc')" onfocus="updateProduitList('v-desc')"/>
+                <datalist id="produit-list"></datalist>
+              </div>
+            </div>
+            <div class="form-row">
+              <div class="form-group">
+                <label>Quantité</label>
+                <input type="number" id="v-qty" min="1" placeholder="Ex: 10" oninput="calcMontant('v')"/>
+              </div>
+              <div class="form-group">
+                <label>Unité</label>
+                <select id="v-unit" onchange="calcMontant('v')">
+                  <option value="caisse">Caisse (24 unités)</option>
+                  <option value="bout">Bout (12 unités)</option>
+                  <option value="caisse-1-2">Caisse et 1/2 (36 unités)</option>
+                  <option value="bout-1-2">Bout et 1/2 (18 unités)</option>
+                  <option value="caisse-beller">Caisse Beller (48 unités)</option>
+                  <option value="unite">Unité (1 unité)</option>
+                </select>
+              </div>
+              <div class="form-group">
+                <label>Prix / Caisse (HTG)</label>
+                <input type="number" id="v-prix-caisse" min="0" step="0.01" placeholder="Ex: 1200.00" oninput="calcPrixUnitaire('v')"/>
+              </div>
+              <div class="form-group">
+                <label>Prix unitaire (HTG) — auto</label>
+                <input type="number" id="v-prix" min="0" step="0.01" placeholder="Ex: 50.00" oninput="calcMontant('v')" readonly style="background:#f0f2f7;"/>
+              </div>
+              <div class="form-group">
+                <label>Nombre d'unité</label>
+                <input type="number" id="v-nb-unite" min="0" step="1" placeholder="Ex: 1, 2, 3..." oninput="calcMontant('v')"/>
+              </div>
+              <div class="form-group">
+                <label>Sous-total produit (HTG) — auto</label>
+                <input type="number" id="v-row-amount" min="0" step="0.01" placeholder="0.00" readonly style="background:#f0f2f7;font-weight:600;"/>
+              </div>
+            </div>
           </div>
         </div>
+        <button type="button" id="btn-add-vente-product" class="btn btn-outline" style="margin-bottom:12px;font-size:.85rem;" onclick="addVenteProductRow()">+ Ajouter un autre produit</button>
         <div class="form-row">
           <div class="form-group">
-            <label>Quantité</label>
-            <input type="number" id="v-qty" min="1" placeholder="Ex: 10" oninput="calcMontant()"/>
-          </div>
-          <div class="form-group">
-            <label>Unité</label>
-            <select id="v-unit" onchange="calcMontant()">
-              <option value="caisse">Caisse (24 unités)</option>
-              <option value="bout">Bout (12 unités)</option>
-              <option value="caisse-1-2">Caisse et 1/2 (36 unités)</option>
-              <option value="bout-1-2">Bout et 1/2 (18 unités)</option>
-              <option value="caisse-beller">Caisse Beller (48 unités)</option>
-              <option value="unite">Unité (1 unité)</option>
-            </select>
-          </div>
-          <div class="form-group">
-            <label>Prix / Caisse (HTG)</label>
-            <input type="number" id="v-prix-caisse" min="0" step="0.01" placeholder="Ex: 1200.00" oninput="calcPrixUnitaire()"/>
-          </div>
-          <div class="form-group">
-            <label>Prix unitaire (HTG) — auto</label>
-            <input type="number" id="v-prix" min="0" step="0.01" placeholder="Ex: 50.00" oninput="calcMontant()" readonly style="background:#f0f2f7;"/>
-          </div>
-          <div class="form-group">
-            <label>Nombre d'unité</label>
-            <input type="number" id="v-nb-unite" min="0" step="1" placeholder="Ex: 1, 2, 3..." oninput="calcMontant()"/>
-          </div>
-          <div class="form-group">
-            <label>Montant total (HTG) — automatique</label>
-            <input type="number" id="v-amount" min="0" step="0.01" placeholder="0.00" readonly style="background:#f0f2f7;font-weight:700;color:#1a56db;" oninput="calcBalance()"/>
+            <label>Montant total (HTG) — automatique (tous les produits)</label>
+            <input type="number" id="v-amount" min="0" step="0.01" placeholder="0.00" readonly style="background:#f0f2f7;font-weight:700;color:#1a56db;" oninput="calcBalance('v')"/>
           </div>
         </div>
         <div class="form-row">
           <div class="form-group">
             <label>Paiement cash (Gourdes HTG)</label>
-            <input type="number" id="v-cash" min="0" step="0.01" placeholder="Ex: 300.00" oninput="calcBalance()"/>
+            <input type="number" id="v-cash" min="0" step="0.01" placeholder="Ex: 300.00" oninput="calcBalance('v')"/>
           </div>
           <div class="form-group">
             <label>Crédit par client (Gourdes HTG)</label>
@@ -2340,9 +2351,12 @@ function formatCaissesDisplay(qtyCaisses, casseSize) {
   return sign + parts.join(' et ');
 }
 
-// prefix par défaut 'v' = le formulaire de vente normal ; 'vg' = le
-// formulaire de vente glacée, qui réutilise exactement la même logique de
-// calcul (prix caisse → prix unitaire → montant → balance).
+// prefix par défaut 'v' = la première ligne produit du formulaire de vente ;
+// 'v2', 'v3', ... = les lignes produit supplémentaires ajoutées via "+
+// Ajouter un autre produit" (une vente peut désormais contenir plusieurs
+// produits dans la même fiche) ; 'vg' = le formulaire de vente glacée, qui
+// réutilise exactement la même logique de calcul (prix caisse → prix
+// unitaire → montant), mais reste toujours à une seule ligne.
 function calcPrixUnitaire(prefix) {
   prefix = prefix || 'v';
   const prixCaisse = parseFloat(document.getElementById(prefix+'-prix-caisse').value) || 0;
@@ -2355,6 +2369,11 @@ function calcPrixUnitaire(prefix) {
   calcMontant(prefix);
 }
 
+// Calcule le sous-total d'UNE ligne produit (prefix 'v', 'v2', 'v3'...) et
+// l'écrit dans son propre champ "-row-amount", puis redéclenche le recalcul
+// du montant total de la vente (somme de toutes les lignes) — sauf pour le
+// formulaire "vente glacée" (prefix 'vg') qui n'a pas de lignes multiples ni
+// de champ -row-amount et gère son propre montant via calcMontantGlace().
 function calcMontant(prefix) {
   prefix = prefix || 'v';
   const qty = parseFloat(document.getElementById(prefix+'-qty').value) || 0;
@@ -2365,16 +2384,119 @@ function calcMontant(prefix) {
   const produit = descEl ? descEl.value : '';
   const nbUnite = parseFloat(document.getElementById(prefix+'-nb-unite').value) || 0;
 
-  // Montant total = (Quantité × facteur de l'unité × Prix caisse)
-  //               + (Nombre d'unité × Prix unitaire)
+  // Montant (sous-total de cette ligne) = (Quantité × facteur de l'unité × Prix caisse)
+  //                                     + (Nombre d'unité × Prix unitaire)
   // "unite" = 1 unité individuelle : son facteur dépend de la taille réelle
   // d'une caisse pour ce produit (24, ou 48 pour Beller), donc calculé à
   // part plutôt que dans la table fixe UNIT_FACTORS.
   const factor = unit === 'unite' ? (1 / getCasseSize(produit, unit)) : (UNIT_FACTORS[unit] !== undefined ? UNIT_FACTORS[unit] : 1);
   const montant = (qty * factor * prixCaisse) + (nbUnite * prixUnit);
 
-  document.getElementById(prefix+'-amount').value = montant.toFixed(2);
-  calcBalance(prefix);
+  const rowAmountEl = document.getElementById(prefix+'-row-amount');
+  if (rowAmountEl) {
+    rowAmountEl.value = montant.toFixed(2);
+    recalcVenteTotal();
+  }
+}
+
+// Additionne le sous-total de CHAQUE ligne produit (v-row-amount, v2-row-amount,
+// v3-row-amount, ...) dans le montant total de la vente, puis recalcule la
+// balance/crédit en fonction du cash payé — appelé à chaque changement d'une
+// ligne produit ou après ajout/suppression d'une ligne.
+function recalcVenteTotal() {
+  const rows = document.querySelectorAll('#v-products-container .v-product-row');
+  let total = 0;
+  rows.forEach(rowEl => {
+    const idx = rowEl.getAttribute('data-row-index');
+    const prefix = idx === '0' ? 'v' : ('v'+idx);
+    const amountEl = document.getElementById(prefix+'-row-amount');
+    if (amountEl) total += parseFloat(amountEl.value) || 0;
+  });
+  const totalEl = document.getElementById('v-amount');
+  if (totalEl) totalEl.value = total.toFixed(2);
+  calcBalance('v');
+}
+
+// Ajoute une ligne produit supplémentaire au formulaire de vente (bouton "+
+// Ajouter un autre produit") — chaque ligne ajoutée a son propre champ
+// Produit, obligatoire au moment d'Envoyer (voir submitSale()).
+let _venteRowCounter = 1;
+function addVenteProductRow() {
+  const container = document.getElementById('v-products-container');
+  if (!container) return;
+  const idx = _venteRowCounter++;
+  const p = 'v'+idx;
+  const div = document.createElement('div');
+  div.className = 'v-product-row';
+  div.setAttribute('data-row-index', String(idx));
+  div.style.cssText = 'border:1px solid var(--border);border-radius:10px;padding:10px 10px 2px;margin-bottom:10px;position:relative;';
+  div.innerHTML = `
+    <button type="button" onclick="removeVenteProductRow(${idx})" title="Retirer ce produit" style="position:absolute;top:8px;right:8px;background:var(--danger-bg);color:var(--danger);border:1px solid #f5b7b1;border-radius:6px;font-size:.75rem;padding:2px 8px;cursor:pointer;">🗑 Retirer</button>
+    <div class="form-row">
+      <div class="form-group" style="flex:2;min-width:200px;">
+        <label>Description des marchandises <span style="color:#c0392b;">*</span></label>
+        <input type="text" id="${p}-desc" list="produit-list" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" placeholder="Tapez le nom du produit..." required
+          oninput="updateProduitList('${p}-desc')" onchange="normalizeProduitField('${p}-desc')" onfocus="updateProduitList('${p}-desc')"/>
+      </div>
+    </div>
+    <div class="form-row">
+      <div class="form-group">
+        <label>Quantité</label>
+        <input type="number" id="${p}-qty" min="1" placeholder="Ex: 10" oninput="calcMontant('${p}')"/>
+      </div>
+      <div class="form-group">
+        <label>Unité</label>
+        <select id="${p}-unit" onchange="calcMontant('${p}')">
+          <option value="caisse">Caisse (24 unités)</option>
+          <option value="bout">Bout (12 unités)</option>
+          <option value="caisse-1-2">Caisse et 1/2 (36 unités)</option>
+          <option value="bout-1-2">Bout et 1/2 (18 unités)</option>
+          <option value="caisse-beller">Caisse Beller (48 unités)</option>
+          <option value="unite">Unité (1 unité)</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label>Prix / Caisse (HTG)</label>
+        <input type="number" id="${p}-prix-caisse" min="0" step="0.01" placeholder="Ex: 1200.00" oninput="calcPrixUnitaire('${p}')"/>
+      </div>
+      <div class="form-group">
+        <label>Prix unitaire (HTG) — auto</label>
+        <input type="number" id="${p}-prix" min="0" step="0.01" placeholder="Ex: 50.00" oninput="calcMontant('${p}')" readonly style="background:#f0f2f7;"/>
+      </div>
+      <div class="form-group">
+        <label>Nombre d'unité</label>
+        <input type="number" id="${p}-nb-unite" min="0" step="1" placeholder="Ex: 1, 2, 3..." oninput="calcMontant('${p}')"/>
+      </div>
+      <div class="form-group">
+        <label>Sous-total produit (HTG) — auto</label>
+        <input type="number" id="${p}-row-amount" min="0" step="0.01" placeholder="0.00" readonly style="background:#f0f2f7;font-weight:600;"/>
+      </div>
+    </div>`;
+  container.appendChild(div);
+}
+
+function removeVenteProductRow(idx) {
+  const row = document.querySelector(`#v-products-container .v-product-row[data-row-index="${idx}"]`);
+  if (row) row.remove();
+  recalcVenteTotal();
+}
+
+// Retire toutes les lignes produit supplémentaires et réinitialise la ligne
+// 0 — utilisé après l'enregistrement d'une vente et à l'entrée/sortie du
+// mode correction (une correction ne porte que sur UNE vente à la fois).
+function resetVenteProductRows() {
+  document.querySelectorAll('#v-products-container .v-product-row').forEach(rowEl => {
+    if (rowEl.getAttribute('data-row-index') !== '0') rowEl.remove();
+  });
+  _venteRowCounter = 1;
+  document.getElementById('v-desc').value='';
+  document.getElementById('v-qty').value='';
+  document.getElementById('v-unit').value='caisse';
+  document.getElementById('v-prix-caisse').value='';
+  document.getElementById('v-prix').value='';
+  document.getElementById('v-nb-unite').value='';
+  document.getElementById('v-row-amount').value='';
+  document.getElementById('v-amount').value='';
 }
 
 // Seuls admin et gestionnaire ont le droit de corriger/modifier/supprimer
@@ -2422,6 +2544,10 @@ function lockSaleForCorrection(tx) {
     bannerText.textContent = `vente du ${_pendingCorrection.date} à ${_pendingCorrection.time}`;
     banner.style.display = 'block';
   }
+  // Une correction ne porte que sur UNE seule transaction déjà enregistrée :
+  // on masque l'ajout de produits supplémentaires tant qu'on est en mode correction.
+  const addBtn = document.getElementById('btn-add-vente-product');
+  if (addBtn) addBtn.style.display = 'none';
 }
 
 function unlockSaleForm() {
@@ -2430,6 +2556,10 @@ function unlockSaleForm() {
   if (clientInput) { clientInput.readOnly = false; clientInput.style.background = ''; }
   const banner = document.getElementById('correction-banner');
   if (banner) banner.style.display = 'none';
+  const addBtn = document.getElementById('btn-add-vente-product');
+  if (addBtn) addBtn.style.display = '';
+  // Repart d'un formulaire à une seule ligne produit propre.
+  resetVenteProductRows();
 }
 
 async function corrigerDerniereVente() {
@@ -2439,12 +2569,16 @@ async function corrigerDerniereVente() {
     .sort((a,b) => (b.isoDate||'').localeCompare(a.isoDate||'')||(b.time||'').localeCompare(a.time||''));
   if (!myVentes.length) { showToast('⚠ Aucune vente à corriger.','warn'); return; }
   const last = myVentes[0];
+  // Une vente corrigée ne comporte qu'un seul produit : repartir d'un formulaire propre.
+  resetVenteProductRows();
   // Pré-remplir le formulaire avec la dernière vente
   document.getElementById('v-desc').value = last.description || '';
   document.getElementById('v-qty').value = last.quantity || '';
   document.getElementById('v-unit').value = last.unit || 'caisse';
   document.getElementById('v-prix').value = last.unitPrice || '';
   document.getElementById('v-nb-unite').value = last.nombreUnite || '';
+  if (document.getElementById('v-prix-caisse')) document.getElementById('v-prix-caisse').value = last.prixCaisse || '';
+  document.getElementById('v-row-amount').value = last.amount || '';
   document.getElementById('v-amount').value = last.amount || '';
   document.getElementById('v-cash').value = last.cash || '';
   document.getElementById('v-credit').value = last.credit || '';
@@ -2467,12 +2601,15 @@ async function loadSaleForCorrection(id) {
   if (!requireAdminOrGest()) return;
   const tx = STATE.transactions.find(t => t.id === id && t.type === 'vente');
   if (!tx) { showToast('⚠ Vente introuvable.','warn'); return; }
+  // Une vente corrigée ne comporte qu'un seul produit : repartir d'un formulaire propre.
+  resetVenteProductRows();
   document.getElementById('v-desc').value = tx.description || '';
   document.getElementById('v-qty').value = tx.quantity || '';
   document.getElementById('v-unit').value = tx.unit || 'caisse';
   document.getElementById('v-prix').value = tx.unitPrice || '';
   document.getElementById('v-nb-unite').value = tx.nombreUnite || '';
   if (document.getElementById('v-prix-caisse')) document.getElementById('v-prix-caisse').value = tx.prixCaisse || '';
+  document.getElementById('v-row-amount').value = tx.amount || '';
   document.getElementById('v-amount').value = tx.amount || '';
   document.getElementById('v-cash').value = tx.cash || '';
   document.getElementById('v-credit').value = tx.credit || '';
@@ -2516,20 +2653,38 @@ function updateVenteClientList(prefix) {
 }
 
 async function submitSale() {
-  const desc = document.getElementById('v-desc').value.trim();
-  const qty = parseFloat(document.getElementById('v-qty').value);
-  const unit = document.getElementById('v-unit').value;
+  // Une "fiche" de vente peut contenir plusieurs produits : chaque ligne
+  // (#v-products-container .v-product-row) doit avoir un produit renseigné —
+  // le champ produit est obligatoire pour CHAQUE ligne présente.
+  const rowEls = Array.from(document.querySelectorAll('#v-products-container .v-product-row'));
+  if (!rowEls.length) { showToast('⚠ Aucun produit à enregistrer.','warn'); return; }
+  const rows = [];
+  for (const rowEl of rowEls) {
+    const idx = rowEl.getAttribute('data-row-index');
+    const prefix = idx === '0' ? 'v' : ('v'+idx);
+    const descEl = document.getElementById(prefix+'-desc');
+    const desc = descEl ? descEl.value.trim() : '';
+    if (!desc) {
+      showToast('⚠ Le produit est obligatoire pour chaque ligne ajoutée.','warn');
+      return;
+    }
+    const qty = parseFloat(document.getElementById(prefix+'-qty').value);
+    const unit = document.getElementById(prefix+'-unit').value;
+    const prix = parseFloat(document.getElementById(prefix+'-prix').value) || 0;
+    const prixCaisse = parseFloat(document.getElementById(prefix+'-prix-caisse').value) || 0;
+    const nbUnite = parseFloat(document.getElementById(prefix+'-nb-unite').value) || 0;
+    const rowAmount = parseFloat(document.getElementById(prefix+'-row-amount').value);
+    if (isNaN(qty)||qty<=0||prix<=0||isNaN(rowAmount)||rowAmount<=0) {
+      showToast('⚠ Veuillez remplir tous les champs obligatoires (quantité, prix, montant) pour chaque produit.','warn');
+      return;
+    }
+    rows.push({ desc, qty, unit, prix, prixCaisse, nbUnite, amount: rowAmount });
+  }
   const amount = parseFloat(document.getElementById('v-amount').value);
   const cash = parseFloat(document.getElementById('v-cash').value) || 0;
   const balance = parseFloat(document.getElementById('v-balance').value) || 0;
   const client = document.getElementById('v-client').value.trim();
-  const prix = parseFloat(document.getElementById('v-prix').value) || 0;
-  const nbUnite = parseFloat(document.getElementById('v-nb-unite').value) || 0;
-  const clientCheck = document.getElementById('v-client').value.trim();
-  if (!desc) {
-    showToast('⚠ La description du produit est obligatoire.','warn'); return;
-  }
-  if (isNaN(qty)||qty<=0||prix<=0||isNaN(amount)||amount<=0) {
+  if (isNaN(amount)||amount<=0) {
     showToast('⚠ Veuillez remplir tous les champs obligatoires (quantité, prix, montant).','warn'); return;
   }
   if (balance > 0 && !client) {
@@ -2540,13 +2695,20 @@ async function submitSale() {
   const saleDate = _pendingCorrection ? _pendingCorrection.date : todayStr();
   const saleIsoDate = _pendingCorrection ? _pendingCorrection.isoDate : isoDate();
   const saleTime = _pendingCorrection ? _pendingCorrection.time : nowStr();
-  const tx = {
+  // Toutes les lignes d'une même fiche partagent un identifiant commun, pour
+  // pouvoir les regrouper/tracer même si elles restent des documents séparés.
+  const saleGroupId = Date.now()+'-'+Math.random().toString(36).slice(2,8);
+  // Le paiement (cash/crédit/balance) porte sur le TOTAL de la fiche : il n'est
+  // attaché qu'à la première ligne, les autres lignes ont cash/credit/balance à 0.
+  const txList = rows.map((r, i) => ({
     type:'vente', date:saleDate, isoDate:saleIsoDate, time:saleTime,
-    seller:STATE.currentUser.username, description:desc, unit:unit||'caisse',
-    quantity:qty, unitPrice:prix, nombreUnite:nbUnite, prixCaisse:parseFloat(document.getElementById('v-prix-caisse').value)||0, amount:amount, cash:cash, credit:balance, balance:balance,
-    client:client||'', status:'sent', createdAt: new Date().toISOString()
-  };
-  // Si vente à crédit (balance > 0), auto-créer une entrée dans credits
+    seller:STATE.currentUser.username, description:r.desc, unit:r.unit||'caisse',
+    quantity:r.qty, unitPrice:r.prix, nombreUnite:r.nbUnite, prixCaisse:r.prixCaisse,
+    amount:r.amount, cash: i===0 ? cash : 0, credit: i===0 ? balance : 0, balance: i===0 ? balance : 0,
+    client:client||'', status:'sent', saleGroupId, createdAt: new Date().toISOString()
+  }));
+  // Si vente à crédit (balance > 0), auto-créer UNE SEULE entrée dans credits
+  // pour le montant total de la fiche (pas une par produit).
   if (balance > 0 && client) {
     const cr = {
       type:'credit', date:saleDate, isoDate:saleIsoDate, time:saleTime,
@@ -2567,26 +2729,36 @@ async function submitSale() {
       STATE.credits.push(cr);
     }
   }
-  if (STATE.isOnline && STATE.fbReady) {
-    try {
-      const {collection, addDoc} = window._fbFns;
-      const ref = await addDoc(collection(window._db,'transactions'), tx);
-      // Affichage immédiat en local : l'écouteur Firestore la remplacera par
-      // la version serveur dès qu'il se déclenchera, mais on n'attend pas.
-      if (!STATE.transactions.find(t => t.id === ref.id)) {
-        STATE.transactions = [{id: ref.id, ...tx}, ...STATE.transactions];
+  let onlineOk = 0, queued = 0;
+  for (const tx of txList) {
+    if (STATE.isOnline && STATE.fbReady) {
+      try {
+        const {collection, addDoc} = window._fbFns;
+        const ref = await addDoc(collection(window._db,'transactions'), tx);
+        // Affichage immédiat en local : l'écouteur Firestore la remplacera par
+        // la version serveur dès qu'il se déclenchera, mais on n'attend pas.
+        if (!STATE.transactions.find(t => t.id === ref.id)) {
+          STATE.transactions = [{id: ref.id, ...tx}, ...STATE.transactions];
+        }
+        onlineOk++;
+      } catch(e) {
+        STATE.pendingQueue.push({...tx, status:'pending'});
+        saveLocal();
+        queued++;
       }
-      showToast('✅ Vente transmise en temps réel sur Firebase / bwmultiservice07@gmail.com');
-    } catch(e) {
-      STATE.pendingQueue.push({...tx, status:'pending'});
+    } else {
+      tx.status = 'pending';
+      STATE.pendingQueue.push(tx);
       saveLocal();
-      showToast('⚠ Erreur Firebase — transaction en file d\'attente.','warn');
+      queued++;
     }
+  }
+  if (queued === 0) {
+    showToast(rows.length > 1 ? `✅ Vente (${rows.length} produits) transmise en temps réel sur Firebase / bwmultiservice07@gmail.com` : '✅ Vente transmise en temps réel sur Firebase / bwmultiservice07@gmail.com');
+  } else if (onlineOk === 0) {
+    showToast(STATE.isOnline ? '⚠ Erreur Firebase — transaction en file d\'attente.' : '📤 Hors ligne — transaction en file d\'attente.', 'warn');
   } else {
-    tx.status = 'pending';
-    STATE.pendingQueue.push(tx);
-    saveLocal();
-    showToast('📤 Hors ligne — transaction en file d\'attente.','warn');
+    showToast('⚠ Vente partiellement transmise — certaines lignes en file d\'attente.','warn');
   }
   updatePendingUI();
   markUnsaved();
@@ -2596,13 +2768,7 @@ async function submitSale() {
   renderMySales();
   renderDashboard();
   renderDettes();
-  document.getElementById('v-desc').value='';
-  document.getElementById('v-qty').value='';
-  document.getElementById('v-unit').value='caisse';
-  document.getElementById('v-prix-caisse').value='';
-  document.getElementById('v-prix').value='';
-  document.getElementById('v-nb-unite').value='';
-  document.getElementById('v-amount').value='';
+  resetVenteProductRows();
   document.getElementById('v-cash').value='';
   document.getElementById('v-credit').value='';
   document.getElementById('v-balance').value='';
