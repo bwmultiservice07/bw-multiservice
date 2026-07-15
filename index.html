@@ -302,7 +302,7 @@ tr:hover td{background:#f7f9ff;}
         <div class="form-row">
           <div class="form-group" style="flex:2;min-width:200px;">
             <label>Description des marchandises <span style="color:#c0392b;">*</span></label>
-            <input type="text" id="v-desc" list="produit-list" autocomplete="off" placeholder="Tapez le nom du produit..." required
+            <input type="text" id="v-desc" list="produit-list" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" placeholder="Tapez le nom du produit..." required
               oninput="updateProduitList('v-desc')" onchange="normalizeProduitField('v-desc')" onfocus="updateProduitList('v-desc')"/>
             <datalist id="produit-list"></datalist>
           </div>
@@ -370,7 +370,7 @@ tr:hover td{background:#f7f9ff;}
         <div class="form-row">
           <div class="form-group" style="flex:2;min-width:200px;">
             <label>Produit</label>
-            <input type="text" id="vg-desc" list="produit-list" autocomplete="off" placeholder="Tapez le nom du produit..."
+            <input type="text" id="vg-desc" list="produit-list" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" placeholder="Tapez le nom du produit..."
               oninput="updateProduitList('vg-desc')" onchange="normalizeProduitField('vg-desc')" onfocus="updateProduitList('vg-desc')"/>
           </div>
         </div>
@@ -797,7 +797,7 @@ tr:hover td{background:#f7f9ff;}
         <div class="form-row">
           <div class="form-group" style="flex:2;min-width:200px;">
             <label>Produit</label>
-            <input type="text" id="sd-desc" list="produit-list" autocomplete="off" placeholder="Tapez le nom du produit..."
+            <input type="text" id="sd-desc" list="produit-list" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" placeholder="Tapez le nom du produit..."
               oninput="updateProduitList('sd-desc')" onchange="normalizeProduitField('sd-desc');calcStockDepartPrixUnitaire()" onfocus="updateProduitList('sd-desc')"/>
           </div>
         </div>
@@ -860,7 +860,7 @@ tr:hover td{background:#f7f9ff;}
         <div class="form-row">
           <div class="form-group" style="flex:2;min-width:200px;">
             <label>Produit</label>
-            <input type="text" id="s-desc" list="produit-list" autocomplete="off" placeholder="Tapez le nom du produit..."
+            <input type="text" id="s-desc" list="produit-list" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" placeholder="Tapez le nom du produit..."
               oninput="updateProduitList('s-desc')" onchange="normalizeProduitField('s-desc');calcStockQty();calcStockPrixUnitaire();" onfocus="updateProduitList('s-desc')"/>
           </div>
         </div>
@@ -2184,14 +2184,22 @@ function updateProduitList(fieldId) {
 // Si le nom de produit saisi n'existe pas encore dans le catalogue (liste de
 // base + produits déjà ajoutés), on l'ajoute automatiquement — synchronisé
 // sur Firestore pour que tous les appareils en bénéficient, avec file
-// d'attente hors ligne comme le reste de l'application. Accessible à tous
-// les rôles (vendeur compris), puisque c'est en enregistrant une vente que
-// le besoin d'un nouveau produit apparaît le plus souvent.
+// d'attente hors ligne comme le reste de l'application. Réservé à
+// l'admin/gestionnaire : un vendeur peut toujours taper un nom qui n'existe
+// pas encore pour enregistrer sa vente (le texte est conservé tel quel sur
+// cette transaction), mais ce nom n'est PAS ajouté à la liste partagée —
+// seuls l'admin et le gestionnaire peuvent enrichir le catalogue, et pour
+// eux l'ajout reste automatique (aucune étape supplémentaire à faire).
 async function ensureCustomProduct(name) {
   name = (name||'').trim().toLowerCase();
   if (!name) return;
   const exists = getProductCatalog().some(p => p === name);
   if (exists) return;
+  const isAdminOrGest = STATE.currentUser && (STATE.currentUser.role==='admin' || STATE.currentUser.role==='gestionnaire');
+  if (!isAdminOrGest) {
+    showToast('ℹ️ « '+name+' » n\'est pas encore dans la liste des produits — seuls l\'admin et le gestionnaire peuvent l\'ajouter. Votre vente sera quand même enregistrée avec ce nom.', 'warn');
+    return;
+  }
   const entry = { name, addedBy: (STATE.currentUser&&STATE.currentUser.username)||'?',
     date: todayStr(), isoDate: isoDate(), createdAt: new Date().toISOString() };
   if (!STATE.customProducts) STATE.customProducts = [];
