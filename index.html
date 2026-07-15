@@ -1162,6 +1162,17 @@ tr:hover td{background:#f7f9ff;}
   </div>
 </div>
 
+<div class="edit-modal-bg" id="margin-detail-modal-bg">
+  <div class="edit-modal" style="max-width:760px;max-height:85vh;overflow-y:auto;">
+    <h3>📈 Détail du taux de marge par produit</h3>
+    <div class="form-group"><label>Date spécifique</label><input type="date" id="mgd-date" onchange="renderMarginDetailModal()"/></div>
+    <div id="mgd-content"></div>
+    <div style="display:flex;gap:8px;margin-top:.8rem;">
+      <button class="btn btn-outline" onclick="closeMarginDetailModal()" style="flex:1;">Fermer</button>
+    </div>
+  </div>
+</div>
+
 <div class="edit-modal-bg" id="logout-modal-bg">
   <div class="edit-modal">
     <h3>⚠ Modifications non sauvegardées</h3>
@@ -3259,16 +3270,15 @@ function computeProductMarginRatesByPeriod() {
   return {byDay, byMonth};
 }
 
-// Calcule le taux de marge par produit vendu et la moyenne pondérée globale.
+// Calcule le détail par produit (taux de marge + quota) pour un sous-ensemble
+// de ventes donné, avec les prix de vente/achat déjà calculés (globaux ou
+// pour une période) — factorisé pour être réutilisé aussi bien pour le total
+// général (computeProductMarginRates) que pour un jour/une semaine/un mois
+// précis (voir la fenêtre "Détail du taux de marge" dans Data Analyse).
 // Taux moyen de marge produit = ((Prix de vente unitaire - Prix d'achat
 // unitaire) / Prix d'achat unitaire) × Quota vente, le quota étant la part
-// du produit dans le total des quantités vendues (reflète son taux de
-// vente). La moyenne pondérée globale = somme de ces taux par produit
-// (chaque produit contribue déjà sa part pondérée). Réutilisé par Data
-// Analyse ET Analyse financière (+ export Excel) pour des chiffres cohérents.
-function computeProductMarginRates() {
-  const ventes = (STATE.transactions||[]).filter(t=>t.type==='vente');
-  const {prixVenteMap, prixAchatMap} = computeProductPriceMaps();
+// du produit dans le total des quantités vendues de ce sous-ensemble.
+function computeProductMarginRatesForVentes(ventes, prixVenteMap, prixAchatMap) {
   const qtyVenduMap = {};
   let totalQtyVendu = 0;
   ventes.forEach(t => {
@@ -3277,7 +3287,7 @@ function computeProductMarginRates() {
     qtyVenduMap[key] = (qtyVenduMap[key]||0) + q;
     totalQtyVendu += q;
   });
-  const margeProducts = new Set([...Object.keys(prixVenteMap), ...Object.keys(prixAchatMap), ...Object.keys(qtyVenduMap)]);
+  const margeProducts = new Set(Object.keys(qtyVenduMap));
   const margeRows = [...margeProducts].map(p => {
     const prixVente = prixVenteMap[p] || 0;
     const prixAchat = prixAchatMap[p] || 0;
@@ -3289,12 +3299,116 @@ function computeProductMarginRates() {
     // / Prix d'achat unitaire) × Quota vente — formule demandée, calculée pour chaque produit.
     const tauxMarge = donneesOk ? ratioMarge * quota * 100 : null;
     return {produit:p, prixVente, prixAchat, qtyVendu, quota, tauxMarge, donneesOk};
-  }).filter(r => r.qtyVendu > 0 || r.prixVente > 0 || r.prixAchat > 0)
+  }).filter(r => r.qtyVendu > 0)
     .sort((a,b) => b.qtyVendu - a.qtyVendu);
-  // La moyenne globale pondérée est simplement la somme des taux moyens par
-  // produit ci-dessus (chaque produit contribue déjà sa part pondérée par son quota).
-  const tauxMoyenPondere = margeRows.reduce((a,r)=>a+(r.tauxMarge||0), 0);
+  // La moyenne pondérée est simplement la somme des taux moyens par produit
+  // ci-dessus (chaque produit contribue déjà sa part pondérée par son quota).
+  const tauxMoyenPondere = margeRows.length ? margeRows.reduce((a,r)=>a+(r.tauxMarge||0), 0) : null;
   return {margeRows, tauxMoyenPondere};
+}
+
+// Calcule le taux de marge par produit vendu et la moyenne pondérée globale
+// (toutes ventes confondues, depuis le début). Réutilisé par Data Analyse ET
+// Analyse financière (+ export Excel) pour des chiffres cohérents.
+function computeProductMarginRates() {
+  const ventes = (STATE.transactions||[]).filter(t=>t.type==='vente');
+  const {prixVenteMap, prixAchatMap} = computeProductPriceMaps();
+  const {margeRows, tauxMoyenPondere} = computeProductMarginRatesForVentes(ventes, prixVenteMap, prixAchatMap);
+  return {margeRows, tauxMoyenPondere: tauxMoyenPondere||0};
+}
+
+// Renvoie le lundi et le dimanche (format YYYY-MM-DD) de la semaine ISO
+// contenant la date donnée (elle-même au format YYYY-MM-DD) — construit à
+// partir des composantes locales (pas de new Date(isoString) qui bascule en
+// UTC) pour rester cohérent avec le reste de l'app (voir isoDate()).
+function getWeekRangeForIsoDate(isoDateStr) {
+  const [y,m,d] = isoDateStr.split('-').map(Number);
+  const date = new Date(y, m-1, d);
+  const dow = date.getDay(); // 0=dimanche ... 6=samedi
+  const diffToMonday = (dow + 6) % 7; // lundi=0
+  const monday = new Date(y, m-1, d - diffToMonday);
+  const sunday = new Date(monday.getFullYear(), monday.getMonth(), monday.getDate() + 6);
+  const fmt = dt => `${dt.getFullYear()}-${String(dt.getMonth()+1).padStart(2,'0')}-${String(dt.getDate()).padStart(2,'0')}`;
+  return { startIso: fmt(monday), endIso: fmt(sunday) };
+}
+
+// Calcule le détail du taux de marge (par produit + moyenne pondérée) pour
+// une date précise : le jour lui-même, la semaine (lundi-dimanche) et le
+// mois qui la contiennent. Les prix de vente/achat utilisés restent les
+// moyennes globales (mêmes que computeProductMarginRates) — seul le mix de
+// produits vendus (quota) change selon la période, exactement comme pour
+// computeProductMarginRatesByPeriod().
+function computeMarginDetailForDate(isoDateStr) {
+  const ventes = (STATE.transactions||[]).filter(t=>t.type==='vente');
+  const {prixVenteMap, prixAchatMap} = computeProductPriceMaps();
+  const month = isoDateStr.slice(0,7);
+  const {startIso, endIso} = getWeekRangeForIsoDate(isoDateStr);
+
+  const ventesJour = ventes.filter(t => getIsoFromTx(t) === isoDateStr);
+  const ventesSemaine = ventes.filter(t => { const d = getIsoFromTx(t); return d >= startIso && d <= endIso; });
+  const ventesMois = ventes.filter(t => getIsoFromTx(t).slice(0,7) === month);
+
+  const jour = computeProductMarginRatesForVentes(ventesJour, prixVenteMap, prixAchatMap);
+  const semaine = computeProductMarginRatesForVentes(ventesSemaine, prixVenteMap, prixAchatMap);
+  const mois = computeProductMarginRatesForVentes(ventesMois, prixVenteMap, prixAchatMap);
+
+  return {
+    jour: {...jour, label: formatGroupLabel(isoDateStr)},
+    semaine: {...semaine, label: `Semaine du ${startIso.split('-').reverse().join('/')} au ${endIso.split('-').reverse().join('/')}`},
+    mois: {...mois, label: formatMonthLabel(month)}
+  };
+}
+
+// Fenêtre "Détail du taux de marge par produit" (bouton dans Data Analyse) :
+// choix d'une date précise, puis affichage du taux de marge de chaque
+// produit ce jour-là, ainsi que la moyenne pondérée du jour, de la semaine
+// (lundi-dimanche) et du mois contenant cette date.
+function openMarginDetailModal() {
+  const dateField = document.getElementById('mgd-date');
+  if (dateField && !dateField.value) dateField.value = isoDate();
+  renderMarginDetailModal();
+  document.getElementById('margin-detail-modal-bg').classList.add('show');
+}
+
+function closeMarginDetailModal() {
+  document.getElementById('margin-detail-modal-bg').classList.remove('show');
+}
+
+function renderMarginRateSection(title, period) {
+  let html = `<div style="margin-bottom:1.2rem;">
+    <div style="font-weight:700;font-size:.88rem;color:var(--text2);margin-bottom:.4rem;">${title} — ${esc(period.label)}</div>`;
+  if (period.tauxMoyenPondere == null) {
+    html += `<div style="color:var(--text3);padding:.4rem 0;font-size:.85rem;">Aucune vente pour cette période.</div></div>`;
+    return html;
+  }
+  html += `<div class="metric-card ${period.tauxMoyenPondere>=0?'success':''}" style="margin-bottom:.6rem;max-width:280px;">
+    <div class="label">Taux de marge moyen</div><div class="value">${period.tauxMoyenPondere.toFixed(1)}%</div>
+  </div>`;
+  if (period.margeRows.length) {
+    html += `<div class="table-wrap"><table><thead><tr><th>Produit</th><th>Prix de vente unitaire</th><th>Prix d'achat unitaire</th><th>Quota (part des ventes)</th><th>Taux de marge</th></tr></thead><tbody>` +
+      period.margeRows.map(r=>`<tr>
+        <td>${esc(r.produit)}</td>
+        <td>${fmtHTG(r.prixVente)}</td>
+        <td>${fmtHTG(r.prixAchat)}</td>
+        <td>${(r.quota*100).toFixed(1)}%</td>
+        <td style="font-weight:600;color:${r.donneesOk?(r.tauxMarge>=0?'#1a7a4c':'#c0392b'):'var(--text3)'};">${r.donneesOk?r.tauxMarge.toFixed(1)+'%':'Données insuffisantes'}</td>
+      </tr>`).join('') + `</tbody></table></div>`;
+  }
+  html += `</div>`;
+  return html;
+}
+
+function renderMarginDetailModal() {
+  const cont = document.getElementById('mgd-content');
+  if (!cont) return;
+  const dateField = document.getElementById('mgd-date');
+  const dateVal = (dateField && dateField.value) || isoDate();
+  const {jour, semaine, mois} = computeMarginDetailForDate(dateVal);
+  let html = '';
+  html += renderMarginRateSection('📅 Taux de marge de chaque produit — jour', jour);
+  html += renderMarginRateSection('🗓️ Moyenne de la semaine', semaine);
+  html += renderMarginRateSection('📆 Moyenne du mois', mois);
+  cont.innerHTML = html;
 }
 
 // ============================================================
@@ -3412,7 +3526,10 @@ function renderDataAnalyse() {
   html += `</div>`;
 
   // --- Carte Taux de marge par produit ---
-  html += `<div class="card"><div class="card-title">📊 Taux de marge par produit</div>
+  html += `<div class="card"><div class="card-title" style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;">
+      <span>📊 Taux de marge par produit</span>
+      <button class="btn btn-primary" style="font-size:.78rem;padding:5px 12px;width:auto;" onclick="openMarginDetailModal()">📈 Détail par jour / semaine / mois</button>
+    </div>
     <div class="metric-card ${tauxMoyenPondere>=0?'success':''}" style="margin-bottom:1rem;max-width:280px;">
       <div class="label">Moyenne taux de marge par produit vendu</div><div class="value">${tauxMoyenPondere.toFixed(1)}%</div>
     </div>`;
