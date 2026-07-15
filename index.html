@@ -1003,8 +1003,8 @@ tr:hover td{background:#f7f9ff;}
         </div>
         <div class="table-wrap">
           <table>
-            <thead><tr><th>Date</th><th>Heure</th><th>Utilisateur</th><th>Action</th><th>Détails</th><th>Statut</th></tr></thead>
-            <tbody id="notif-table-body"><tr><td colspan="6" style="text-align:center;color:var(--text3);padding:1.5rem;">Aucune notification.</td></tr></tbody>
+            <thead><tr><th>Date</th><th>Heure</th><th>Utilisateur</th><th>Action</th><th>Détails</th><th>Statut</th><th>Actions</th></tr></thead>
+            <tbody id="notif-table-body"><tr><td colspan="7" style="text-align:center;color:var(--text3);padding:1.5rem;">Aucune notification.</td></tr></tbody>
           </table>
         </div>
       </div>
@@ -1140,6 +1140,25 @@ tr:hover td{background:#f7f9ff;}
       <button class="btn btn-outline" onclick="closeAddUserModal()" style="flex:1;">Annuler</button>
     </div>
     <div class="auth-err" id="add-user-err"></div>
+  </div>
+</div>
+
+<div class="edit-modal-bg" id="permissions-modal-bg">
+  <div class="edit-modal">
+    <h3>🛡️ Modifier les permissions</h3>
+    <p style="margin:.2rem 0 .8rem;color:var(--text2);font-size:.85rem;">Utilisateur : <strong id="perm-username-label"></strong></p>
+    <input type="hidden" id="perm-user-id"/>
+    <div class="form-group"><label>Rôle (permissions)</label>
+      <select id="perm-role-select">
+        <option value="vendeur">Vendeur</option>
+        <option value="gestionnaire">Gestionnaire</option>
+        <option value="admin">Administrateur</option>
+      </select>
+    </div>
+    <div style="display:flex;gap:8px;margin-top:.8rem;">
+      <button class="btn btn-primary" onclick="savePermissionsFromModal()" style="flex:1;">Enregistrer</button>
+      <button class="btn btn-outline" onclick="closePermissionsModal()" style="flex:1;">Annuler</button>
+    </div>
   </div>
 </div>
 
@@ -3577,20 +3596,16 @@ function renderUsers() {
   // dès qu'un doublon "admin" existe, aucun des deux n'a de bouton × et on
   // ne peut jamais nettoyer les doublons.
   const adminCount = STATE.users.filter(x=>x.role==='admin').length;
-  // Seul admin peut voir/utiliser ce menu déroulant de rôle (l'onglet
-  // Administration entier lui est déjà réservé) : changer le rôle ici, c'est
-  // littéralement "donner les permissions" à un autre utilisateur, donc pas
-  // de sélecteur pour un compte sans id Firestore encore (pas encore
-  // synchronisé) — on désactive le menu tant que u.id est absent.
+  // Bouton "🛡️ Permissions" bien visible (au lieu d'un simple menu déroulant
+  // discret) : ouvre une fenêtre dédiée pour changer le rôle d'un
+  // utilisateur — littéralement "donner les permissions". Désactivé tant
+  // que le compte n'a pas encore d'id Firestore (pas encore synchronisé).
   container.innerHTML = STATE.users.map(u=>`
     <div class="user-chip">
       <div class="av">${u.username[0].toUpperCase()}</div>
       <span>${esc(u.username)}</span>
-      <select class="role-badge" style="border:1px solid var(--border);border-radius:6px;padding:2px 6px;font-size:.78rem;" ${u.id?'':'disabled title="Compte pas encore synchronisé"'} onchange="changeUserRole('${u.id||''}','${esc(u.username)}',this.value,this)">
-        <option value="vendeur" ${u.role==='vendeur'?'selected':''}>vendeur</option>
-        <option value="gestionnaire" ${u.role==='gestionnaire'?'selected':''}>gestionnaire</option>
-        <option value="admin" ${u.role==='admin'?'selected':''}>admin</option>
-      </select>
+      <span class="role-badge">${esc(u.role)}</span>
+      <button class="btn btn-outline" style="font-size:.72rem;padding:3px 9px;" ${u.id?'':'disabled title="Compte pas encore synchronisé"'} onclick="openPermissionsModal('${u.id||''}','${esc(u.username)}','${u.role}')">🛡️ Permissions</button>
       <button class="del-btn" style="background:none;color:var(--accent);border:1px solid var(--accent);font-size:.72rem;" title="Réinitialiser le mot de passe" onclick="resetUserPassword('${esc(u.username)}','${u.id||''}')">🔑</button>
       ${(u.role==='admin' && adminCount<=1)?'':`<button class="del-btn" onclick="deleteUser('${u.username}','${u.id||''}')">×</button>`}
     </div>`).join('');
@@ -3697,14 +3712,40 @@ async function deleteUser(username, fbId) {
   showToast(`Utilisateur "${username}" supprimé.`,'warn');
 }
 
+// Ouvre la fenêtre "🛡️ Permissions" (admin uniquement) pour changer le rôle
+// d'un utilisateur déjà créé — bouton bien visible plutôt qu'un simple menu
+// discret, pour que la fonctionnalité soit facile à trouver.
+function openPermissionsModal(fbId, username, currentRole) {
+  if (!requireAdmin()) return;
+  if (!fbId) { showToast('⚠ Ce compte n\'est pas encore synchronisé — impossible de changer ses permissions maintenant.','warn'); return; }
+  document.getElementById('perm-user-id').value = fbId;
+  document.getElementById('perm-username-label').textContent = username;
+  document.getElementById('perm-role-select').value = currentRole;
+  document.getElementById('permissions-modal-bg').classList.add('show');
+}
+
+function closePermissionsModal() {
+  document.getElementById('permissions-modal-bg').classList.remove('show');
+}
+
+async function savePermissionsFromModal() {
+  const fbId = document.getElementById('perm-user-id').value;
+  const newRole = document.getElementById('perm-role-select').value;
+  const user = STATE.users.find(u => u.id === fbId);
+  const username = user ? user.username : '';
+  const ok = await changeUserRole(fbId, username, newRole);
+  if (ok) closePermissionsModal();
+}
+
 // Seul admin peut changer le rôle (= les permissions) d'un utilisateur déjà
 // créé, directement depuis "Gestion des utilisateurs" — plus besoin de
-// supprimer puis recréer le compte pour ajuster ses droits.
-async function changeUserRole(fbId, username, newRole, selectEl) {
-  if (!requireAdmin()) { if (selectEl) renderUsers(); return; }
+// supprimer puis recréer le compte pour ajuster ses droits. Retourne
+// true/false pour indiquer à l'appelant (le modal) si l'opération a réussi.
+async function changeUserRole(fbId, username, newRole) {
+  if (!requireAdmin()) { renderUsers(); return false; }
   const user = STATE.users.find(u => u.id === fbId);
-  if (!user) { showToast('⚠ Utilisateur introuvable.','warn'); renderUsers(); return; }
-  if (user.role === newRole) return;
+  if (!user) { showToast('⚠ Utilisateur introuvable.','warn'); renderUsers(); return false; }
+  if (user.role === newRole) return true;
   // On ne peut pas retirer le rôle admin du DERNIER admin restant : ça
   // verrouillerait l'onglet Administration pour tout le monde, personne ne
   // pourrait plus jamais redonner de permissions à qui que ce soit.
@@ -3712,12 +3753,12 @@ async function changeUserRole(fbId, username, newRole, selectEl) {
   if (user.role === 'admin' && newRole !== 'admin' && adminCount <= 1) {
     showToast('⚠ Impossible : il doit toujours rester au moins un admin.','warn');
     renderUsers();
-    return;
+    return false;
   }
   if (!STATE.isOnline || !STATE.fbReady) {
     showToast('⚠ Hors ligne — impossible de changer un rôle maintenant.','warn');
     renderUsers();
-    return;
+    return false;
   }
   try {
     const {doc, updateDoc} = window._fbFns;
@@ -3726,9 +3767,11 @@ async function changeUserRole(fbId, username, newRole, selectEl) {
     await logNotification('🔑 Changement de rôle', `Utilisateur: ${username} | Nouveau rôle: ${newRole}`);
     showToast(`✅ Rôle de "${username}" changé en "${newRole}".`);
     renderUsers();
+    return true;
   } catch(e) {
     showToast('⚠ Erreur: '+e.message,'warn');
     renderUsers();
+    return false;
   }
 }
 
@@ -6648,7 +6691,7 @@ function renderNotifications() {
     return (b.time||'').localeCompare(a.time||'');
   });
   if (!notifs.length) {
-    body.innerHTML='<tr><td colspan="6" style="text-align:center;color:var(--text3);padding:1.5rem;">Aucune notification.</td></tr>';
+    body.innerHTML='<tr><td colspan="7" style="text-align:center;color:var(--text3);padding:1.5rem;">Aucune notification.</td></tr>';
     return;
   }
   body.innerHTML = notifs.map(n => `<tr style="background:${n.read?'':'#fef3e2'};">
@@ -6658,6 +6701,7 @@ function renderNotifications() {
     <td>${n.action}</td>
     <td style="font-size:.82rem;">${esc(n.details)}</td>
     <td><span class="badge ${n.read?'badge-sent':'badge-pending'}">${n.read?'✓ Lu':'🔔 Nouveau'}</span></td>
+    <td>${n.id ? `<button class="btn" style="font-size:.75rem;padding:3px 10px;background:var(--danger-bg);color:var(--danger);border:1px solid #f5b7b1;" onclick="deleteNotification('${n.id}')">🗑</button>` : '—'}</td>
   </tr>`).join('');
   // Mettre à jour le badge
   const unread = notifs.filter(n=>!n.read).length;
@@ -6669,6 +6713,7 @@ function renderNotifications() {
 }
 
 async function clearNotifications() {
+  if (!requireAdmin()) return;
   if (!confirm('Effacer toutes les notifications ?')) return;
   if (STATE.isOnline && STATE.fbReady) {
     try {
@@ -6682,6 +6727,25 @@ async function clearNotifications() {
       renderNotifications();
       showToast('🗑 Notifications effacées.','warn');
     } catch(e) { showToast('⚠ Erreur: '+e.message,'warn'); }
+  }
+}
+
+// Suppression d'UNE SEULE notification (en plus du bouton "Effacer tout"
+// qui les efface toutes d'un coup) — permet à admin de nettoyer sa liste au
+// cas par cas sans devoir tout effacer.
+async function deleteNotification(id) {
+  if (!requireAdmin()) return;
+  if (!confirm('Supprimer cette notification ?')) return;
+  if (STATE.isOnline && STATE.fbReady && id) {
+    try {
+      const {doc, deleteDoc} = window._fbFns;
+      await deleteDoc(doc(window._db, 'notifications', id));
+      STATE.notifications = (STATE.notifications||[]).filter(n => n.id !== id);
+      renderNotifications();
+      showToast('🗑 Notification supprimée.','warn');
+    } catch(e) { showToast('⚠ Erreur: '+e.message,'warn'); }
+  } else {
+    showToast('⚠ Hors ligne — impossible de supprimer maintenant.','warn');
   }
 }
 
