@@ -2358,6 +2358,22 @@ function requireAdminOrGest() {
   return true;
 }
 
+// Seul admin peut créer/supprimer des comptes, changer un mot de passe ou
+// changer le rôle (les permissions) d'un utilisateur — le gestionnaire n'a
+// pas ce droit. L'onglet "⚙ Administration" est déjà caché pour tout le
+// monde sauf admin (voir finishLogin()), mais on verrouille aussi ces
+// fonctions au niveau du code : sans ça, un gestionnaire techniquement à
+// l'aise pourrait les appeler directement (ex: depuis la console du
+// navigateur) même si le bouton correspondant ne lui est jamais affiché.
+function requireAdmin() {
+  const role = STATE.currentUser && STATE.currentUser.role;
+  if (role !== 'admin') {
+    showToast('⛔ Seul l\'admin peut gérer les comptes et les permissions des utilisateurs.', 'warn');
+    return false;
+  }
+  return true;
+}
+
 // Fige la date/heure/client de la vente en cours de correction : seuls les
 // autres champs (produit, quantité, prix, montant, cash, crédit) restent
 // modifiables. Appelé par corrigerDerniereVente() et loadSaleForCorrection().
@@ -3561,11 +3577,20 @@ function renderUsers() {
   // dès qu'un doublon "admin" existe, aucun des deux n'a de bouton × et on
   // ne peut jamais nettoyer les doublons.
   const adminCount = STATE.users.filter(x=>x.role==='admin').length;
+  // Seul admin peut voir/utiliser ce menu déroulant de rôle (l'onglet
+  // Administration entier lui est déjà réservé) : changer le rôle ici, c'est
+  // littéralement "donner les permissions" à un autre utilisateur, donc pas
+  // de sélecteur pour un compte sans id Firestore encore (pas encore
+  // synchronisé) — on désactive le menu tant que u.id est absent.
   container.innerHTML = STATE.users.map(u=>`
     <div class="user-chip">
       <div class="av">${u.username[0].toUpperCase()}</div>
       <span>${esc(u.username)}</span>
-      <span class="role-badge">${u.role}</span>
+      <select class="role-badge" style="border:1px solid var(--border);border-radius:6px;padding:2px 6px;font-size:.78rem;" ${u.id?'':'disabled title="Compte pas encore synchronisé"'} onchange="changeUserRole('${u.id||''}','${esc(u.username)}',this.value,this)">
+        <option value="vendeur" ${u.role==='vendeur'?'selected':''}>vendeur</option>
+        <option value="gestionnaire" ${u.role==='gestionnaire'?'selected':''}>gestionnaire</option>
+        <option value="admin" ${u.role==='admin'?'selected':''}>admin</option>
+      </select>
       <button class="del-btn" style="background:none;color:var(--accent);border:1px solid var(--accent);font-size:.72rem;" title="Réinitialiser le mot de passe" onclick="resetUserPassword('${esc(u.username)}','${u.id||''}')">🔑</button>
       ${(u.role==='admin' && adminCount<=1)?'':`<button class="del-btn" onclick="deleteUser('${u.username}','${u.id||''}')">×</button>`}
     </div>`).join('');
@@ -3582,7 +3607,7 @@ function renderUsers() {
 // besoin) puis on lui applique le nouveau, sans jamais perturber la session
 // de l'admin qui fait l'opération.
 async function resetUserPassword(username, uid) {
-  if (!requireAdminOrGest()) return;
+  if (!requireAdmin()) return;
   if (!STATE.isOnline || !STATE.fbReady) { showToast('⚠ Hors ligne — impossible de changer un mot de passe maintenant.','warn'); return; }
   const user = STATE.users.find(u => u.username === username);
   if (!user) { showToast('⚠ Utilisateur introuvable.','warn'); return; }
@@ -3624,6 +3649,7 @@ function closeAddUserModal() {
 // connecte automatiquement la session utilisée en tant que ce nouveau compte,
 // donc on utilise une session à part, jetée immédiatement après.
 async function addUser() {
+  if (!requireAdmin()) return;
   const u = document.getElementById('new-username').value.trim();
   const p = document.getElementById('new-password').value;
   const r = document.getElementById('new-role').value;
@@ -3652,6 +3678,7 @@ async function addUser() {
 }
 
 async function deleteUser(username, fbId) {
+  if (!requireAdmin()) return;
   if (!confirm(`Supprimer l'utilisateur "${username}" ?`)) return;
   if (fbId && STATE.isOnline && STATE.fbReady) {
     try {
@@ -3668,6 +3695,41 @@ async function deleteUser(username, fbId) {
   saveLocal();
   renderUsers();
   showToast(`Utilisateur "${username}" supprimé.`,'warn');
+}
+
+// Seul admin peut changer le rôle (= les permissions) d'un utilisateur déjà
+// créé, directement depuis "Gestion des utilisateurs" — plus besoin de
+// supprimer puis recréer le compte pour ajuster ses droits.
+async function changeUserRole(fbId, username, newRole, selectEl) {
+  if (!requireAdmin()) { if (selectEl) renderUsers(); return; }
+  const user = STATE.users.find(u => u.id === fbId);
+  if (!user) { showToast('⚠ Utilisateur introuvable.','warn'); renderUsers(); return; }
+  if (user.role === newRole) return;
+  // On ne peut pas retirer le rôle admin du DERNIER admin restant : ça
+  // verrouillerait l'onglet Administration pour tout le monde, personne ne
+  // pourrait plus jamais redonner de permissions à qui que ce soit.
+  const adminCount = STATE.users.filter(x=>x.role==='admin').length;
+  if (user.role === 'admin' && newRole !== 'admin' && adminCount <= 1) {
+    showToast('⚠ Impossible : il doit toujours rester au moins un admin.','warn');
+    renderUsers();
+    return;
+  }
+  if (!STATE.isOnline || !STATE.fbReady) {
+    showToast('⚠ Hors ligne — impossible de changer un rôle maintenant.','warn');
+    renderUsers();
+    return;
+  }
+  try {
+    const {doc, updateDoc} = window._fbFns;
+    await updateDoc(doc(window._db,'users',fbId), { role: newRole });
+    user.role = newRole;
+    await logNotification('🔑 Changement de rôle', `Utilisateur: ${username} | Nouveau rôle: ${newRole}`);
+    showToast(`✅ Rôle de "${username}" changé en "${newRole}".`);
+    renderUsers();
+  } catch(e) {
+    showToast('⚠ Erreur: '+e.message,'warn');
+    renderUsers();
+  }
 }
 
 function openEditModal(id) {
