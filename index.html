@@ -857,6 +857,9 @@ tr:hover td{background:#f7f9ff;}
     <div class="tab-content" id="tab-stocks">
       <div class="card">
         <div class="card-title">📥 Achats</div>
+        <div id="stock-correction-banner" style="display:none;background:#fef3e2;color:#8a5a00;border:1px solid #f5d59a;border-radius:8px;padding:8px 12px;margin-bottom:12px;font-size:.85rem;font-weight:600;">
+          ✏️ Correction en cours — <span id="stock-correction-banner-text"></span>.
+        </div>
         <div class="form-row">
           <div class="form-group" style="flex:2;min-width:200px;">
             <label>Produit</label>
@@ -909,6 +912,7 @@ tr:hover td{background:#f7f9ff;}
           </div>
         </div>
         <button class="send-btn" onclick="submitStock()">Enregistrer ➤</button>
+        <button id="btn-annuler-stock" class="btn btn-outline" style="margin-top:8px;font-size:.85rem;display:none;" onclick="unlockStockForm()">✖ Annuler la correction</button>
       </div>
       <div class="metrics-grid" style="margin-top:0;">
         <div class="metric-card success">
@@ -926,8 +930,8 @@ tr:hover td{background:#f7f9ff;}
         <div class="card-title">📦 Historique des mouvements de stock (Achats et Sorties)</div>
         <div class="table-wrap">
           <table>
-            <thead><tr><th>Date</th><th>Type</th><th>Produit</th><th>Qté</th><th>Prix d'achat/Caisse</th><th>Prix d'achat unitaire</th><th>Valeur</th><th>Fournisseur/Client</th></tr></thead>
-            <tbody id="stock-table-body"><tr><td colspan="8" style="text-align:center;color:var(--text3);padding:1.5rem;">Aucun mouvement.</td></tr></tbody>
+            <thead><tr><th>Date</th><th>Type</th><th>Produit</th><th>Qté</th><th>Prix d'achat/Caisse</th><th>Prix d'achat unitaire</th><th>Valeur</th><th>Fournisseur/Client</th><th>Actions</th></tr></thead>
+            <tbody id="stock-table-body"><tr><td colspan="9" style="text-align:center;color:var(--text3);padding:1.5rem;">Aucun mouvement.</td></tr></tbody>
           </table>
         </div>
       </div>
@@ -1242,6 +1246,9 @@ let _pendingManualSupplierDebtEditId = null;
 // correction (admin/gestionnaire), on met à jour l'enregistrement existant
 // au lieu d'en créer un nouveau.
 let _pendingStockDepartEditId = null;
+// Idem pour une ligne "Achats" du tableau "Historique des mouvements de
+// stock" (collection Firestore 'stocks') — admin/gestionnaire uniquement.
+let _pendingStockEditId = null;
 
 function loadLocal() {
   try {
@@ -2888,6 +2895,34 @@ async function submitStock() {
     quantity:qty, unit:unit, extraUnits:extra, quantityCaisses:qtyCaisses,
     unitPrice:price, prixUnitaire:prixUnitaire, amount:amount, paymentMode:paymentMode, createdAt: new Date().toISOString()
   };
+
+  // Correction d'un achat existant (admin/gestionnaire) : on met à jour le
+  // document 'stocks' au lieu d'en créer un nouveau. On ne touche pas ici aux
+  // journaux liés (transactions / dette fournisseur) créés lors de l'achat
+  // d'origine, seule l'entrée de stock elle-même est corrigée.
+  if (_pendingStockEditId) {
+    if (!requireAdminOrGest()) return;
+    if (!STATE.isOnline || !STATE.fbReady) {
+      showToast('⚠ Hors ligne — impossible d\'enregistrer la correction maintenant.','warn'); return;
+    }
+    try {
+      const {doc, updateDoc} = window._fbFns;
+      await updateDoc(doc(window._db,'stocks',_pendingStockEditId), {
+        ...entry, editedBy: STATE.currentUser.username, editedAt: new Date().toISOString()
+      });
+      const idx = STATE.stocks.findIndex(s => s.id === _pendingStockEditId);
+      if (idx !== -1) STATE.stocks[idx] = {...STATE.stocks[idx], ...entry};
+      showToast('✅ Achat corrigé.');
+    } catch(e) { showToast('⚠ Erreur: '+e.message,'warn'); }
+    unlockStockForm();
+    renderStocks();
+    renderStockActuel();
+    renderDashboard();
+    renderDettesFournisseurs();
+    renderFournisseurPayments();
+    return;
+  }
+
   if (STATE.isOnline && STATE.fbReady) {
     try {
       const {collection, addDoc} = window._fbFns;
@@ -2944,6 +2979,73 @@ async function submitStock() {
   toggleStockSupplierRequired();
 }
 
+// Admin/gestionnaire : clic sur une ligne "Entrées/Achats" du tableau
+// "Historique des mouvements de stock" pour charger cet enregistrement dans
+// le formulaire Achats et le corriger.
+function loadStockForCorrection(id) {
+  if (!requireAdminOrGest()) return;
+  const s = (STATE.stocks||[]).find(x => x.id === id);
+  if (!s) { showToast('⚠ Enregistrement introuvable.','warn'); return; }
+  document.getElementById('s-desc').value = s.description || '';
+  document.getElementById('s-qty').value = s.quantity || '';
+  document.getElementById('s-unit').value = s.unit || 'caisse';
+  document.getElementById('s-extra-units').value = s.extraUnits || '';
+  document.getElementById('s-price').value = s.unitPrice || '';
+  document.getElementById('s-prix-unitaire').value = (s.prixUnitaire || (s.unitPrice ? s.unitPrice/getCasseSize(s.description, null) : 0)).toFixed(2);
+  document.getElementById('s-qty-caisses').value = (s.quantityCaisses || s.quantity || 0).toFixed(2);
+  document.getElementById('s-supplier').value = s.supplier || '';
+  document.getElementById('s-payment').value = s.paymentMode || 'cash';
+  toggleStockSupplierRequired();
+  _pendingStockEditId = id;
+  const banner = document.getElementById('stock-correction-banner');
+  const bannerText = document.getElementById('stock-correction-banner-text');
+  if (banner && bannerText) {
+    bannerText.textContent = `${s.description||''} du ${s.date||''}`;
+    banner.style.display = 'block';
+  }
+  const btnAnnuler = document.getElementById('btn-annuler-stock');
+  if (btnAnnuler) btnAnnuler.style.display = 'inline-flex';
+  document.getElementById('s-desc').scrollIntoView({behavior:'smooth', block:'center'});
+  showToast('✏️ Enregistrement chargé — corrigez puis cliquez sur Enregistrer.');
+}
+
+function unlockStockForm() {
+  _pendingStockEditId = null;
+  const banner = document.getElementById('stock-correction-banner');
+  if (banner) banner.style.display = 'none';
+  const btnAnnuler = document.getElementById('btn-annuler-stock');
+  if (btnAnnuler) btnAnnuler.style.display = 'none';
+  document.getElementById('s-desc').value='';
+  document.getElementById('s-qty').value='';
+  document.getElementById('s-unit').value='caisse';
+  document.getElementById('s-extra-units').value='';
+  document.getElementById('s-qty-caisses').value='';
+  document.getElementById('s-price').value='';
+  document.getElementById('s-prix-unitaire').value='';
+  document.getElementById('s-supplier').value='';
+  document.getElementById('s-payment').value='cash';
+  toggleStockSupplierRequired();
+}
+
+async function deleteStock(id) {
+  if (!requireAdminOrGest()) return;
+  if (!confirm('Supprimer définitivement cet achat/entrée de stock ?')) return;
+  if (STATE.isOnline && STATE.fbReady && id) {
+    try {
+      const {doc, deleteDoc} = window._fbFns;
+      await deleteDoc(doc(window._db,'stocks',id));
+      STATE.stocks = (STATE.stocks||[]).filter(s => s.id !== id);
+      if (_pendingStockEditId === id) unlockStockForm();
+      showToast('🗑 Achat supprimé.','warn');
+      renderStocks();
+      renderStockActuel();
+      renderDashboard();
+    } catch(e) { showToast('⚠ Erreur: '+e.message,'warn'); }
+  } else {
+    showToast('⚠ Hors ligne — impossible de supprimer maintenant.','warn');
+  }
+}
+
 function renderStocks() {
   const body = document.getElementById('stock-table-body');
 
@@ -2968,10 +3070,11 @@ function renderStocks() {
     return (b.time||'').localeCompare(a.time||'');
   });
 
+  const canEdit = STATE.currentUser && (STATE.currentUser.role==='admin' || STATE.currentUser.role==='gestionnaire');
   if (!all.length) {
-    body.innerHTML='<tr><td colspan="8" style="text-align:center;color:var(--text3);padding:1.5rem;">Aucun mouvement.</td></tr>';
+    body.innerHTML='<tr><td colspan="9" style="text-align:center;color:var(--text3);padding:1.5rem;">Aucun mouvement.</td></tr>';
   } else {
-    body.innerHTML=all.map(s=> s._type==='entree' ? `<tr style="background:#e6f6ef;">
+    body.innerHTML=all.map(s=> s._type==='entree' ? `<tr style="background:#e6f6ef;${canEdit ? 'cursor:pointer;' : ''}"${canEdit ? ` onclick="loadStockForCorrection('${s.id||''}')" title="Cliquer pour corriger cet achat"` : ''}>
       <td>${s.date}</td>
       <td><span class="badge badge-in">📥 Entrées/Achats</span></td>
       <td>${esc(s.description)}</td>
@@ -2980,6 +3083,7 @@ function renderStocks() {
       <td>${fmtHTG(s.prixUnitaire)}</td>
       <td>${fmtHTG(s.amount)}</td>
       <td>${esc(s.supplier||'')}</td>
+      <td style="white-space:nowrap;">${canEdit ? `<button class="btn" style="font-size:.75rem;padding:3px 10px;background:var(--danger-bg);color:var(--danger);border:1px solid #f5b7b1;" onclick="event.stopPropagation();deleteStock('${s.id||''}')">🗑</button>` : '—'}</td>
     </tr>` : `<tr style="background:#fdecea;">
       <td>${s.date}</td>
       <td><span class="badge badge-out">📤 Sortie</span></td>
@@ -2989,10 +3093,11 @@ function renderStocks() {
       <td>${fmtHTG(s.prixUnitaire||0)}</td>
       <td>${fmtHTG(s.amount||0)}</td>
       <td>${esc(s.client||s.seller||'')}</td>
+      <td>—</td>
     </tr>`).join('') + `<tr style="background:var(--surface2);font-weight:700;border-top:2px solid var(--border);">
       <td colspan="3">📊 TOTAUX</td>
       <td>Achats: ${entrees.reduce((a,s)=>a+(s.qtyCaisses||0),0).toFixed(2)} | Sorties: ${sorties.reduce((a,s)=>a+(s.qtyCaisses||0),0).toFixed(2)}</td>
-      <td colspan="4">Valeur achats: ${fmtHTG(entrees.reduce((a,s)=>a+s.amount,0))}</td>
+      <td colspan="5">Valeur achats: ${fmtHTG(entrees.reduce((a,s)=>a+s.amount,0))}</td>
     </tr>`;
   }
   const stockVal = STATE.stocks.reduce((a,s)=>a+s.amount,0);
