@@ -2149,6 +2149,17 @@ function getProductCatalog() {
   return [...seen].sort((a,b) => a.localeCompare(b, 'fr'));
 }
 
+// Clé de regroupement normalisée pour un nom de produit (espaces superflus
+// retirés, tout en minuscule). Utilisée PARTOUT où des mouvements de stock,
+// ventes ou stock de départ sont additionnés par produit (Stock Actuel,
+// Analyse financière, Data Analyse, export Excel), pour que d'anciens
+// enregistrements (ex: "Beller" tapé avant la mise en minuscule des noms de
+// produits) restent bien reliés aux nouveaux mouvements du même produit
+// (ex: "beller") au lieu de former deux lignes séparées.
+function normProduit(name) {
+  return (name||'').trim().toLowerCase();
+}
+
 // Remplit la <datalist> partagée "produit-list" avec le catalogue complet
 // (appelé au chargement/connexion et à chaque mise à jour des produits
 // personnalisés), pour qu'elle apparaisse dès qu'on clique sur un champ vide.
@@ -3016,13 +3027,15 @@ function prevMonthStr(monthStr) {
 function computeProductPriceMaps() {
   const prixVenteMap = {};
   (STATE.stockDepart||[]).forEach(s => {
-    if (s.prixCaisse) {
-      prixVenteMap[s.description] = s.prixUnitaire || (s.prixCaisse / getUnitsPerSelection(s.description, s.unit));
+    const key = normProduit(s.description);
+    if (key && s.prixCaisse) {
+      prixVenteMap[key] = s.prixUnitaire || (s.prixCaisse / getUnitsPerSelection(s.description, s.unit));
     }
   });
   const achatAgg = {};
   (STATE.stocks||[]).forEach(s => {
-    const key = s.description;
+    const key = normProduit(s.description);
+    if (!key) return;
     const qty = parseFloat(s.quantityCaisses || s.quantity) || 0;
     if (qty <= 0) return;
     // Repli : si le champ prixUnitaire n'a pas été enregistré (anciennes
@@ -3049,8 +3062,9 @@ function computeMargeProduitPourVentes(ventes, prixVenteMap, prixAchatMap) {
   const qtyVenduMap = {};
   let totalQtyVendu = 0;
   ventes.forEach(t => {
+    const key = normProduit(t.description); if (!key) return;
     const q = getQtyCaisses(t);
-    qtyVenduMap[t.description] = (qtyVenduMap[t.description]||0) + q;
+    qtyVenduMap[key] = (qtyVenduMap[key]||0) + q;
     totalQtyVendu += q;
   });
   if (totalQtyVendu <= 0) return null;
@@ -3101,8 +3115,9 @@ function computeProductMarginRates() {
   const qtyVenduMap = {};
   let totalQtyVendu = 0;
   ventes.forEach(t => {
+    const key = normProduit(t.description); if (!key) return;
     const q = getQtyCaisses(t);
-    qtyVenduMap[t.description] = (qtyVenduMap[t.description]||0) + q;
+    qtyVenduMap[key] = (qtyVenduMap[key]||0) + q;
     totalQtyVendu += q;
   });
   const margeProducts = new Set([...Object.keys(prixVenteMap), ...Object.keys(prixAchatMap), ...Object.keys(qtyVenduMap)]);
@@ -3139,10 +3154,13 @@ function renderDataAnalyse() {
   }
 
   // --- Aujourd'hui ---
+  // Regroupement par clé normalisée (normProduit) : d'anciens enregistrements
+  // avec une casse différente (ex: "Beller") restent reliés aux nouveaux
+  // (ex: "beller") au lieu d'apparaître comme deux produits distincts.
   const today = isoDate();
   const todayMap = {};
   ventes.filter(t=>getIsoFromTx(t)===today).forEach(t=>{
-    const p = t.description || '(sans nom)';
+    const p = normProduit(t.description) || '(sans nom)';
     if (!todayMap[p]) todayMap[p] = {qty:0, montant:0};
     todayMap[p].qty += getQtyCaisses(t);
     todayMap[p].montant += t.amount||0;
@@ -3154,7 +3172,7 @@ function renderDataAnalyse() {
   ventes.forEach(t=>{
     const month = getIsoFromTx(t).slice(0,7);
     if (!monthGroups[month]) monthGroups[month] = {};
-    const p = t.description || '(sans nom)';
+    const p = normProduit(t.description) || '(sans nom)';
     if (!monthGroups[month][p]) monthGroups[month][p] = {qty:0, montant:0};
     monthGroups[month][p].qty += getQtyCaisses(t);
     monthGroups[month][p].montant += t.amount||0;
@@ -4641,18 +4659,22 @@ function buildFullWorkbook() {
     ...stockDepart.map(s=>[s.date,s.description,s.quantity,s.prixCaisse||0,s.valeur||0])
   ]), '🏁 Stock de Départ');
 
-  // 6. Stock Actuel (départ + entrées - sorties)
+  // 6. Stock Actuel (départ + entrées - sorties) — regroupement par clé
+  // normalisée (normProduit), identique au tableau "Stock Actuel" de l'app.
   const departMap = {}, entreesMap = {}, sortiesMap = {};
   (STATE.stockDepart||[]).forEach(s=>{
-    if (!departMap[s.description]) departMap[s.description] = {qty:0, prix:0};
-    departMap[s.description].qty += parseFloat(s.quantity)||0;
-    departMap[s.description].prix = s.prixCaisse||0;
+    const key = normProduit(s.description); if (!key) return;
+    if (!departMap[key]) departMap[key] = {qty:0, prix:0};
+    departMap[key].qty += parseFloat(s.quantity)||0;
+    departMap[key].prix = s.prixCaisse||0;
   });
   (STATE.stocks||[]).forEach(s=>{
-    entreesMap[s.description] = (entreesMap[s.description]||0) + (parseFloat(s.quantityCaisses||s.quantity)||0);
+    const key = normProduit(s.description); if (!key) return;
+    entreesMap[key] = (entreesMap[key]||0) + (parseFloat(s.quantityCaisses||s.quantity)||0);
   });
   sales.forEach(t=>{
-    sortiesMap[t.description] = (sortiesMap[t.description]||0) + getQtyCaisses(t);
+    const key = normProduit(t.description); if (!key) return;
+    sortiesMap[key] = (sortiesMap[key]||0) + getQtyCaisses(t);
   });
   const allProducts = new Set([...Object.keys(departMap), ...Object.keys(entreesMap), ...Object.keys(sortiesMap)]);
   const stockActuelRows = [...allProducts].map(p=>{
@@ -6296,9 +6318,14 @@ function renderStockActuel() {
   if (!body) return;
   
   // 1. Stock de départ par produit (en équivalent-caisses)
+  // Regroupement par clé NORMALISÉE (normProduit) — pas par la chaîne brute —
+  // pour que d'anciens mouvements enregistrés avec une casse différente (ex:
+  // "Beller" avant la mise en minuscule) restent reliés aux nouveaux (ex:
+  // "beller") au lieu de former une ligne séparée dans Stock Actuel.
   const departMap = {};
   (STATE.stockDepart||[]).forEach(s => {
-    const key = s.description;
+    const key = normProduit(s.description);
+    if (!key) return;
     if (!departMap[key]) departMap[key] = {qty:0, prix:0, prixUnitaire:0};
     // Les nouveaux enregistrements ont quantityCaisses (unité/nombre d'unité pris
     // en compte) ; les anciens enregistrements stockaient directement en caisses.
@@ -6313,7 +6340,8 @@ function renderStockActuel() {
   // 2. Entrées de stock par produit (en caisses)
   const entreesMap = {};
   STATE.stocks.forEach(s => {
-    const key = s.description;
+    const key = normProduit(s.description);
+    if (!key) return;
     if (!entreesMap[key]) entreesMap[key] = 0;
     entreesMap[key] += parseFloat(s.quantityCaisses || s.quantity) || 0;
   });
@@ -6321,7 +6349,8 @@ function renderStockActuel() {
   // 3. Sorties (ventes) par produit (en caisses)
   const sortiesMap = {};
   (STATE.transactions||[]).filter(t=>t.type==='vente').forEach(t => {
-    const key = t.description;
+    const key = normProduit(t.description);
+    if (!key) return;
     if (!sortiesMap[key]) sortiesMap[key] = 0;
     sortiesMap[key] += getQtyCaisses(t);
   });
