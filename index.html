@@ -2127,23 +2127,26 @@ window._logDebugOffline = function(msg) {
 // auto-complétion (liste déroulante suggérée au fur et à mesure de la
 // saisie) au lieu d'une liste figée, pour permettre de taper directement le
 // début du nom d'un produit et d'en ajouter facilement de nouveaux.
+// Noms tous en minuscule (demande explicite) — l'affichage dans Ventes,
+// Stock de départ et Mouvements de Stocks doit toujours montrer les produits
+// en minuscule, quelle que soit la façon dont ils ont été tapés à l'origine.
 const DEFAULT_PRODUCTS = [
-  '7up','Beller','Couronne','Culligan','Dassani','Frooty','Generade',
-  'Gros Frutop','Gros Valle','Heineken','Kinanm','Koka','Kola Real',
-  'Prestige','Prorade','Sprite','Tampico','Ti Frutop','Ti Valle'
+  '7up','beller','couronne','culligan','dassani','frooty','generade',
+  'gros frutop','gros valle','heineken','kinanm','koka','kola real',
+  'prestige','prorade','sprite','tampico','ti frutop','ti valle'
 ];
 
 // Fusionne la liste de base avec les produits ajoutés par les utilisateurs
-// (synchronisés via Firestore), sans doublons (comparaison insensible à la
-// casse), triée alphabétiquement.
+// (synchronisés via Firestore), sans doublons, tout en minuscule, triée
+// alphabétiquement.
 function getProductCatalog() {
-  const seen = new Map(); // clé en minuscule -> nom d'affichage original
-  DEFAULT_PRODUCTS.forEach(p => seen.set(p.toLowerCase(), p));
+  const seen = new Set();
+  DEFAULT_PRODUCTS.forEach(p => seen.add(p.toLowerCase()));
   (STATE.customProducts||[]).forEach(p => {
-    const name = (p && p.name || '').trim();
-    if (name && !seen.has(name.toLowerCase())) seen.set(name.toLowerCase(), name);
+    const name = (p && p.name || '').trim().toLowerCase();
+    if (name) seen.add(name);
   });
-  return [...seen.values()].sort((a,b) => a.localeCompare(b, 'fr'));
+  return [...seen].sort((a,b) => a.localeCompare(b, 'fr'));
 }
 
 // Remplit la <datalist> partagée "produit-list" avec le catalogue complet
@@ -2174,9 +2177,9 @@ function updateProduitList(fieldId) {
 // les rôles (vendeur compris), puisque c'est en enregistrant une vente que
 // le besoin d'un nouveau produit apparaît le plus souvent.
 async function ensureCustomProduct(name) {
-  name = (name||'').trim();
+  name = (name||'').trim().toLowerCase();
   if (!name) return;
-  const exists = getProductCatalog().some(p => p.toLowerCase() === name.toLowerCase());
+  const exists = getProductCatalog().some(p => p === name);
   if (exists) return;
   const entry = { name, addedBy: (STATE.currentUser&&STATE.currentUser.username)||'?',
     date: todayStr(), isoDate: isoDate(), createdAt: new Date().toISOString() };
@@ -2213,9 +2216,10 @@ function normalizeProduitField(fieldId) {
   if (!field) return;
   const typed = field.value.trim();
   if (!typed) return;
-  const match = getProductCatalog().find(p => p.toLowerCase() === typed.toLowerCase());
-  if (match) { field.value = match; return; }
-  ensureCustomProduct(typed);
+  const lower = typed.toLowerCase();
+  const match = getProductCatalog().find(p => p === lower);
+  field.value = match || lower;
+  if (!match) ensureCustomProduct(lower);
 }
 
 // ============================================================
