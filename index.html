@@ -4668,13 +4668,19 @@ function buildFullWorkbook() {
   ]), '🏁 Stock de Départ');
 
   // 6. Stock Actuel (départ + entrées - sorties) — regroupement par clé
-  // normalisée (normProduit), identique au tableau "Stock Actuel" de l'app.
-  const departMap = {}, entreesMap = {}, sortiesMap = {};
+  // normalisée (normProduit) et formule de Valeur identiques au tableau
+  // "Stock Actuel" de l'app : (nb caisses/bout × Prix vente Caisse/Bout) +
+  // (nb unités × Prix vente unitaire), avec repli sur la vente la plus
+  // récente quand le produit n'a pas de prix dans Stock de départ.
+  const departMap = {}, entreesMap = {}, sortiesMap = {}, venteRecentMap = {};
   (STATE.stockDepart||[]).forEach(s=>{
     const key = normProduit(s.description); if (!key) return;
-    if (!departMap[key]) departMap[key] = {qty:0, prix:0};
+    if (!departMap[key]) departMap[key] = {qty:0, prix:0, prixUnitaire:0};
     departMap[key].qty += parseFloat(s.quantity)||0;
-    departMap[key].prix = s.prixCaisse||0;
+    if (s.prixCaisse) {
+      departMap[key].prix = s.prixCaisse;
+      departMap[key].prixUnitaire = s.prixUnitaire || (s.prixCaisse / getUnitsPerSelection(s.description, s.unit));
+    }
   });
   (STATE.stocks||[]).forEach(s=>{
     const key = normProduit(s.description); if (!key) return;
@@ -4683,13 +4689,23 @@ function buildFullWorkbook() {
   sales.forEach(t=>{
     const key = normProduit(t.description); if (!key) return;
     sortiesMap[key] = (sortiesMap[key]||0) + getQtyCaisses(t);
+    if (t.prixCaisse) {
+      const horodatage = (t.isoDate||'') + ' ' + (t.time||'');
+      if (!venteRecentMap[key] || horodatage > venteRecentMap[key]._horodatage) {
+        venteRecentMap[key] = { prixCaisse: t.prixCaisse, unitPrice: t.unitPrice||0, _horodatage: horodatage };
+      }
+    }
   });
   const allProducts = new Set([...Object.keys(departMap), ...Object.keys(entreesMap), ...Object.keys(sortiesMap)]);
   const stockActuelRows = [...allProducts].map(p=>{
     const depart = departMap[p]?.qty||0, ent = entreesMap[p]||0, sor = sortiesMap[p]||0;
     const actuel = Math.max(0, depart+ent-sor);
-    const prix = departMap[p]?.prix||0;
-    return [p, depart, ent, sor, actuel, prix, actuel*prix];
+    const casseSize = getCasseSize(p, null);
+    const prix = departMap[p]?.prix || venteRecentMap[p]?.prixCaisse || 0;
+    const prixUnitaire = departMap[p]?.prixUnitaire || venteRecentMap[p]?.unitPrice || (prix ? prix/casseSize : 0);
+    const { caisses: qteCaisse, unites: nbUnite } = breakdownCaisses(actuel, casseSize);
+    const valeur = (qteCaisse * prix) + (nbUnite * prixUnitaire);
+    return [p, depart, ent, sor, actuel, prix, valeur];
   }).sort((a,b)=>String(a[0]).localeCompare(String(b[0])));
   XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([
     ['Produit','Stock départ','Entrées','Sorties','Stock actuel','Prix caisse','Valeur'],
@@ -6363,6 +6379,22 @@ function renderStockActuel() {
     sortiesMap[key] += getQtyCaisses(t);
   });
 
+  // 4. Prix de vente le plus récent par produit, tiré des ventes elles-mêmes
+  // (prixCaisse/unitPrice saisis au moment de la vente) — sert de repli pour
+  // les produits introduits APRÈS la mise en place du Stock de départ (ex:
+  // ajoutés seulement via un Achat/Mouvement de Stock), qui n'ont donc aucun
+  // prix de vente enregistré dans Stock de départ. Sans ce repli, la Valeur
+  // (HTG) de ces produits restait incorrectement à 0.
+  const venteRecentMap = {};
+  (STATE.transactions||[]).filter(t=>t.type==='vente').forEach(t => {
+    const key = normProduit(t.description);
+    if (!key || !t.prixCaisse) return;
+    const horodatage = (t.isoDate||'') + ' ' + (t.time||'');
+    if (!venteRecentMap[key] || horodatage > venteRecentMap[key]._horodatage) {
+      venteRecentMap[key] = { prixCaisse: t.prixCaisse, unitPrice: t.unitPrice||0, _horodatage: horodatage };
+    }
+  });
+
   const allProducts = new Set([
     ...Object.keys(departMap),
     ...Object.keys(entreesMap),
@@ -6379,10 +6411,14 @@ function renderStockActuel() {
     const entrees = entreesMap[p] || 0;
     const sorties = sortiesMap[p] || 0;
     const actuel = Math.max(0, depart + entrees - sorties);
-    const prix = departMap[p]?.prix || 0;
     const casseSize = getCasseSize(p, null);
-    const prixUnitaire = departMap[p]?.prixUnitaire || (prix ? prix / casseSize : 0);
-    // Valeur (HTG) = (quantité caisse × Prix caisse/bout) + (nombre d'unité × Prix unitaire)
+    // Prix de vente Caisse/Bout : priorité au Stock de départ (prix de
+    // référence fixé une fois pour toutes) ; à défaut, la vente la plus
+    // récente de ce produit ; sinon 0.
+    const prix = departMap[p]?.prix || venteRecentMap[p]?.prixCaisse || 0;
+    const prixUnitaire = departMap[p]?.prixUnitaire || venteRecentMap[p]?.unitPrice || (prix ? prix / casseSize : 0);
+    // Valeur (HTG) = (nombre de caisses/bout × Prix de vente Caisse/Bout) +
+    // (nombre d'unités × Prix de vente unitaire) — formule demandée.
     const { caisses: qteCaisse, unites: nbUnite } = breakdownCaisses(actuel, casseSize);
     const valeur = (qteCaisse * prix) + (nbUnite * prixUnitaire);
     return { p, depart, entrees, sorties, actuel, prix, prixUnitaire, valeur, casseSize };
