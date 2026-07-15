@@ -3189,30 +3189,35 @@ function prevMonthStr(monthStr) {
   return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`;
 }
 
-// Construit les prix de vente/achat unitaires par produit (STATE.stockDepart /
-// STATE.stocks). Ces prix ne sont pas propres à une période : seul le mix de
-// produits vendus (et donc le quota de chacun) varie selon le jour/mois choisi.
+// Construit les prix de vente/achat CAISSE/BOUT par produit (STATE.stockDepart /
+// STATE.stocks) — la formule de taux de marge demandée se base explicitement
+// sur "Prix de vente caisse/bout" et "Prix d'achat caisse/bout", pas sur le
+// prix unitaire (le ratio de marge est de toute façon le même aux deux
+// échelles tant que la conversion caisse↔unité est cohérente, mais on utilise
+// directement les valeurs caisse/bout saisies pour éviter toute conversion
+// intermédiaire et pour les afficher telles quelles dans le tableau).
+// Ces prix ne sont pas propres à une période : seul le mix de produits vendus
+// (et donc le quota de chacun) varie selon le jour/semaine/mois choisi.
 function computeProductPriceMaps() {
-  const prixVenteMap = {};
+  const prixVenteMap = {}; // Prix de vente caisse/bout, depuis Stock de départ
   (STATE.stockDepart||[]).forEach(s => {
     const key = normProduit(s.description);
     if (key && s.prixCaisse) {
-      prixVenteMap[key] = s.prixUnitaire || (s.prixCaisse / getUnitsPerSelection(s.description, s.unit));
+      prixVenteMap[key] = s.prixCaisse;
     }
   });
+  // Prix d'achat caisse/bout, depuis Achats — moyenne pondérée par quantité
+  // si plusieurs achats existent pour le même produit à des prix différents.
   const achatAgg = {};
   (STATE.stocks||[]).forEach(s => {
     const key = normProduit(s.description);
     if (!key) return;
     const qty = parseFloat(s.quantityCaisses || s.quantity) || 0;
     if (qty <= 0) return;
-    // Repli : si le champ prixUnitaire n'a pas été enregistré (anciennes
-    // entrées créées avant l'ajout de ce champ), on le déduit du prix par
-    // caisse/bout saisi (unitPrice) et de la taille de la caisse du produit.
-    const pu = s.prixUnitaire || (s.unitPrice ? s.unitPrice / getCasseSize(s.description, s.unit) : 0);
-    if (!pu) return;
+    const pc = s.unitPrice || 0; // "Prix d'achat / Caisse" déjà saisi en caisse/bout
+    if (!pc) return;
     if (!achatAgg[key]) achatAgg[key] = {sumPrixQty:0, sumQty:0};
-    achatAgg[key].sumPrixQty += pu * qty;
+    achatAgg[key].sumPrixQty += pc * qty;
     achatAgg[key].sumQty += qty;
   });
   const prixAchatMap = {};
@@ -3275,9 +3280,9 @@ function computeProductMarginRatesByPeriod() {
 // pour une période) — factorisé pour être réutilisé aussi bien pour le total
 // général (computeProductMarginRates) que pour un jour/une semaine/un mois
 // précis (voir la fenêtre "Détail du taux de marge" dans Data Analyse).
-// Taux moyen de marge produit = ((Prix de vente unitaire - Prix d'achat
-// unitaire) / Prix d'achat unitaire) × Quota vente, le quota étant la part
-// du produit dans le total des quantités vendues de ce sous-ensemble.
+// Taux moyen de marge produit = ((Prix de vente caisse/bout - Prix d'achat
+// caisse/bout) / Prix d'achat caisse/bout) × Quota vente, le quota étant la
+// part du produit dans le total des quantités vendues de ce sous-ensemble.
 function computeProductMarginRatesForVentes(ventes, prixVenteMap, prixAchatMap) {
   const qtyVenduMap = {};
   let totalQtyVendu = 0;
@@ -3295,8 +3300,8 @@ function computeProductMarginRatesForVentes(ventes, prixVenteMap, prixAchatMap) 
     const quota = totalQtyVendu > 0 ? qtyVendu / totalQtyVendu : 0;
     const donneesOk = prixAchat > 0;
     const ratioMarge = donneesOk ? (prixVente - prixAchat) / prixAchat : null; // ratio brut (0.5 = 50%)
-    // Taux moyen de marge produit = ((Prix de vente unitaire − Prix d'achat unitaire)
-    // / Prix d'achat unitaire) × Quota vente — formule demandée, calculée pour chaque produit.
+    // Taux moyen de marge produit = ((Prix de vente caisse/bout − Prix d'achat caisse/bout)
+    // / Prix d'achat caisse/bout) × Quota vente — formule demandée, calculée pour chaque produit.
     const tauxMarge = donneesOk ? ratioMarge * quota * 100 : null;
     return {produit:p, prixVente, prixAchat, qtyVendu, quota, tauxMarge, donneesOk};
   }).filter(r => r.qtyVendu > 0)
@@ -3332,37 +3337,69 @@ function getWeekRangeForIsoDate(isoDateStr) {
   return { startIso: fmt(monday), endIso: fmt(sunday) };
 }
 
-// Calcule le détail du taux de marge (par produit + moyenne pondérée) pour
-// une date précise : le jour lui-même, la semaine (lundi-dimanche) et le
-// mois qui la contiennent. Les prix de vente/achat utilisés restent les
-// moyennes globales (mêmes que computeProductMarginRates) — seul le mix de
-// produits vendus (quota) change selon la période, exactement comme pour
-// computeProductMarginRatesByPeriod().
+// Calcule le détail par produit du taux de marge (+ moyenne pondérée) pour le
+// jour précis choisi dans la fenêtre. Les prix de vente/achat utilisés
+// restent les moyennes globales (mêmes que computeProductMarginRates) — seul
+// le mix de produits vendus (quota) change selon le jour, exactement comme
+// pour computeProductMarginRatesByPeriod().
 function computeMarginDetailForDate(isoDateStr) {
   const ventes = (STATE.transactions||[]).filter(t=>t.type==='vente');
   const {prixVenteMap, prixAchatMap} = computeProductPriceMaps();
-  const month = isoDateStr.slice(0,7);
-  const {startIso, endIso} = getWeekRangeForIsoDate(isoDateStr);
-
   const ventesJour = ventes.filter(t => getIsoFromTx(t) === isoDateStr);
-  const ventesSemaine = ventes.filter(t => { const d = getIsoFromTx(t); return d >= startIso && d <= endIso; });
-  const ventesMois = ventes.filter(t => getIsoFromTx(t).slice(0,7) === month);
-
   const jour = computeProductMarginRatesForVentes(ventesJour, prixVenteMap, prixAchatMap);
-  const semaine = computeProductMarginRatesForVentes(ventesSemaine, prixVenteMap, prixAchatMap);
-  const mois = computeProductMarginRatesForVentes(ventesMois, prixVenteMap, prixAchatMap);
+  return { jour: {...jour, label: formatGroupLabel(isoDateStr)} };
+}
 
-  return {
-    jour: {...jour, label: formatGroupLabel(isoDateStr)},
-    semaine: {...semaine, label: `Semaine du ${startIso.split('-').reverse().join('/')} au ${endIso.split('-').reverse().join('/')}`},
-    mois: {...mois, label: formatMonthLabel(month)}
-  };
+// Calcule automatiquement le taux de marge moyen pondéré pour CHAQUE semaine
+// (lundi-dimanche) ayant au moins une vente, toutes périodes confondues —
+// pas seulement la semaine de la date choisie. Triées de la plus récente à
+// la plus ancienne.
+function computeAllWeeksMarginRates() {
+  const ventes = (STATE.transactions||[]).filter(t=>t.type==='vente');
+  const {prixVenteMap, prixAchatMap} = computeProductPriceMaps();
+  const weekBuckets = {};
+  ventes.forEach(t => {
+    const day = getIsoFromTx(t);
+    if (!day) return;
+    const {startIso, endIso} = getWeekRangeForIsoDate(day);
+    if (!weekBuckets[startIso]) weekBuckets[startIso] = {startIso, endIso, ventes:[]};
+    weekBuckets[startIso].ventes.push(t);
+  });
+  return Object.values(weekBuckets)
+    .sort((a,b) => b.startIso.localeCompare(a.startIso))
+    .map(w => {
+      const {margeRows, tauxMoyenPondere} = computeProductMarginRatesForVentes(w.ventes, prixVenteMap, prixAchatMap);
+      return {
+        startIso: w.startIso, endIso: w.endIso,
+        label: `Semaine du ${w.startIso.split('-').reverse().join('/')} au ${w.endIso.split('-').reverse().join('/')}`,
+        margeRows, tauxMoyenPondere
+      };
+    });
+}
+
+// Calcule automatiquement le taux de marge moyen pondéré pour CHACUN des 12
+// mois de l'année donnée (ex: "2026") — y compris les mois sans aucune vente
+// (affichés à part comme "Aucune vente"), pour couvrir toute l'année d'un
+// coup plutôt qu'un seul mois à la fois.
+function computeAllMonthsMarginRatesForYear(year) {
+  const ventes = (STATE.transactions||[]).filter(t=>t.type==='vente');
+  const {prixVenteMap, prixAchatMap} = computeProductPriceMaps();
+  const monthNames = ['Janvier','Février','Mars','Avril','Mai','Juin','Juillet','Août','Septembre','Octobre','Novembre','Décembre'];
+  const rows = [];
+  for (let m = 1; m <= 12; m++) {
+    const monthKey = `${year}-${String(m).padStart(2,'0')}`;
+    const ventesMois = ventes.filter(t => getIsoFromTx(t).slice(0,7) === monthKey);
+    const {tauxMoyenPondere} = computeProductMarginRatesForVentes(ventesMois, prixVenteMap, prixAchatMap);
+    rows.push({ month: monthKey, label: `${monthNames[m-1]} ${year}`, tauxMoyenPondere });
+  }
+  return rows;
 }
 
 // Fenêtre "Détail du taux de marge par produit" (bouton dans Data Analyse) :
 // choix d'une date précise, puis affichage du taux de marge de chaque
-// produit ce jour-là, ainsi que la moyenne pondérée du jour, de la semaine
-// (lundi-dimanche) et du mois contenant cette date.
+// produit ce jour-là et de la moyenne pondérée du jour, ainsi que — de façon
+// automatique et exhaustive — le taux de marge moyen de CHAQUE semaine et de
+// CHAQUE mois de l'année de la date choisie.
 function openMarginDetailModal() {
   const dateField = document.getElementById('mgd-date');
   if (dateField && !dateField.value) dateField.value = isoDate();
@@ -3385,7 +3422,7 @@ function renderMarginRateSection(title, period) {
     <div class="label">Taux de marge moyen</div><div class="value">${period.tauxMoyenPondere.toFixed(1)}%</div>
   </div>`;
   if (period.margeRows.length) {
-    html += `<div class="table-wrap"><table><thead><tr><th>Produit</th><th>Prix de vente unitaire</th><th>Prix d'achat unitaire</th><th>Quota (part des ventes)</th><th>Taux de marge</th></tr></thead><tbody>` +
+    html += `<div class="table-wrap"><table><thead><tr><th>Produit</th><th>Prix de vente caisse/bout</th><th>Prix d'achat caisse/bout</th><th>Quota (part des ventes)</th><th>Taux de marge</th></tr></thead><tbody>` +
       period.margeRows.map(r=>`<tr>
         <td>${esc(r.produit)}</td>
         <td>${fmtHTG(r.prixVente)}</td>
@@ -3398,16 +3435,37 @@ function renderMarginRateSection(title, period) {
   return html;
 }
 
+// Tableau compact (Période | Taux de marge moyen) utilisé pour lister
+// automatiquement TOUTES les semaines ou TOUS les mois, plutôt qu'un seul
+// résultat à la fois.
+function renderMarginRateSummaryTable(title, rows) {
+  let html = `<div style="margin-bottom:1.2rem;">
+    <div style="font-weight:700;font-size:.88rem;color:var(--text2);margin-bottom:.4rem;">${title}</div>`;
+  if (!rows.length) {
+    html += `<div style="color:var(--text3);padding:.4rem 0;font-size:.85rem;">Aucune donnée.</div></div>`;
+    return html;
+  }
+  html += `<div class="table-wrap"><table><thead><tr><th>Période</th><th>Taux de marge moyen</th></tr></thead><tbody>` +
+    rows.map(r => `<tr>
+      <td>${esc(r.label)}</td>
+      <td style="font-weight:600;color:${r.tauxMoyenPondere==null?'var(--text3)':(r.tauxMoyenPondere>=0?'#1a7a4c':'#c0392b')};">${r.tauxMoyenPondere==null?'Aucune vente':r.tauxMoyenPondere.toFixed(1)+'%'}</td>
+    </tr>`).join('') + `</tbody></table></div></div>`;
+  return html;
+}
+
 function renderMarginDetailModal() {
   const cont = document.getElementById('mgd-content');
   if (!cont) return;
   const dateField = document.getElementById('mgd-date');
   const dateVal = (dateField && dateField.value) || isoDate();
-  const {jour, semaine, mois} = computeMarginDetailForDate(dateVal);
+  const year = dateVal.slice(0,4);
+  const {jour} = computeMarginDetailForDate(dateVal);
+  const allWeeks = computeAllWeeksMarginRates();
+  const allMonths = computeAllMonthsMarginRatesForYear(year);
   let html = '';
   html += renderMarginRateSection('📅 Taux de marge de chaque produit — jour', jour);
-  html += renderMarginRateSection('🗓️ Moyenne de la semaine', semaine);
-  html += renderMarginRateSection('📆 Moyenne du mois', mois);
+  html += renderMarginRateSummaryTable(`🗓️ Taux de marge moyen par semaine (automatique, toutes les semaines)`, allWeeks);
+  html += renderMarginRateSummaryTable(`📆 Taux de marge moyen par mois — année ${year} (automatique, les 12 mois)`, allMonths);
   cont.innerHTML = html;
 }
 
@@ -3536,7 +3594,7 @@ function renderDataAnalyse() {
   if (!margeRows.length) {
     html += `<div style="color:var(--text3);padding:.5rem 0;">Pas assez de données (prix de vente et prix d'achat) pour calculer les taux de marge.</div>`;
   } else {
-    html += `<div class="table-wrap"><table><thead><tr><th>Produit</th><th>Prix de vente unitaire</th><th>Prix d'achat unitaire</th><th>Quota (part des ventes)</th><th>Taux moyen de marge produit</th></tr></thead><tbody>` +
+    html += `<div class="table-wrap"><table><thead><tr><th>Produit</th><th>Prix de vente caisse/bout</th><th>Prix d'achat caisse/bout</th><th>Quota (part des ventes)</th><th>Taux moyen de marge produit</th></tr></thead><tbody>` +
       margeRows.map(r=>`<tr>
         <td>${esc(r.produit)}</td>
         <td>${fmtHTG(r.prixVente)}</td>
