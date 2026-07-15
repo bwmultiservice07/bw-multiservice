@@ -302,28 +302,9 @@ tr:hover td{background:#f7f9ff;}
         <div class="form-row">
           <div class="form-group" style="flex:2;min-width:200px;">
             <label>Description des marchandises <span style="color:#c0392b;">*</span></label>
-            <select id="v-desc" required>
-              <option value="">-- Choisir un produit --</option>
-              <option value="7up">7up</option>
-              <option value="Beller">Beller</option>
-              <option value="Couronne">Couronne</option>
-              <option value="Culligan">Culligan</option>
-              <option value="Dassani">Dassani</option>
-              <option value="Frooty">Frooty</option>
-              <option value="Generade">Generade</option>
-              <option value="Gros Frutop">Gros Frutop</option>
-              <option value="Gros Valle">Gros Valle</option>
-              <option value="Heineken">Heineken</option>
-              <option value="Kinanm">Kinanm</option>
-              <option value="Koka">Koka</option>
-              <option value="Kola Real">Kola Real</option>
-              <option value="Prestige">Prestige</option>
-              <option value="Prorade">Prorade</option>
-              <option value="Sprite">Sprite</option>
-              <option value="Tampico">Tampico</option>
-              <option value="Ti Frutop">Ti Frutop</option>
-              <option value="Ti Valle">Ti Valle</option>
-            </select>
+            <input type="text" id="v-desc" list="produit-list" autocomplete="off" placeholder="Tapez le nom du produit..." required
+              oninput="updateProduitList('v-desc')" onchange="normalizeProduitField('v-desc')" onfocus="updateProduitList('v-desc')"/>
+            <datalist id="produit-list"></datalist>
           </div>
         </div>
         <div class="form-row">
@@ -389,28 +370,8 @@ tr:hover td{background:#f7f9ff;}
         <div class="form-row">
           <div class="form-group" style="flex:2;min-width:200px;">
             <label>Produit</label>
-            <select id="vg-desc">
-              <option value="">-- Choisir un produit --</option>
-              <option value="7up">7up</option>
-              <option value="Beller">Beller</option>
-              <option value="Couronne">Couronne</option>
-              <option value="Culligan">Culligan</option>
-              <option value="Dassani">Dassani</option>
-              <option value="Frooty">Frooty</option>
-              <option value="Generade">Generade</option>
-              <option value="Gros Frutop">Gros Frutop</option>
-              <option value="Gros Valle">Gros Valle</option>
-              <option value="Heineken">Heineken</option>
-              <option value="Kinanm">Kinanm</option>
-              <option value="Koka">Koka</option>
-              <option value="Kola Real">Kola Real</option>
-              <option value="Prestige">Prestige</option>
-              <option value="Prorade">Prorade</option>
-              <option value="Sprite">Sprite</option>
-              <option value="Tampico">Tampico</option>
-              <option value="Ti Frutop">Ti Frutop</option>
-              <option value="Ti Valle">Ti Valle</option>
-            </select>
+            <input type="text" id="vg-desc" list="produit-list" autocomplete="off" placeholder="Tapez le nom du produit..."
+              oninput="updateProduitList('vg-desc')" onchange="normalizeProduitField('vg-desc')" onfocus="updateProduitList('vg-desc')"/>
           </div>
         </div>
         <div class="form-row">
@@ -836,28 +797,8 @@ tr:hover td{background:#f7f9ff;}
         <div class="form-row">
           <div class="form-group" style="flex:2;min-width:200px;">
             <label>Produit</label>
-            <select id="sd-desc" onchange="calcStockDepartPrixUnitaire()">
-              <option value="">-- Choisir un produit --</option>
-              <option value="7up">7up</option>
-              <option value="Beller">Beller</option>
-              <option value="Couronne">Couronne</option>
-              <option value="Culligan">Culligan</option>
-              <option value="Dassani">Dassani</option>
-              <option value="Frooty">Frooty</option>
-              <option value="Generade">Generade</option>
-              <option value="Gros Frutop">Gros Frutop</option>
-              <option value="Gros Valle">Gros Valle</option>
-              <option value="Heineken">Heineken</option>
-              <option value="Kinanm">Kinanm</option>
-              <option value="Koka">Koka</option>
-              <option value="Kola Real">Kola Real</option>
-              <option value="Prestige">Prestige</option>
-              <option value="Prorade">Prorade</option>
-              <option value="Sprite">Sprite</option>
-              <option value="Tampico">Tampico</option>
-              <option value="Ti Frutop">Ti Frutop</option>
-              <option value="Ti Valle">Ti Valle</option>
-            </select>
+            <input type="text" id="sd-desc" list="produit-list" autocomplete="off" placeholder="Tapez le nom du produit..."
+              oninput="updateProduitList('sd-desc')" onchange="normalizeProduitField('sd-desc');calcStockDepartPrixUnitaire()" onfocus="updateProduitList('sd-desc')"/>
           </div>
         </div>
         <div class="form-row">
@@ -919,28 +860,8 @@ tr:hover td{background:#f7f9ff;}
         <div class="form-row">
           <div class="form-group" style="flex:2;min-width:200px;">
             <label>Produit</label>
-            <select id="s-desc" onchange="calcStockQty();calcStockPrixUnitaire();">
-              <option value="">-- Choisir un produit --</option>
-              <option value="7up">7up</option>
-              <option value="Beller">Beller</option>
-              <option value="Couronne">Couronne</option>
-              <option value="Culligan">Culligan</option>
-              <option value="Dassani">Dassani</option>
-              <option value="Frooty">Frooty</option>
-              <option value="Generade">Generade</option>
-              <option value="Gros Frutop">Gros Frutop</option>
-              <option value="Gros Valle">Gros Valle</option>
-              <option value="Heineken">Heineken</option>
-              <option value="Kinanm">Kinanm</option>
-              <option value="Koka">Koka</option>
-              <option value="Kola Real">Kola Real</option>
-              <option value="Prestige">Prestige</option>
-              <option value="Prorade">Prorade</option>
-              <option value="Sprite">Sprite</option>
-              <option value="Tampico">Tampico</option>
-              <option value="Ti Frutop">Ti Frutop</option>
-              <option value="Ti Valle">Ti Valle</option>
-            </select>
+            <input type="text" id="s-desc" list="produit-list" autocomplete="off" placeholder="Tapez le nom du produit..."
+              oninput="updateProduitList('s-desc')" onchange="normalizeProduitField('s-desc');calcStockQty();calcStockPrixUnitaire();" onfocus="updateProduitList('s-desc')"/>
           </div>
         </div>
         <div class="form-row">
@@ -1293,6 +1214,7 @@ let STATE = {
   fournisseurPayments: [], // synced from Firestore (paiements/dettes envers les fournisseurs, achats à crédit)
   manualClientDebts: [],    // synced from Firestore (créances clients préexistantes, ajoutées manuellement)
   manualSupplierDebts: [],  // synced from Firestore (dettes fournisseurs préexistantes, ajoutées manuellement)
+  customProducts: [],       // synced from Firestore (produits ajoutés par les utilisateurs, en plus de la liste de base)
   pendingQueue: [],   // offline queue
   currentUser: null,
   isOnline: navigator.onLine,
@@ -1408,6 +1330,7 @@ if (!navigator.onLine && STATE.lastSession && STATE.lastSession.username) {
 // ============================================================
 let unsubCredits = null, unsubStockDepart = null, unsubCaisse = null, unsubCaisseRetraits = null, unsubCharges = null, unsubApports = null, unsubDepensesDom = null, unsubFournisseurPayments = null;
 let unsubManualClientDebts = null, unsubManualSupplierDebts = null;
+let unsubProduits = null;
 
 function startFirebaseListeners() {
   if (!window._fbReady || !window._db) return;
@@ -1566,6 +1489,19 @@ function startFirebaseListeners() {
       if (currentTab === 'dettes') renderDettesFournisseurs();
     },
     err => console.error('ManualSupplierDebts listener:', err)
+  );
+
+  // PRODUITS PERSONNALISÉS (ajoutés par les utilisateurs en tapant un nom
+  // absent de la liste de base) - Synchronisation globale, disponibles pour
+  // tout le monde sur tous les appareils dès que quelqu'un en ajoute un.
+  if (unsubProduits) unsubProduits();
+  unsubProduits = onSnapshot(
+    collection(db, 'produits_personnalises'),
+    snap => {
+      STATE.customProducts = snap.docs.map(d => ({id: d.id, ...d.data()}));
+      renderProduitDatalist();
+    },
+    err => console.error('Produits listener:', err)
   );
 
   // USERS - Synchronisation globale
@@ -1963,6 +1899,7 @@ function finishLogin(user) {
   updateConnStatus();
   renderAll();
   renderUsers();
+  renderProduitDatalist();
   // L'onglet Ventes est désormais identique pour tout le monde : tout le
   // monde voit toutes les transactions de tous les vendeurs.
   const titleEl = document.getElementById('my-sales-title');
@@ -2084,6 +2021,7 @@ async function performLogout() {
   if (unsubFournisseurPayments) unsubFournisseurPayments();
   if (unsubManualClientDebts) unsubManualClientDebts();
   if (unsubManualSupplierDebts) unsubManualSupplierDebts();
+  if (unsubProduits) unsubProduits();
   STATE.currentUser = null;
   STATE.lastSession = null; // efface aussi le filet de sécurité local hors ligne
   saveLocal();
@@ -2179,6 +2117,106 @@ window._logDebugOffline = function(msg) {
   panel.textContent += `[${time}] ${msg}\n`;
   panel.scrollTop = panel.scrollHeight;
 };
+
+// ============================================================
+// PRODUITS (liste de base + produits ajoutés par les utilisateurs)
+// ============================================================
+// Liste de base des produits, identique à l'ancienne liste déroulante fixe.
+// Les champs "Description des marchandises" (Ventes, Vente glacée, Stock de
+// départ, Mouvements de Stocks) sont maintenant des champs texte avec
+// auto-complétion (liste déroulante suggérée au fur et à mesure de la
+// saisie) au lieu d'une liste figée, pour permettre de taper directement le
+// début du nom d'un produit et d'en ajouter facilement de nouveaux.
+const DEFAULT_PRODUCTS = [
+  '7up','Beller','Couronne','Culligan','Dassani','Frooty','Generade',
+  'Gros Frutop','Gros Valle','Heineken','Kinanm','Koka','Kola Real',
+  'Prestige','Prorade','Sprite','Tampico','Ti Frutop','Ti Valle'
+];
+
+// Fusionne la liste de base avec les produits ajoutés par les utilisateurs
+// (synchronisés via Firestore), sans doublons (comparaison insensible à la
+// casse), triée alphabétiquement.
+function getProductCatalog() {
+  const seen = new Map(); // clé en minuscule -> nom d'affichage original
+  DEFAULT_PRODUCTS.forEach(p => seen.set(p.toLowerCase(), p));
+  (STATE.customProducts||[]).forEach(p => {
+    const name = (p && p.name || '').trim();
+    if (name && !seen.has(name.toLowerCase())) seen.set(name.toLowerCase(), name);
+  });
+  return [...seen.values()].sort((a,b) => a.localeCompare(b, 'fr'));
+}
+
+// Remplit la <datalist> partagée "produit-list" avec le catalogue complet
+// (appelé au chargement/connexion et à chaque mise à jour des produits
+// personnalisés), pour qu'elle apparaisse dès qu'on clique sur un champ vide.
+function renderProduitDatalist() {
+  const datalist = document.getElementById('produit-list');
+  if (!datalist) return;
+  datalist.innerHTML = getProductCatalog().map(p => `<option value="${esc(p)}">`).join('');
+}
+
+// Réduit la <datalist> partagée aux produits correspondant à ce qui est
+// tapé dans le champ concerné (même principe que les listes clients/fournisseurs).
+function updateProduitList(fieldId) {
+  const input = document.getElementById(fieldId);
+  const datalist = document.getElementById('produit-list');
+  if (!input || !datalist) return;
+  const val = input.value.trim().toLowerCase();
+  const catalog = getProductCatalog();
+  datalist.innerHTML = (val ? catalog.filter(p => p.toLowerCase().includes(val)) : catalog)
+    .map(p => `<option value="${esc(p)}">`).join('');
+}
+
+// Si le nom de produit saisi n'existe pas encore dans le catalogue (liste de
+// base + produits déjà ajoutés), on l'ajoute automatiquement — synchronisé
+// sur Firestore pour que tous les appareils en bénéficient, avec file
+// d'attente hors ligne comme le reste de l'application. Accessible à tous
+// les rôles (vendeur compris), puisque c'est en enregistrant une vente que
+// le besoin d'un nouveau produit apparaît le plus souvent.
+async function ensureCustomProduct(name) {
+  name = (name||'').trim();
+  if (!name) return;
+  const exists = getProductCatalog().some(p => p.toLowerCase() === name.toLowerCase());
+  if (exists) return;
+  const entry = { name, addedBy: (STATE.currentUser&&STATE.currentUser.username)||'?',
+    date: todayStr(), isoDate: isoDate(), createdAt: new Date().toISOString() };
+  if (!STATE.customProducts) STATE.customProducts = [];
+  if (!STATE.isOnline || !STATE.fbReady) {
+    STATE.customProducts.push(entry);
+    STATE.pendingQueue.push({...entry, colTarget:'produits_personnalises'});
+    saveLocal();
+    updatePendingUI();
+  } else {
+    try {
+      const {collection, addDoc} = window._fbFns;
+      const ref = await addDoc(collection(window._db,'produits_personnalises'), entry);
+      if (!STATE.customProducts.find(p=>p.id===ref.id)) STATE.customProducts.push({id:ref.id, ...entry});
+    } catch(e) {
+      STATE.customProducts.push(entry);
+      STATE.pendingQueue.push({...entry, colTarget:'produits_personnalises'});
+      saveLocal();
+      updatePendingUI();
+    }
+  }
+  renderProduitDatalist();
+  showToast('🆕 « '+name+' » a été ajouté à la liste des produits.');
+}
+
+// Appelé au onchange (blur ou sélection dans la liste) de chaque champ
+// produit : si le nom tapé correspond déjà à un produit du catalogue à la
+// casse près (ex: "beller" tapé alors que "Beller" existe), on uniformise
+// l'affichage sur l'orthographe déjà connue pour éviter que les rapports
+// comptent le même produit deux fois sous deux graphies différentes. Sinon,
+// on l'ajoute comme nouveau produit.
+function normalizeProduitField(fieldId) {
+  const field = document.getElementById(fieldId);
+  if (!field) return;
+  const typed = field.value.trim();
+  if (!typed) return;
+  const match = getProductCatalog().find(p => p.toLowerCase() === typed.toLowerCase());
+  if (match) { field.value = match; return; }
+  ensureCustomProduct(typed);
+}
 
 // ============================================================
 // SALES
@@ -3121,8 +3159,7 @@ function renderDataAnalyse() {
   const currentMonth = localMonthStr();
 
   // --- Décisions à prendre : mois en cours vs mois précédent ---
-  const catalogSelect = document.getElementById('v-desc');
-  const catalog = catalogSelect ? Array.from(catalogSelect.options).map(o=>o.value).filter(Boolean) : [];
+  const catalog = getProductCatalog();
   const prevMonth = prevMonthStr(currentMonth);
   const curData = monthGroups[currentMonth] || {};
   const prevData = monthGroups[prevMonth] || {};
