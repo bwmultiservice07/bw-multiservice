@@ -1298,16 +1298,19 @@ window.addEventListener('beforeunload', function(e) {
 // séparée de STATE.users (qui lui est remplacé à chaque synchronisation
 // Firestore), utilisée pour fusionner proprement sans jamais créer de
 // doublons d'affichage dans "Gestion des utilisateurs".
-// Ces mots de passe ne servent QUE de secours hors-ligne (quand Firebase est
-// injoignable) : la connexion normale en ligne utilise le vrai compte
-// Firebase sécurisé de chaque personne, indépendant de cette liste. Changés
-// le 13 juillet 2026 pour retirer les anciens mots de passe visibles dans le
-// code source public depuis le début du projet. Les 3 comptes "vendeur01/02/03"
-// n'ayant jamais été utilisés ont été retirés entièrement.
+// AUCUN mot de passe n'est plus stocké ici (retiré le 16 juillet 2026) : les
+// 3 comptes admin/gestionnaire/vendeur ont depuis longtemps de vrais comptes
+// Firebase sécurisés (migrés automatiquement dès leur première connexion
+// réussie), donc ce repli de secours par mot de passe en clair n'était plus
+// nécessaire et représentait un risque inutile — n'importe qui consultant ce
+// code source public pouvait lire ces mots de passe. Sans le champ
+// "password", la vérification legacy (voir plus bas : "ancien système") ne
+// peut plus jamais correspondre pour ces 3 comptes ; la connexion passe
+// systématiquement par le vrai compte Firebase de chacun.
 const DEFAULT_USERS = [
-  {username:'admin', password:'3kwUHTCa6#yS', role:'admin'},
-  {username:'gestionnaire', password:'xdr#2Xpfw52@', role:'gestionnaire'},
-  {username:'vendeur', password:'4yi&E&6T$B66', role:'vendeur'}
+  {username:'admin', role:'admin'},
+  {username:'gestionnaire', role:'gestionnaire'},
+  {username:'vendeur', role:'vendeur'}
 ];
 
 let STATE = {
