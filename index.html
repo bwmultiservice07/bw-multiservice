@@ -218,6 +218,28 @@ tr:hover td{background:#f7f9ff;}
   .form-row{flex-direction:column;}
   .tabs button{font-size:.78rem;padding:.6rem .7rem;}
 }
+
+/* ============================================================
+   IMPRESSION DE FACTURES — pensé pour les imprimantes de reçus/factures
+   (imprimantes thermiques 80mm/58mm ou toute imprimante classique reliée à
+   l'ordinateur/tablette/téléphone) : le navigateur voit ces imprimantes
+   comme des imprimantes normales, donc window.print() suffit — il n'y a
+   qu'à choisir la bonne imprimante dans la boîte de dialogue d'impression
+   qui s'ouvre. #invoice-print-area reste invisible à l'écran et n'apparaît
+   QUE lors de l'impression (le reste de la page est masqué à ce moment-là).
+   ============================================================ */
+#invoice-print-area{display:none;}
+.invoice-line{display:flex;justify-content:space-between;gap:8px;}
+.invoice-sep{border-top:1px dashed #000;margin:5px 0;}
+@media print{
+  body *{visibility:hidden;}
+  #invoice-print-area, #invoice-print-area *{visibility:visible;}
+  #invoice-print-area{
+    display:block;position:absolute;left:0;top:0;width:80mm;padding:3mm;
+    font-family:'Courier New',Courier,monospace;color:#000;background:#fff;
+  }
+  #invoice-print-area table{width:100%;border-collapse:collapse;}
+}
 </style>
 </head>
 <body>
@@ -1227,6 +1249,11 @@ tr:hover td{background:#f7f9ff;}
 </div>
 
 <div id="toast"></div>
+
+<!-- Zone d'impression de facture : invisible à l'écran, remplie dynamiquement
+     par printInvoiceForSale() puis affichée UNIQUEMENT lors de l'impression
+     (voir la règle @media print ci-dessus) — accessible à tous les rôles. -->
+<div id="invoice-print-area"></div>
 
 <!-- Panneau de diagnostic temporaire (hors-ligne) : contrairement au toast qui
      efface le message précédent, ce panneau accumule chaque ligne et reste
@@ -3045,10 +3072,97 @@ function syncMySalesScrollbar() {
   slider.value = maxScroll > 0 ? (wrap.scrollLeft / maxScroll) * 100 : 0;
 }
 
+// ============================================================
+// IMPRESSION DE FACTURES — accessible à TOUS les rôles (vendeur, gestionnaire,
+// admin), depuis n'importe quelle imprimante déjà installée sur l'appareil
+// (imprimante de reçus/factures thermique 80mm/58mm ou imprimante classique) :
+// le navigateur les traite comme des imprimantes ordinaires, il suffit donc
+// d'utiliser window.print() puis de choisir la bonne imprimante dans la boîte
+// de dialogue native qui s'ouvre — aucune configuration technique en plus.
+// ============================================================
+
+// Registre des ventes actuellement affichées dans "Vente du jour" (y compris
+// celles encore en file d'attente hors ligne, sans id Firestore) — permet au
+// bouton d'impression de retrouver la vente cliquée sans dépendre d'un id,
+// donc de fonctionner même avant la synchronisation.
+let _printableSalesRegistry = [];
+function registerPrintableSale(t) {
+  _printableSalesRegistry.push(t);
+  return _printableSalesRegistry.length - 1;
+}
+
+// Construit le contenu HTML de la facture (en-tête, lignes produits, total,
+// mode de paiement, client) dans la zone dédiée #invoice-print-area — une
+// vente multi-produits (même saleGroupId) apparaît comme UNE SEULE facture
+// avec toutes ses lignes, plutôt qu'une facture par produit.
+function renderInvoiceContent(lines) {
+  const area = document.getElementById('invoice-print-area');
+  if (!area || !lines || !lines.length) return;
+  const first = lines[0];
+  const totalMontant = lines.reduce((a,l)=>a+(l.amount||0),0);
+  const totalCash = lines.reduce((a,l)=>a+(l.cash||0),0);
+  const totalCredit = lines.reduce((a,l)=>a+(l.credit||0),0);
+  const totalBalance = lines.reduce((a,l)=>a+(l.balance||0),0);
+  const ref = (first.saleGroupId || first.id || '').toString().slice(0,10).toUpperCase() || '—';
+  area.innerHTML = `
+    <div style="text-align:center;margin-bottom:6px;">
+      <div style="font-weight:700;font-size:14px;">BW MULTISERVICE</div>
+      <div style="font-size:10px;">Facture / Reçu de vente</div>
+    </div>
+    <div class="invoice-sep"></div>
+    <div style="font-size:10px;">
+      <div>Date : ${esc(first.date||'')} — ${esc(first.time||'')}</div>
+      <div>Vendeur : ${esc(first.seller||'')}</div>
+      <div>Réf. : ${esc(ref)}</div>
+      ${first.client ? `<div>Client : ${esc(first.client)}</div>` : ''}
+    </div>
+    <div class="invoice-sep"></div>
+    <table>
+      <thead><tr><th style="text-align:left;font-size:10px;">Produit</th><th style="text-align:right;font-size:10px;">Qté</th><th style="text-align:right;font-size:10px;">P.U.</th><th style="text-align:right;font-size:10px;">Total</th></tr></thead>
+      <tbody>
+        ${lines.map(l=>`<tr>
+          <td style="text-align:left;font-size:10px;">${esc(l.description||'')}${l.isGlace?' 🧊':''}</td>
+          <td style="text-align:right;font-size:10px;">${l.quantity||0} ${esc(formatUnitLabel(l.unit))}</td>
+          <td style="text-align:right;font-size:10px;">${fmtHTG(l.unitPrice||0)}</td>
+          <td style="text-align:right;font-size:10px;">${fmtHTG(l.amount||0)}</td>
+        </tr>`).join('')}
+      </tbody>
+    </table>
+    <div class="invoice-sep"></div>
+    <div style="font-size:11px;">
+      <div class="invoice-line"><span>TOTAL</span><span style="font-weight:700;">${fmtHTG(totalMontant)}</span></div>
+      <div class="invoice-line"><span>Cash</span><span>${fmtHTG(totalCash)}</span></div>
+      ${totalCredit>0?`<div class="invoice-line"><span>Crédit</span><span>${fmtHTG(totalCredit)}</span></div>`:''}
+      ${totalBalance>0?`<div class="invoice-line"><span>Balance restante</span><span>${fmtHTG(totalBalance)}</span></div>`:''}
+    </div>
+    <div class="invoice-sep"></div>
+    <div style="text-align:center;font-size:10px;margin-top:6px;">Merci de votre confiance !</div>
+  `;
+}
+
+// Point d'entrée du bouton 🖨️ : retrouve la vente (et toutes les autres
+// lignes de la même fiche multi-produits, si applicable), construit la
+// facture, puis ouvre la boîte de dialogue d'impression du navigateur —
+// l'utilisateur y choisit son imprimante de factures/reçus comme pour
+// n'importe quel document.
+function printInvoiceForSale(idx) {
+  const t = _printableSalesRegistry[idx];
+  if (!t) { showToast('⚠ Vente introuvable pour impression.','warn'); return; }
+  const group = t.saleGroupId
+    ? [...STATE.transactions, ...STATE.pendingQueue].filter(x => x.type==='vente' && x.saleGroupId && x.saleGroupId === t.saleGroupId)
+    : [t];
+  renderInvoiceContent(group.length ? group : [t]);
+  window.print();
+}
+
 function renderMySales() {
   if (!STATE.currentUser) return;
   const body = document.getElementById('my-sales-body');
-  
+
+  // Réinitialise le registre utilisé par le bouton d'impression de facture
+  // (voir printInvoiceForSale()) à chaque nouveau rendu du tableau.
+  _printableSalesRegistry = [];
+
   const currentMonth = localMonthStr(); // YYYY-MM (local, pas UTC)
 
   const isAdminOrGest = STATE.currentUser.role === 'admin' || STATE.currentUser.role === 'gestionnaire';
@@ -3144,12 +3258,20 @@ function renderMySales() {
         const statutCell = clickable
           ? `<td style="cursor:pointer;text-decoration:underline;" onclick="loadSaleForCorrection('${t.id}')" title="Cliquer pour corriger cette vente">${badge}</td>`
           : `<td>${badge}</td>`;
+        // Bouton d'impression de facture : accessible à TOUS les rôles (pas
+        // seulement admin/gestionnaire) — imprime via l'imprimante choisie
+        // dans la boîte de dialogue native du navigateur (voir
+        // printInvoiceForSale()). Fonctionne même pour une vente encore en
+        // file d'attente hors ligne (sans id Firestore), grâce au registre.
+        const printIdx = registerPrintableSale(t);
+        const printBtn = `<button class="btn" style="font-size:.75rem;padding:3px 10px;" onclick="printInvoiceForSale(${printIdx})" title="Imprimer la facture de cette vente">🖨️</button>`;
         // Admin/gestionnaire : suppression individuelle de cette vente (en plus
         // de la correction via le badge de statut ci-dessus), et du bouton
         // "Effacer les ventes du jour" pour une suppression groupée.
-        const actionsCell = (isAdminOrGest && t.id)
-          ? `<td><button class="btn" style="font-size:.75rem;padding:3px 10px;background:var(--danger-bg);color:var(--danger);border:1px solid #f5b7b1;" onclick="deleteTransaction('${t.id}')">🗑</button></td>`
-          : `<td>—</td>`;
+        const deleteBtn = (isAdminOrGest && t.id)
+          ? `<button class="btn" style="font-size:.75rem;padding:3px 10px;background:var(--danger-bg);color:var(--danger);border:1px solid #f5b7b1;" onclick="deleteTransaction('${t.id}')">🗑</button>`
+          : '';
+        const actionsCell = `<td><div style="display:flex;gap:4px;flex-wrap:wrap;">${printBtn}${deleteBtn}</div></td>`;
         html += `<tr>
           <td>${t.date}</td><td>${t.time}</td><td>${esc(t.seller||'')}</td><td>${esc(t.description)}${t.isGlace?' <span title="Vente glacée" style="color:#1a73e8;">🧊</span>':''}</td><td>${t.quantity}</td>
           <td>${esc(formatUnitLabel(t.unit))}</td><td>${t.nombreUnite||0}</td><td>${fmtHTG(t.prixCaisse||0)}</td><td>${fmtHTG(t.unitPrice||0)}</td>
