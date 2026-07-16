@@ -409,12 +409,12 @@ tr:hover td{background:#f7f9ff;}
             <button class="btn" style="font-size:.78rem;padding:5px 12px;width:auto;background:var(--danger-bg);color:var(--danger);border:1px solid #f5b7b1;" onclick="deleteTodaysSales()">🗑 Effacer les ventes du jour</button>
           </div>
         </div>
-        <div style="font-size:.78rem;color:var(--text2);background:var(--accent-bg);border-radius:6px;padding:6px 10px;margin-bottom:8px;">↔️ Ce tableau est large : utilisez le curseur ci-dessous (ou glissez dans le tableau) pour voir toutes les colonnes, y compris Cash, Crédit, Balance, Client, Statut et Actions tout à droite.</div>
+        <div style="font-size:.78rem;color:var(--text2);background:var(--accent-bg);border-radius:6px;padding:6px 10px;margin-bottom:8px;">↔️ Ce tableau est large : utilisez le curseur ci-dessous (ou glissez dans le tableau) pour voir toutes les colonnes, y compris Cash, Crédit, Balance, Client, Appareil, Position GPS, Statut et Actions tout à droite.</div>
         <input type="range" id="my-sales-scrollbar" min="0" max="100" value="0" step="1" oninput="scrollMySalesTable(this.value)" style="width:100%;margin-bottom:8px;cursor:pointer;">
         <div class="table-wrap" id="my-sales-wrap" onscroll="syncMySalesScrollbar()">
-          <table style="min-width:1650px;">
-            <thead><tr><th>Date</th><th>Heure</th><th>Vendeur</th><th>Description</th><th>Qté</th><th>Unité</th><th>Nb. unité</th><th>Prix Caisse/Bout</th><th>Prix unit.</th><th>Montant (HTG)</th><th>Cash (HTG)</th><th>Crédit (HTG)</th><th>Balance (HTG)</th><th>Client</th><th>Statut</th><th>Actions</th></tr></thead>
-            <tbody id="my-sales-body"><tr><td colspan="16" style="text-align:center;color:var(--text3);padding:1.5rem;">Aucune vente aujourd'hui.</td></tr></tbody>
+          <table style="min-width:1950px;">
+            <thead><tr><th>Date</th><th>Heure</th><th>Vendeur</th><th>Description</th><th>Qté</th><th>Unité</th><th>Nb. unité</th><th>Prix Caisse/Bout</th><th>Prix unit.</th><th>Montant (HTG)</th><th>Cash (HTG)</th><th>Crédit (HTG)</th><th>Balance (HTG)</th><th>Client</th><th>Appareil</th><th>Position GPS</th><th>Statut</th><th>Actions</th></tr></thead>
+            <tbody id="my-sales-body"><tr><td colspan="18" style="text-align:center;color:var(--text3);padding:1.5rem;">Aucune vente aujourd'hui.</td></tr></tbody>
           </table>
         </div>
       </div>
@@ -998,8 +998,8 @@ tr:hover td{background:#f7f9ff;}
         </div>
         <div class="table-wrap">
           <table>
-            <thead><tr><th>Date</th><th>Heure</th><th>Vendeur</th><th>Description</th><th>Qté</th><th>Montant (HTG)</th><th>Cash (HTG)</th><th>Crédit (HTG)</th><th>Balance (HTG)</th><th>Client</th><th>Type</th></tr></thead>
-            <tbody id="all-trans-body"><tr><td colspan="11" style="text-align:center;color:var(--text3);padding:1.5rem;">Aucune transaction.</td></tr></tbody>
+            <thead><tr><th>Date</th><th>Heure</th><th>Vendeur</th><th>Description</th><th>Qté</th><th>Montant (HTG)</th><th>Cash (HTG)</th><th>Crédit (HTG)</th><th>Balance (HTG)</th><th>Client</th><th>Appareil</th><th>Position GPS</th><th>Type</th></tr></thead>
+            <tbody id="all-trans-body"><tr><td colspan="13" style="text-align:center;color:var(--text3);padding:1.5rem;">Aucune transaction.</td></tr></tbody>
           </table>
         </div>
       </div>
@@ -1859,6 +1859,94 @@ async function repairUserProfile(uid, username, role) {
   }
 }
 
+// ============================================================
+// CARACTÉRISTIQUES DE L'APPAREIL + LOCALISATION GPS — capturées à l'ouverture
+// de la session (connexion, voir finishLogin() ci-dessous), puis rattachées à
+// chaque vente enregistrée pendant cette session, pour que l'admin/le
+// gestionnaire puisse voir depuis quel appareil et depuis quel endroit
+// chaque vente a été transmise (utile pour les vendeurs sur le terrain).
+// ============================================================
+
+// Résumé compact et lisible des caractéristiques de l'appareil/navigateur —
+// pas une empreinte technique complète, juste de quoi identifier le type
+// d'appareil utilisé pour enregistrer une vente (navigateur, système,
+// type d'appareil, résolution d'écran).
+function getDeviceCharacteristics() {
+  const ua = navigator.userAgent || '';
+  let navigateur = 'Navigateur inconnu';
+  if (/Edg\//.test(ua)) navigateur = 'Edge';
+  else if (/OPR\//.test(ua)) navigateur = 'Opera';
+  else if (/Chrome\//.test(ua) && !/Chromium/.test(ua)) navigateur = 'Chrome';
+  else if (/Firefox\//.test(ua)) navigateur = 'Firefox';
+  else if (/Safari\//.test(ua) && !/Chrome/.test(ua)) navigateur = 'Safari';
+  let os = 'OS inconnu';
+  if (/Android/.test(ua)) os = 'Android';
+  else if (/iPhone|iPad|iPod/.test(ua)) os = 'iOS';
+  else if (/Windows/.test(ua)) os = 'Windows';
+  else if (/Mac OS X/.test(ua)) os = 'macOS';
+  else if (/Linux/.test(ua)) os = 'Linux';
+  const largeur = (window.screen && window.screen.width) || 0;
+  const hauteur = (window.screen && window.screen.height) || 0;
+  const type = /Mobi|Android|iPhone|iPad/.test(ua) ? 'Mobile' : 'Ordinateur';
+  return `${navigateur} sur ${os} (${type}, écran ${largeur}×${hauteur})`;
+}
+
+// Demande la position GPS de l'appareil — renvoie toujours un texte lisible,
+// même en cas de refus, d'indisponibilité ou de délai dépassé, pour que la
+// donnée "Position GPS" ne reste jamais vide dans les ventes.
+function requestGpsLocation() {
+  return new Promise((resolve) => {
+    if (!('geolocation' in navigator)) { resolve('Géolocalisation non supportée par cet appareil'); return; }
+    let done = false;
+    const finish = (val) => { if (!done) { done = true; resolve(val); } };
+    // Filet de sécurité INDÉPENDANT de l'option "timeout" de l'API elle-même
+    // : certains navigateurs/contextes (permission jamais accordée ni
+    // refusée explicitement, ex: contexte non sécurisé ou sans dialogue de
+    // permission) ne déclenchent JAMAIS ni le succès ni l'erreur — sans ce
+    // filet, l'enregistrement d'une vente resterait bloqué indéfiniment.
+    setTimeout(() => finish('Position GPS non disponible (délai dépassé)'), 8000);
+    try {
+      navigator.geolocation.getCurrentPosition(
+        (pos) => {
+          const lat = pos.coords.latitude.toFixed(5);
+          const lon = pos.coords.longitude.toFixed(5);
+          const precision = Math.round(pos.coords.accuracy || 0);
+          finish(`${lat}, ${lon} (±${precision} m)`);
+        },
+        (err) => {
+          if (err && err.code === err.PERMISSION_DENIED) finish("Position GPS refusée par l'utilisateur");
+          else finish('Position GPS non disponible');
+        },
+        { enableHighAccuracy: false, timeout: 7000, maximumAge: 60000 }
+      );
+    } catch(e) { finish('Position GPS non disponible'); }
+  });
+}
+
+// Appelé à l'ouverture de la session (connexion réussie, voir finishLogin())
+// : capture immédiatement les caractéristiques de l'appareil, et lance la
+// demande de position GPS (asynchrone, mise en cache dans STATE dès qu'elle
+// aboutit) pour que les ventes de cette session puissent s'en servir sans
+// re-solliciter le navigateur à chaque fois.
+function initDeviceAndLocationTracking() {
+  STATE.currentDeviceInfo = getDeviceCharacteristics();
+  STATE.currentGpsLocation = 'Localisation en cours...';
+  STATE._gpsPromise = requestGpsLocation().then(loc => {
+    STATE.currentGpsLocation = loc;
+    return loc;
+  });
+}
+
+// Renvoie la position GPS à rattacher à une vente : réutilise la demande
+// lancée à la connexion si elle existe encore, sinon en relance une nouvelle
+// (ex: session restaurée automatiquement avant l'ouverture normale).
+async function getGpsLocationForTransaction() {
+  if (STATE._gpsPromise) {
+    try { return await STATE._gpsPromise; } catch(e) { /* repli ci-dessous */ }
+  }
+  return requestGpsLocation();
+}
+
 // Connexion : essaie d'abord un vrai compte Firebase (sécurisé), et si
 // l'utilisateur n'a pas encore de compte réel (première connexion depuis la
 // mise en place du 13 juillet 2026), se rabat sur l'ancienne vérification en
@@ -1941,6 +2029,10 @@ async function doLogin() {
 
 function finishLogin(user) {
   STATE.currentUser = user;
+  // Capture les caractéristiques de l'appareil et lance la demande de
+  // localisation GPS dès l'ouverture de la session (voir le commentaire au-
+  // dessus de la fonction) — rattachées ensuite à chaque vente transmise.
+  initDeviceAndLocationTracking();
   // Filet de sécurité local pour la reconnexion automatique hors ligne (voir
   // le commentaire près de loadLocal()) — indépendant de la restauration de
   // session de Firebase Auth, qui s'est montrée peu fiable hors ligne.
@@ -2745,6 +2837,12 @@ async function submitSale() {
   // Toutes les lignes d'une même fiche partagent un identifiant commun, pour
   // pouvoir les regrouper/tracer même si elles restent des documents séparés.
   const saleGroupId = Date.now()+'-'+Math.random().toString(36).slice(2,8);
+  // Caractéristiques de l'appareil du vendeur + localisation GPS (capturées à
+  // l'ouverture de la session, voir finishLogin()/initDeviceAndLocationTracking())
+  // — rattachées à la fiche pour que l'admin/gestionnaire puisse tracer d'où
+  // chaque vente a été transmise.
+  const deviceInfo = STATE.currentDeviceInfo || getDeviceCharacteristics();
+  const gpsLocation = await getGpsLocationForTransaction();
   // Le paiement (cash/crédit/balance) porte sur le TOTAL de la fiche : il n'est
   // attaché qu'à la première ligne, les autres lignes ont cash/credit/balance à 0.
   const txList = rows.map((r, i) => ({
@@ -2752,7 +2850,7 @@ async function submitSale() {
     seller:STATE.currentUser.username, description:r.desc, unit:r.unit||'caisse',
     quantity:r.qty, unitPrice:r.prix, nombreUnite:r.nbUnite, prixCaisse:r.prixCaisse,
     amount:r.amount, cash: i===0 ? cash : 0, credit: i===0 ? balance : 0, balance: i===0 ? balance : 0,
-    client:client||'', status:'sent', saleGroupId, createdAt: new Date().toISOString()
+    client:client||'', status:'sent', saleGroupId, deviceInfo, gpsLocation, createdAt: new Date().toISOString()
   }));
   // Si vente à crédit (balance > 0), auto-créer UNE SEULE entrée dans credits
   // pour le montant total de la fiche (pas une par produit).
@@ -2846,11 +2944,15 @@ async function submitSaleGlace() {
     showToast('⚠ Veuillez remplir tous les champs obligatoires (produit, quantité, prix unitaire).','warn'); return;
   }
   const saleDate = todayStr(), saleIsoDate = isoDate(), saleTime = nowStr();
+  // Caractéristiques de l'appareil du vendeur + localisation GPS (voir
+  // finishLogin()/initDeviceAndLocationTracking()).
+  const deviceInfo = STATE.currentDeviceInfo || getDeviceCharacteristics();
+  const gpsLocation = await getGpsLocationForTransaction();
   const tx = {
     type:'vente', date:saleDate, isoDate:saleIsoDate, time:saleTime,
     seller:STATE.currentUser.username, description:desc, unit:'unite', isGlace:true,
     quantity:qty, unitPrice:prix, nombreUnite:0, prixCaisse:0, amount:amount, cash:amount, credit:0, balance:0,
-    client:'', status:'sent', createdAt: new Date().toISOString()
+    client:'', status:'sent', deviceInfo, gpsLocation, createdAt: new Date().toISOString()
   };
   if (STATE.isOnline && STATE.fbReady) {
     try {
@@ -2969,7 +3071,7 @@ function renderMySales() {
     });
 
   if (!allRows.length) {
-    body.innerHTML='<tr><td colspan="16" style="text-align:center;color:var(--text3);padding:1.5rem;">Aucune vente.</td></tr>';
+    body.innerHTML='<tr><td colspan="18" style="text-align:center;color:var(--text3);padding:1.5rem;">Aucune vente.</td></tr>';
     return;
   }
 
@@ -2998,7 +3100,7 @@ function renderMySales() {
     const label = isCurrentMonth ? `📅 CE MOIS-CI — ${formatMonthLabel(month)}` : formatMonthLabel(month);
 
     html += `<tr style="background:${isCurrentMonth?'#1a56db':'#5a6282'};color:#fff;font-weight:700;">
-      <td colspan="16" style="padding:8px 10px;font-size:.9rem;">
+      <td colspan="18" style="padding:8px 10px;font-size:.9rem;">
         ${label} &nbsp;|&nbsp; ${ventes.length} vente(s)
       </td>
     </tr>`;
@@ -3021,7 +3123,7 @@ function renderMySales() {
       const dayTotBalance = dayVentes.reduce((a,t) => a+(t.balance||0), 0);
 
       html += `<tr style="background:#eef1f8;font-weight:600;">
-        <td colspan="16" style="padding:6px 10px;font-size:.82rem;color:#3a4260;">
+        <td colspan="18" style="padding:6px 10px;font-size:.82rem;color:#3a4260;">
           ${formatGroupLabel(day)} &nbsp;|&nbsp; ${dayVentes.length} vente(s)
         </td>
       </tr>`;
@@ -3054,6 +3156,8 @@ function renderMySales() {
           <td>${fmtHTG(t.amount)}</td><td>${fmtHTG(t.cash||0)}</td>
           <td>${fmtHTG(t.credit||0)}</td><td>${fmtHTG(t.balance||0)}</td>
           <td style="color:${(t.balance||0)>0?'#c0392b':'#0f7b4f'};font-weight:600;">${esc(t.client||'')}</td>
+          <td style="font-size:.78rem;">${esc(t.deviceInfo||'—')}</td>
+          <td style="font-size:.78rem;">${esc(t.gpsLocation||'—')}</td>
           ${statutCell}
           ${actionsCell}
         </tr>`;
@@ -3066,7 +3170,7 @@ function renderMySales() {
         <td>${fmtHTG(dayTotCash)}</td>
         <td>${fmtHTG(dayTotCredit)}</td>
         <td>${fmtHTG(dayTotBalance)}</td>
-        <td colspan="3" style="font-size:.8rem;">${dayVentes.length} vente(s)</td>
+        <td colspan="5" style="font-size:.8rem;">${dayVentes.length} vente(s)</td>
       </tr>`;
     });
 
@@ -3077,7 +3181,7 @@ function renderMySales() {
       <td>${fmtHTG(totCash)}</td>
       <td>${fmtHTG(totCredit)}</td>
       <td>${fmtHTG(totBalance)}</td>
-      <td colspan="3">${ventes.length} vente(s)</td>
+      <td colspan="5">${ventes.length} vente(s)</td>
     </tr>`;
   });
 
@@ -3437,25 +3541,44 @@ function prevMonthStr(monthStr) {
   return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`;
 }
 
-// Construit les prix de vente/achat CAISSE/BOUT par produit (STATE.stockDepart /
-// STATE.stocks) — la formule de taux de marge demandée se base explicitement
-// sur "Prix de vente caisse/bout" et "Prix d'achat caisse/bout", pas sur le
-// prix unitaire (le ratio de marge est de toute façon le même aux deux
-// échelles tant que la conversion caisse↔unité est cohérente, mais on utilise
-// directement les valeurs caisse/bout saisies pour éviter toute conversion
-// intermédiaire et pour les afficher telles quelles dans le tableau).
+// Construit les prix de vente/achat CAISSE/BOUT par produit — la formule de
+// taux de marge demandée se base explicitement sur "Prix de vente
+// caisse/bout" et "Prix d'achat caisse/bout", pas sur le prix unitaire (le
+// ratio de marge est de toute façon le même aux deux échelles tant que la
+// conversion caisse↔unité est cohérente, mais on utilise directement les
+// valeurs caisse/bout saisies pour éviter toute conversion intermédiaire et
+// pour les afficher telles quelles dans le tableau).
+// Le Prix de vente est la moyenne pondérée par quantité des VRAIES ventes
+// enregistrées (onglet Ventes / STATE.transactions type='vente', champ
+// prixCaisse saisi au moment de chaque vente) — PAS une référence statique
+// (Stock de départ) : il reflète le prix réellement pratiqué. Le Prix
+// d'achat est la moyenne pondérée par quantité des VRAIS Mouvements de
+// stocks (onglet Achats / STATE.stocks, champ unitPrice saisi à l'achat).
 // Ces prix ne sont pas propres à une période : seul le mix de produits vendus
 // (et donc le quota de chacun) varie selon le jour/semaine/mois choisi.
 function computeProductPriceMaps() {
-  const prixVenteMap = {}; // Prix de vente caisse/bout, depuis Stock de départ
-  (STATE.stockDepart||[]).forEach(s => {
-    const key = normProduit(s.description);
-    if (key && s.prixCaisse) {
-      prixVenteMap[key] = s.prixCaisse;
-    }
+  // Prix de vente caisse/bout, depuis les VRAIES ventes (onglet Ventes) —
+  // moyenne pondérée par quantité si un même produit a été vendu à des prix
+  // différents au fil du temps.
+  const venteAgg = {};
+  (STATE.transactions||[]).filter(t=>t.type==='vente').forEach(t => {
+    const key = normProduit(t.description);
+    if (!key) return;
+    const qty = getQtyCaisses(t);
+    if (qty <= 0) return;
+    const pv = t.prixCaisse || 0; // "Prix de vente / Caisse" saisi au moment de la vente
+    if (!pv) return;
+    if (!venteAgg[key]) venteAgg[key] = {sumPrixQty:0, sumQty:0};
+    venteAgg[key].sumPrixQty += pv * qty;
+    venteAgg[key].sumQty += qty;
   });
-  // Prix d'achat caisse/bout, depuis Achats — moyenne pondérée par quantité
-  // si plusieurs achats existent pour le même produit à des prix différents.
+  const prixVenteMap = {};
+  Object.keys(venteAgg).forEach(k => {
+    prixVenteMap[k] = venteAgg[k].sumQty > 0 ? venteAgg[k].sumPrixQty / venteAgg[k].sumQty : 0;
+  });
+  // Prix d'achat caisse/bout, depuis les Mouvements de stocks (Achats) —
+  // moyenne pondérée par quantité si plusieurs achats existent pour le même
+  // produit à des prix différents.
   const achatAgg = {};
   (STATE.stocks||[]).forEach(s => {
     const key = normProduit(s.description);
@@ -3726,44 +3849,65 @@ function renderMarginDetailModal() {
 // (Prix de vente − Prix d'achat) / Prix d'achat, SANS pondération par
 // quota — et on la fait ÉVOLUER dans le temps : une ligne par période
 // (jour/semaine/mois où le produit a été vendu), du plus ancien au plus
-// récent, pour voir si sa marge commerciale progresse ou recule. Le prix
-// d'achat utilisé est le COÛT MOYEN PONDÉRÉ CUMULÉ (toutes les entrées
-// Achats de ce produit dont la date est ≤ à la période considérée) : c'est
-// la seule composante qui évolue réellement (le prix de vente vient du
-// Stock de départ et reste la référence catalogue courante).
+// récent, pour voir si sa marge commerciale progresse ou recule.
+// Le Prix de vente vient des VRAIES ventes enregistrées (onglet Ventes /
+// STATE.transactions type='vente', champ prixCaisse saisi à la vente) et le
+// Prix d'achat des VRAIS Mouvements de stocks (onglet Achats / STATE.stocks,
+// champ unitPrice saisi à l'achat) — les deux étant le COÛT/PRIX MOYEN
+// PONDÉRÉ CUMULÉ (toutes les entrées dont la date est ≤ à la période
+// considérée), pour que les deux composantes évoluent réellement dans le
+// temps, exactement comme le prescrit la formule demandée.
 // ============================================================
 
-// Historique du coût moyen pondéré cumulé d'un produit : une entrée par date
-// d'achat, avec le coût moyen pondéré de TOUTES les entrées Achats de ce
-// produit depuis le début jusqu'à (et y compris) cette date.
-function computeCumulativePrixAchatCheckpoints(productKey) {
-  const purchases = (STATE.stocks||[])
-    .filter(s => normProduit(s.description) === productKey)
-    .map(s => ({ isoDate: s.isoDate || s.date || '', qty: parseFloat(s.quantityCaisses||s.quantity)||0, prix: s.unitPrice||0 }))
+// Construit, à partir d'une liste d'entrées {isoDate, qty, prix} déjà
+// filtrée pour un seul produit, l'historique du coût/prix moyen pondéré
+// CUMULÉ : une entrée par date de mouvement, avec la moyenne pondérée de
+// TOUTES les entrées depuis le début jusqu'à (et y compris) cette date.
+function computeCumulativeWeightedCheckpoints(entriesForProduct) {
+  const sorted = (entriesForProduct||[])
     .filter(p => p.isoDate && p.qty > 0 && p.prix > 0)
     .sort((a,b) => a.isoDate.localeCompare(b.isoDate));
   const checkpoints = [];
   let sumPrixQty = 0, sumQty = 0;
-  purchases.forEach(p => {
+  sorted.forEach(p => {
     sumPrixQty += p.prix * p.qty;
     sumQty += p.qty;
-    checkpoints.push({ isoDate: p.isoDate, prixAchatCumule: sumQty > 0 ? sumPrixQty / sumQty : 0 });
+    checkpoints.push({ isoDate: p.isoDate, valeurCumulee: sumQty > 0 ? sumPrixQty / sumQty : 0 });
   });
   return checkpoints;
 }
 
-// Renvoie le coût moyen pondéré cumulé connu à une date donnée (le dernier
-// point ≤ isoDateStr) — ou, si aucun achat n'est encore survenu à cette
-// date, le tout premier point connu (repli raisonnable pour ne pas afficher
-// "aucune donnée" pour des ventes antérieures au premier achat enregistré).
-function getPrixAchatCumuleAsOf(checkpoints, isoDateStr) {
+// Renvoie la valeur moyenne pondérée cumulée connue à une date donnée (le
+// dernier point ≤ isoDateStr) — ou, si aucun mouvement n'est encore survenu
+// à cette date, le tout premier point connu (repli raisonnable pour ne pas
+// afficher "aucune donnée" pour un mouvement antérieur au tout premier
+// enregistré).
+function getCumulativeValueAsOf(checkpoints, isoDateStr) {
   let result = null;
   for (const cp of checkpoints) {
-    if (cp.isoDate <= isoDateStr) result = cp.prixAchatCumule;
+    if (cp.isoDate <= isoDateStr) result = cp.valeurCumulee;
     else break;
   }
-  if (result == null && checkpoints.length) result = checkpoints[0].prixAchatCumule;
+  if (result == null && checkpoints.length) result = checkpoints[0].valeurCumulee;
   return result;
+}
+
+// Historique du prix de vente moyen pondéré cumulé d'un produit, à partir
+// des VRAIES ventes (onglet Ventes / STATE.transactions, champ prixCaisse).
+function computeCumulativePrixVenteCheckpoints(productKey) {
+  const ventes = (STATE.transactions||[])
+    .filter(t => t.type==='vente' && normProduit(t.description) === productKey)
+    .map(t => ({ isoDate: t.isoDate || getIsoFromTx(t) || '', qty: getQtyCaisses(t), prix: t.prixCaisse||0 }));
+  return computeCumulativeWeightedCheckpoints(ventes);
+}
+
+// Historique du coût d'achat moyen pondéré cumulé d'un produit, à partir des
+// VRAIS Mouvements de stocks (onglet Achats / STATE.stocks, champ unitPrice).
+function computeCumulativePrixAchatCheckpoints(productKey) {
+  const purchases = (STATE.stocks||[])
+    .filter(s => normProduit(s.description) === productKey)
+    .map(s => ({ isoDate: s.isoDate || s.date || '', qty: parseFloat(s.quantityCaisses||s.quantity)||0, prix: s.unitPrice||0 }));
+  return computeCumulativeWeightedCheckpoints(purchases);
 }
 
 // Calcule, pour CHAQUE produit vendu, l'évolution de sa marge commerciale
@@ -3771,7 +3915,6 @@ function getPrixAchatCumuleAsOf(checkpoints, isoDateStr) {
 // plus ancien au plus récent.
 function computeProductMarginEvolution(granularity) {
   const ventes = (STATE.transactions||[]).filter(t=>t.type==='vente');
-  const {prixVenteMap} = computeProductPriceMaps();
 
   const byProduct = {};
   ventes.forEach(t => {
@@ -3795,14 +3938,15 @@ function computeProductMarginEvolution(granularity) {
 
   const result = {};
   Object.keys(byProduct).forEach(produit => {
-    const checkpoints = computeCumulativePrixAchatCheckpoints(produit);
-    const prixVente = prixVenteMap[produit] || 0;
+    const venteCheckpoints = computeCumulativePrixVenteCheckpoints(produit);
+    const achatCheckpoints = computeCumulativePrixAchatCheckpoints(produit);
     const periods = Object.values(byProduct[produit]).sort((a,b)=>a.sortKey.localeCompare(b.sortKey));
     result[produit] = periods.map(p => {
-      const prixAchat = getPrixAchatCumuleAsOf(checkpoints, p.refDate);
-      const donneesOk = prixVente > 0 && prixAchat != null && prixAchat > 0;
+      const prixVente = getCumulativeValueAsOf(venteCheckpoints, p.refDate);
+      const prixAchat = getCumulativeValueAsOf(achatCheckpoints, p.refDate);
+      const donneesOk = prixVente != null && prixVente > 0 && prixAchat != null && prixAchat > 0;
       const margeCommerciale = donneesOk ? (prixVente - prixAchat) / prixAchat * 100 : null;
-      return { periodLabel: p.periodLabel, prixVente, prixAchat: prixAchat||0, margeCommerciale, donneesOk };
+      return { periodLabel: p.periodLabel, prixVente: prixVente||0, prixAchat: prixAchat||0, margeCommerciale, donneesOk };
     });
   });
   return result;
@@ -3815,8 +3959,13 @@ function computeProductMarginEvolution(granularity) {
 function openMarginEvolutionModal() {
   const sel = document.getElementById('mge-produit');
   if (sel) {
+    // Liste déroulante = TOUT le catalogue de produits existant (produits par
+    // défaut + produits personnalisés ajoutés), pas seulement ceux ayant déjà
+    // une vente enregistrée — un produit sans vente affichera simplement
+    // "Aucune donnée pour ce produit" au lieu de ne pas apparaître du tout.
     const ventes = (STATE.transactions||[]).filter(t=>t.type==='vente');
-    const products = [...new Set(ventes.map(t=>normProduit(t.description)).filter(Boolean))].sort();
+    const produitsVendus = ventes.map(t=>normProduit(t.description)).filter(Boolean);
+    const products = [...new Set([...getProductCatalog(), ...produitsVendus])].sort((a,b)=>a.localeCompare(b,'fr'));
     const prevVal = sel.value;
     sel.innerHTML = products.length
       ? products.map(p=>`<option value="${esc(p)}">${esc(p)}</option>`).join('')
@@ -4189,6 +4338,60 @@ function computeClientPurchaseFrequency() {
   })).sort((a,b) => b.joursDistincts - a.joursDistincts || b.montant - a.montant);
 }
 
+// ============================================================
+// STATISTIQUES SUR LES TRANSACTIONS (angle "combien / qui / quand" plutôt que
+// "quel produit" — distinctes de toutes les cartes déjà existantes).
+// ============================================================
+
+// Performance par vendeur : chiffre d'affaires total, nombre de
+// transactions et panier moyen par vendeur — pour comparer objectivement les
+// performances de l'équipe de vente.
+function computeSellerPerformance() {
+  const ventes = (STATE.transactions||[]).filter(t=>t.type==='vente' && t.seller);
+  const map = {};
+  ventes.forEach(t => {
+    const key = t.seller;
+    if (!map[key]) map[key] = { seller:key, montant:0, transactions:0 };
+    map[key].montant += t.amount||0;
+    map[key].transactions += 1;
+  });
+  return Object.values(map).map(s => ({
+    ...s, panierMoyen: s.transactions>0 ? s.montant/s.transactions : 0
+  })).sort((a,b) => b.montant - a.montant);
+}
+
+// Évolution du NOMBRE de transactions mois par mois (volume d'activité,
+// distinct du chiffre d'affaires en HTG) — révèle si la fréquentation
+// progresse ou recule, indépendamment du montant moyen dépensé.
+function computeTransactionCountByMonth() {
+  const ventes = (STATE.transactions||[]).filter(t=>t.type==='vente');
+  const byMonth = {};
+  ventes.forEach(t => {
+    const day = getIsoFromTx(t); if (!day) return;
+    const month = day.slice(0,7);
+    byMonth[month] = (byMonth[month]||0) + 1;
+  });
+  return Object.keys(byMonth).sort((a,b)=>a.localeCompare(b)).map(month => ({
+    month, label: formatMonthLabel(month), count: byMonth[month]
+  }));
+}
+
+// Répartition des transactions par tranche horaire (0h-23h, toutes périodes
+// confondues) — révèle les heures de pointe pour ajuster le personnel en
+// caisse.
+function computeSalesByHour() {
+  const ventes = (STATE.transactions||[]).filter(t=>t.type==='vente' && t.time);
+  const agg = Array.from({length:24}, (_,h)=>({heure:h, montant:0, count:0}));
+  ventes.forEach(t => {
+    const h = parseInt((t.time||'').split(':')[0], 10);
+    if (isNaN(h) || h<0 || h>23) return;
+    agg[h].montant += t.amount||0;
+    agg[h].count += 1;
+  });
+  const totalCount = agg.reduce((a,r)=>a+r.count,0);
+  return agg.map(r => ({...r, part: totalCount>0 ? r.count/totalCount*100 : 0}));
+}
+
 function renderDataAnalyse() {
   const cont = document.getElementById('data-analyse-content');
   if (!cont) return;
@@ -4471,6 +4674,57 @@ function renderDataAnalyse() {
   html += `<div style="background:var(--surface2);border-radius:8px;padding:10px 12px;font-size:.85rem;line-height:1.5;margin-top:.6rem;">💡 <strong>Recommandation</strong> : ${occasionnels.length>0?`envisager une offre de fidélisation pour transformer les ${occasionnels.length} client(s) occasionnel(s) en clients réguliers`:'continuer à soigner la relation avec les clients fidèles identifiés ci-dessus'}, et privilégier les clients les plus fidèles pour d'éventuelles facilités de paiement.</div>`;
   html += `</div>`;
 
+  // --- Carte Performance des vendeurs (transactions par vendeur) ---
+  const sellerPerf = computeSellerPerformance();
+  const topSeller = sellerPerf[0], lastSeller = sellerPerf[sellerPerf.length-1];
+  html += `<div class="card"><div class="card-title">🧑‍💼 Performance des vendeurs</div>`;
+  if (!sellerPerf.length) {
+    html += `<div style="color:var(--text3);padding:.5rem 0;">Aucune vente rattachée à un vendeur pour le moment.</div>`;
+  } else {
+    html += `<div class="table-wrap"><table><thead><tr><th>Rang</th><th>Vendeur</th><th>Chiffre d'affaires (HTG)</th><th>Nombre de transactions</th><th>Panier moyen</th></tr></thead><tbody>` +
+      sellerPerf.map((s,i)=>`<tr><td>${i+1}</td><td>${esc(s.seller)}</td><td>${fmtHTG(s.montant)}</td><td>${s.transactions}</td><td>${fmtHTG(s.panierMoyen)}</td></tr>`).join('') +
+      `</tbody></table></div>
+      <div style="background:var(--surface2);border-radius:8px;padding:10px 12px;font-size:.85rem;line-height:1.5;margin-top:.6rem;">💡 <strong>Recommandation</strong> : ${sellerPerf.length>1 && topSeller && lastSeller && topSeller.seller!==lastSeller.seller?`mettre en avant les bonnes pratiques de <strong>${esc(topSeller.seller)}</strong> (meilleur chiffre d'affaires) et accompagner <strong>${esc(lastSeller.seller)}</strong> pour progresser.`:'continuer à suivre régulièrement les performances individuelles pour détecter tout écart.'}</div>`;
+  }
+  html += `</div>`;
+
+  // --- Carte Évolution du nombre de transactions (volume d'activité,
+  // distinct du chiffre d'affaires en HTG) ---
+  const txCountByMonth = computeTransactionCountByMonth();
+  const txCur = txCountByMonth.length ? txCountByMonth[txCountByMonth.length-1] : null;
+  const txPrev = txCountByMonth.length > 1 ? txCountByMonth[txCountByMonth.length-2] : null;
+  let txEvo = null;
+  if (txCur && txPrev && txPrev.count > 0) txEvo = ((txCur.count - txPrev.count) / txPrev.count) * 100;
+  html += `<div class="card"><div class="card-title">📶 Évolution du nombre de transactions</div>`;
+  if (!txCur) {
+    html += `<div style="color:var(--text3);padding:.5rem 0;">Aucune donnée pour le moment.</div>`;
+  } else {
+    html += `<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:12px;margin-bottom:.8rem;">
+      <div class="metric-card accent"><div class="label">Transactions — ${esc(txCur.label)}</div><div class="value">${txCur.count}</div></div>
+      ${txEvo!=null?`<div class="metric-card ${txEvo>=0?'success':''}"><div class="label">Évolution vs mois précédent</div><div class="value">${txEvo>=0?'+':''}${txEvo.toFixed(1)}%</div></div>`:''}
+    </div>
+    <div class="table-wrap"><table><thead><tr><th>Mois</th><th>Nombre de transactions</th></tr></thead><tbody>` +
+      txCountByMonth.slice(-6).reverse().map(r=>`<tr><td>${esc(r.label)}</td><td>${r.count}</td></tr>`).join('') +
+      `</tbody></table></div>
+    <div style="background:var(--surface2);border-radius:8px;padding:10px 12px;font-size:.85rem;line-height:1.5;margin-top:.6rem;">💡 <strong>Recommandation</strong> : ${txEvo==null?"pas assez de mois pour évaluer la tendance.":(txEvo<0?"le nombre de transactions recule ce mois-ci — même si le panier moyen est stable, cela signale une baisse de fréquentation : envisager une action commerciale pour attirer plus de clients.":"le nombre de transactions progresse ou reste stable — bon signe de fréquentation, à maintenir.")}</div>`;
+  }
+  html += `</div>`;
+
+  // --- Carte Répartition horaire des ventes (heures de pointe) ---
+  const hourlyStats = computeSalesByHour();
+  const activeHours = hourlyStats.filter(h=>h.count>0).sort((a,b)=>b.count-a.count);
+  const peakHours = activeHours.slice(0,5).sort((a,b)=>a.heure-b.heure);
+  html += `<div class="card"><div class="card-title">🕒 Répartition horaire des ventes</div>`;
+  if (!activeHours.length) {
+    html += `<div style="color:var(--text3);padding:.5rem 0;">Aucune donnée horaire pour le moment.</div>`;
+  } else {
+    html += `<div class="table-wrap"><table><thead><tr><th>Heure</th><th>Nombre de ventes</th><th>Montant (HTG)</th><th>Part du total</th></tr></thead><tbody>` +
+      peakHours.map(h=>`<tr><td>${String(h.heure).padStart(2,'0')}h - ${String(h.heure+1).padStart(2,'0')}h</td><td>${h.count}</td><td>${fmtHTG(h.montant)}</td><td>${h.part.toFixed(1)}%</td></tr>`).join('') +
+      `</tbody></table></div>
+      <div style="background:var(--surface2);border-radius:8px;padding:10px 12px;font-size:.85rem;line-height:1.5;margin-top:.6rem;">💡 <strong>Recommandation</strong> : renforcer la présence en caisse pendant les heures de pointe listées ci-dessus (tableau limité aux 5 heures les plus actives), et envisager de réduire le personnel en dehors de ces créneaux pour optimiser les coûts.</div>`;
+  }
+  html += `</div>`;
+
   // --- Carte Décisions à prendre ---
   html += `<div class="card"><div class="card-title">💡 Décisions à prendre</div>`;
   if (!decisions.length) {
@@ -4503,7 +4757,7 @@ function renderAllTrans(filterIso) {
   });
 
   if (!allRows.length) {
-    body.innerHTML='<tr><td colspan="11" style="text-align:center;color:var(--text3);padding:1.5rem;">Aucune transaction.</td></tr>';
+    body.innerHTML='<tr><td colspan="13" style="text-align:center;color:var(--text3);padding:1.5rem;">Aucune transaction.</td></tr>';
     return;
   }
 
@@ -4513,6 +4767,7 @@ function renderAllTrans(filterIso) {
         <td>${t.date}</td><td>${t.time}</td><td>${esc(t.seller||'')}</td><td>💳 Paiement client</td>
         <td>—</td><td>—</td>
         <td>${fmtHTG(t.paid||0)}</td><td>—</td><td>${fmtHTG(t.finalBalance||0)}</td><td>${esc(t.client||'')}</td>
+        <td>—</td><td>—</td>
         <td><span class="badge badge-sent">💳 Crédit</span></td>
       </tr>`;
     }
@@ -4521,13 +4776,19 @@ function renderAllTrans(filterIso) {
         <td>${t.date}</td><td>${t.time||''}</td><td>${esc(t.personne||'')}</td><td>💸 Retrait — ${esc(t.objet||'')}</td>
         <td>—</td><td style="color:#c0392b;font-weight:600;">-${fmtHTG(t.montant||0)}</td>
         <td>—</td><td>—</td><td>—</td><td>—</td>
+        <td>—</td><td>—</td>
         <td><span class="badge badge-out">💸 Retrait</span></td>
       </tr>`;
     }
+    // Caractéristiques de l'appareil + position GPS : uniquement rattachées
+    // aux ventes (voir submitSale()/submitSaleGlace()) — "—" pour les achats
+    // et pour les ventes historiques enregistrées avant l'ajout de ce suivi.
     return `<tr>
       <td>${t.date}</td><td>${t.time}</td><td>${esc(t.seller)}</td><td>${esc(t.description)}</td>
       <td>${t.quantity} ${esc(formatUnitLabel(t.unit))}</td><td>${fmtHTG(t.amount)}</td>
       <td>${fmtHTG(t.cash||0)}</td><td>${fmtHTG(t.credit||0)}</td><td>${fmtHTG(t.balance||0)}</td><td>${esc(t.client||'')}</td>
+      <td style="font-size:.78rem;">${t.type==='vente'?esc(t.deviceInfo||'—'):'—'}</td>
+      <td style="font-size:.78rem;">${t.type==='vente'?esc(t.gpsLocation||'—'):'—'}</td>
       <td><span class="badge ${t.type==='vente'?'badge-out':'badge-in'}">${t.type==='vente'?'📤 Vente':'📥 Entrées/Achats'}</span></td>
     </tr>`;
   }
@@ -4547,7 +4808,7 @@ function renderAllTrans(filterIso) {
     const isCurrentMonth = month === currentMonth;
     const label = isCurrentMonth ? `📅 CE MOIS-CI — ${formatMonthLabel(month)}` : formatMonthLabel(month);
     html += `<tr style="background:${isCurrentMonth?'#1a56db':'#5a6282'};color:#fff;font-weight:700;">
-      <td colspan="11" style="padding:8px 10px;font-size:.9rem;">${label}</td>
+      <td colspan="13" style="padding:8px 10px;font-size:.9rem;">${label}</td>
     </tr>`;
 
     const dayGroups = {};
@@ -4562,7 +4823,7 @@ function renderAllTrans(filterIso) {
     sortedDays.forEach(day => {
       const dayRows = dayGroups[day];
       html += `<tr style="background:#eef1f8;font-weight:600;">
-        <td colspan="11" style="padding:6px 10px;font-size:.82rem;color:#3a4260;">${formatGroupLabel(day)}</td>
+        <td colspan="13" style="padding:6px 10px;font-size:.82rem;color:#3a4260;">${formatGroupLabel(day)}</td>
       </tr>`;
 
       dayRows.forEach(t => { html += rowHtml(t); });
@@ -4579,7 +4840,7 @@ function renderAllTrans(filterIso) {
         <td>Achats: ${fmtHTG(dayAchats)}</td>
         <td>Remb.: ${fmtHTG(dayRemb)}</td>
         <td>Retraits: ${fmtHTG(dayRetrait)}</td>
-        <td colspan="2" style="font-size:.8rem;">${dayRows.length} mvt(s)</td>
+        <td colspan="4" style="font-size:.8rem;">${dayRows.length} mvt(s)</td>
       </tr>`;
     });
 
@@ -4590,7 +4851,7 @@ function renderAllTrans(filterIso) {
       <td>Achats: ${fmtHTG(monthAchats)}</td>
       <td>Remb.: ${fmtHTG(monthRemb)}</td>
       <td>Retraits: ${fmtHTG(monthRetraits)}</td>
-      <td colspan="2">${rows.length} mvt(s)</td>
+      <td colspan="4">${rows.length} mvt(s)</td>
     </tr>`;
   });
 
@@ -6000,10 +6261,13 @@ function buildFullWorkbook() {
     .sort((a,b)=>(a.isoDate||'').localeCompare(b.isoDate||'')||(a.time||'').localeCompare(b.time||''));
   const stockVal = (STATE.stocks||[]).reduce((a,s)=>a+(s.amount||0),0);
 
-  // 1. Ventes
+  // 1. Ventes (Appareil + Position GPS : caractéristiques de l'appareil du
+  // vendeur et localisation captées à l'ouverture de session, voir
+  // finishLogin()/initDeviceAndLocationTracking() — "—" pour les ventes
+  // historiques enregistrées avant l'ajout de ce suivi).
   XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([
-    ['Date','Heure','Vendeur','Produit','Unité','Quantité','Prix unit.','Montant','Cash','Crédit','Balance','Client','Statut'],
-    ...sales.map(t=>[t.date,t.time,t.seller,t.description,formatUnitLabel(t.unit),t.quantity,t.unitPrice||0,t.amount||0,t.cash||0,t.credit||0,t.balance||0,t.client||'',t.balance>0?(t.balance===t.credit?'Non soldé':'Partiel'):'Soldé'])
+    ['Date','Heure','Vendeur','Produit','Unité','Quantité','Prix unit.','Montant','Cash','Crédit','Balance','Client','Appareil','Position GPS','Statut'],
+    ...sales.map(t=>[t.date,t.time,t.seller,t.description,formatUnitLabel(t.unit),t.quantity,t.unitPrice||0,t.amount||0,t.cash||0,t.credit||0,t.balance||0,t.client||'',t.deviceInfo||'—',t.gpsLocation||'—',t.balance>0?(t.balance===t.credit?'Non soldé':'Partiel'):'Soldé'])
   ]), '📋 Ventes');
 
   // 2. Crédits Clients
