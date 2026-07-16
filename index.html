@@ -1943,12 +1943,43 @@ function getDeviceCharacteristics() {
   return `${navigateur} sur ${os} (${type}, écran ${largeur}×${hauteur}${specsStr})`;
 }
 
+// Enrichissement complémentaire, en arrière-plan, du modèle exact de
+// l'appareil (ex: "SM-A125F" pour un Galaxy A12) via l'API "Client Hints"
+// (navigator.userAgentData), disponible UNIQUEMENT sur les navigateurs
+// Chromium (Chrome/Edge/Opera) sous Android — absente sur iOS/Safari/Firefox,
+// où le nom de modèle n'est simplement pas ajouté. Contrairement à l'ancienne
+// géolocalisation GPS (retirée), cette API ne déclenche AUCUNE demande de
+// permission auprès de l'utilisateur : l'enrichissement est donc silencieux,
+// best-effort, et n'a pas besoin de filet de sécurité de type "timeout".
+//
+// ⚠ Important — numéro de série : le numéro de série matériel (ou IMEI) d'un
+// téléphone n'est PAS accessible depuis une application web, quel que soit le
+// navigateur ou l'appareil. Aucune norme web n'expose cette donnée aux pages
+// web pour des raisons de vie privée/sécurité ; même une application native
+// Android/iOS a besoin d'autorisations système spéciales (souvent réservées
+// aux apps d'entreprise/MDM) pour y accéder. Le modèle capté ci-dessous (nom
+// ou référence technique communiquée par le système d'exploitation) est donc
+// la meilleure identification possible d'un navigateur web.
+async function enrichDeviceModelInfo() {
+  try {
+    if (navigator.userAgentData && navigator.userAgentData.getHighEntropyValues) {
+      const hints = await navigator.userAgentData.getHighEntropyValues(['model', 'platformVersion']);
+      if (hints && hints.model) {
+        STATE.currentDeviceInfo = `${STATE.currentDeviceInfo}, modèle: ${hints.model}`;
+      }
+    }
+  } catch(e) { /* API non supportée sur ce navigateur : on garde les caractéristiques de base */ }
+}
+
 // Appelé à l'ouverture de la session (connexion réussie, voir finishLogin())
 // : capture immédiatement les caractéristiques de l'appareil pour que les
 // ventes de cette session puissent s'en servir sans re-solliciter le
-// navigateur à chaque fois.
+// navigateur à chaque fois, puis lance en arrière-plan l'enrichissement
+// best-effort du nom de modèle (non bloquant : les ventes utilisent la valeur
+// disponible au moment de l'enregistrement, enrichie ou non).
 function initDeviceTracking() {
   STATE.currentDeviceInfo = getDeviceCharacteristics();
+  enrichDeviceModelInfo();
 }
 
 // Formate l'identité déclarée du vendeur (nom complet + téléphone, voir
@@ -8379,3 +8410,4 @@ if ('serviceWorker' in navigator) {
 </script>
 </body>
 </html>
+
