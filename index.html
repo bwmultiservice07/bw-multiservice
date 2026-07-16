@@ -403,13 +403,18 @@ tr:hover td{background:#f7f9ff;}
       </div>
 
       <div class="card">
-        <div class="card-title" id="my-sales-title">📋 Vente du jour</div>
-        <div style="font-size:.78rem;color:var(--text2);background:var(--accent-bg);border-radius:6px;padding:6px 10px;margin-bottom:8px;">↔️ Ce tableau est large : utilisez le curseur ci-dessous (ou glissez dans le tableau) pour voir toutes les colonnes, y compris Cash, Crédit, Balance, Client et Statut tout à droite.</div>
+        <div class="section-title" style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;">
+          <span id="my-sales-title">📋 Vente du jour</span>
+          <div id="ventes-jour-admin-actions" style="display:none;">
+            <button class="btn" style="font-size:.78rem;padding:5px 12px;width:auto;background:var(--danger-bg);color:var(--danger);border:1px solid #f5b7b1;" onclick="deleteTodaysSales()">🗑 Effacer les ventes du jour</button>
+          </div>
+        </div>
+        <div style="font-size:.78rem;color:var(--text2);background:var(--accent-bg);border-radius:6px;padding:6px 10px;margin-bottom:8px;">↔️ Ce tableau est large : utilisez le curseur ci-dessous (ou glissez dans le tableau) pour voir toutes les colonnes, y compris Cash, Crédit, Balance, Client, Statut et Actions tout à droite.</div>
         <input type="range" id="my-sales-scrollbar" min="0" max="100" value="0" step="1" oninput="scrollMySalesTable(this.value)" style="width:100%;margin-bottom:8px;cursor:pointer;">
         <div class="table-wrap" id="my-sales-wrap" onscroll="syncMySalesScrollbar()">
-          <table style="min-width:1550px;">
-            <thead><tr><th>Date</th><th>Heure</th><th>Vendeur</th><th>Description</th><th>Qté</th><th>Unité</th><th>Nb. unité</th><th>Prix Caisse/Bout</th><th>Prix unit.</th><th>Montant (HTG)</th><th>Cash (HTG)</th><th>Crédit (HTG)</th><th>Balance (HTG)</th><th>Client</th><th>Statut</th></tr></thead>
-            <tbody id="my-sales-body"><tr><td colspan="15" style="text-align:center;color:var(--text3);padding:1.5rem;">Aucune vente aujourd'hui.</td></tr></tbody>
+          <table style="min-width:1650px;">
+            <thead><tr><th>Date</th><th>Heure</th><th>Vendeur</th><th>Description</th><th>Qté</th><th>Unité</th><th>Nb. unité</th><th>Prix Caisse/Bout</th><th>Prix unit.</th><th>Montant (HTG)</th><th>Cash (HTG)</th><th>Crédit (HTG)</th><th>Balance (HTG)</th><th>Client</th><th>Statut</th><th>Actions</th></tr></thead>
+            <tbody id="my-sales-body"><tr><td colspan="16" style="text-align:center;color:var(--text3);padding:1.5rem;">Aucune vente aujourd'hui.</td></tr></tbody>
           </table>
         </div>
       </div>
@@ -1059,7 +1064,6 @@ tr:hover td{background:#f7f9ff;}
         <button class="acc-tab" onclick="switchAccTab('journal',this)">Journal général</button>
         <button class="acc-tab" onclick="switchAccTab('grandlivre',this)">Grand livre</button>
         <button class="acc-tab" onclick="switchAccTab('balance',this)">Balance</button>
-        <button class="acc-tab" onclick="switchAccTab('bilan',this)">Bilan</button>
         <button class="acc-tab" onclick="switchAccTab('analyse',this)">Analyse financière</button>
         <button class="acc-tab" onclick="switchAccTab('taux-marge',this)">Taux Marge &amp; Manutention/Transport</button>
       </div>
@@ -1098,12 +1102,6 @@ tr:hover td{background:#f7f9ff;}
             <tbody id="balance-body"></tbody>
             <tfoot><tr><td colspan="2" style="font-weight:700;padding:7px 10px;">Totaux</td><td id="bal-debit" style="font-weight:700;padding:7px 10px;"></td><td id="bal-credit" style="font-weight:700;padding:7px 10px;"></td></tr></tfoot>
           </table></div>
-        </div>
-      </div>
-      <div class="acc-sheet" id="acc-bilan">
-        <div class="card">
-          <div class="card-title">🏦 Bilan</div>
-          <div style="display:grid;grid-template-columns:1fr 1fr;gap:1rem;" id="bilan-content"></div>
         </div>
       </div>
       <div class="acc-sheet" id="acc-analyse">
@@ -1415,6 +1413,10 @@ function startFirebaseListeners() {
       renderDashboard();
       renderStockActuel();
       renderDettesFournisseurs();
+      // Les achats sont désormais comptés comme des charges dans le Journal
+      // général / Grand livre / Balance / Feuille de transactions : il faut
+      // donc rafraîchir toute la Comptabilité, pas seulement l'Analyse.
+      if (currentTab === 'compta') refreshAccounting();
     },
     err => console.error('Stock listener:', err)
   );
@@ -1486,7 +1488,9 @@ function startFirebaseListeners() {
     snap => {
       STATE.charges = snap.docs.map(d => ({id: d.id, ...d.data()}));
       if (currentTab === 'autres-charges') renderChargesHistory();
-      if (currentTab === 'compta') buildAnalyse();
+      // Charges hors marchandises comptées dans le Journal général / Grand
+      // livre / Balance / Feuille de transactions en plus de l'Analyse.
+      if (currentTab === 'compta') refreshAccounting();
     },
     err => console.error('Charges listener:', err)
   );
@@ -1498,7 +1502,7 @@ function startFirebaseListeners() {
     snap => {
       STATE.apports = snap.docs.map(d => ({id: d.id, ...d.data()}));
       if (currentTab === 'apport') renderApports();
-      if (currentTab === 'compta') buildAnalyse();
+      if (currentTab === 'compta') refreshAccounting();
     },
     err => console.error('Apports listener:', err)
   );
@@ -1511,7 +1515,7 @@ function startFirebaseListeners() {
       STATE.depensesDomestiques = snap.docs.map(d => ({id: d.id, ...d.data()}));
       if (currentTab === 'depenses-dom') renderDepensesDom();
       if (currentTab === 'autres-charges') renderChargesHistory();
-      if (currentTab === 'compta') buildAnalyse();
+      if (currentTab === 'compta') refreshAccounting();
     },
     err => console.error('DepensesDom listener:', err)
   );
@@ -2904,6 +2908,11 @@ function renderMySales() {
 
   const isAdminOrGest = STATE.currentUser.role === 'admin' || STATE.currentUser.role === 'gestionnaire';
 
+  // Admin/gestionnaire : bouton pour effacer toutes les ventes du jour en un
+  // clic (visible uniquement pour ces deux rôles).
+  const adminActionsEl = document.getElementById('ventes-jour-admin-actions');
+  if (adminActionsEl) adminActionsEl.style.display = isAdminOrGest ? '' : 'none';
+
   // Toutes les ventes de tous les vendeurs — cet onglet est désormais
   // identique pour vendeur, gestionnaire et admin (plus de filtrage par
   // vendeur connecté). Les paiements de crédit n'apparaissent plus ici — ils
@@ -2917,7 +2926,7 @@ function renderMySales() {
     });
 
   if (!allRows.length) {
-    body.innerHTML='<tr><td colspan="15" style="text-align:center;color:var(--text3);padding:1.5rem;">Aucune vente.</td></tr>';
+    body.innerHTML='<tr><td colspan="16" style="text-align:center;color:var(--text3);padding:1.5rem;">Aucune vente.</td></tr>';
     return;
   }
 
@@ -2946,7 +2955,7 @@ function renderMySales() {
     const label = isCurrentMonth ? `📅 CE MOIS-CI — ${formatMonthLabel(month)}` : formatMonthLabel(month);
 
     html += `<tr style="background:${isCurrentMonth?'#1a56db':'#5a6282'};color:#fff;font-weight:700;">
-      <td colspan="15" style="padding:8px 10px;font-size:.9rem;">
+      <td colspan="16" style="padding:8px 10px;font-size:.9rem;">
         ${label} &nbsp;|&nbsp; ${ventes.length} vente(s)
       </td>
     </tr>`;
@@ -2969,7 +2978,7 @@ function renderMySales() {
       const dayTotBalance = dayVentes.reduce((a,t) => a+(t.balance||0), 0);
 
       html += `<tr style="background:#eef1f8;font-weight:600;">
-        <td colspan="15" style="padding:6px 10px;font-size:.82rem;color:#3a4260;">
+        <td colspan="16" style="padding:6px 10px;font-size:.82rem;color:#3a4260;">
           ${formatGroupLabel(day)} &nbsp;|&nbsp; ${dayVentes.length} vente(s)
         </td>
       </tr>`;
@@ -2990,6 +2999,12 @@ function renderMySales() {
         const statutCell = clickable
           ? `<td style="cursor:pointer;text-decoration:underline;" onclick="loadSaleForCorrection('${t.id}')" title="Cliquer pour corriger cette vente">${badge}</td>`
           : `<td>${badge}</td>`;
+        // Admin/gestionnaire : suppression individuelle de cette vente (en plus
+        // de la correction via le badge de statut ci-dessus), et du bouton
+        // "Effacer les ventes du jour" pour une suppression groupée.
+        const actionsCell = (isAdminOrGest && t.id)
+          ? `<td><button class="btn" style="font-size:.75rem;padding:3px 10px;background:var(--danger-bg);color:var(--danger);border:1px solid #f5b7b1;" onclick="deleteTransaction('${t.id}')">🗑</button></td>`
+          : `<td>—</td>`;
         html += `<tr>
           <td>${t.date}</td><td>${t.time}</td><td>${esc(t.seller||'')}</td><td>${esc(t.description)}${t.isGlace?' <span title="Vente glacée" style="color:#1a73e8;">🧊</span>':''}</td><td>${t.quantity}</td>
           <td>${esc(formatUnitLabel(t.unit))}</td><td>${t.nombreUnite||0}</td><td>${fmtHTG(t.prixCaisse||0)}</td><td>${fmtHTG(t.unitPrice||0)}</td>
@@ -2997,6 +3012,7 @@ function renderMySales() {
           <td>${fmtHTG(t.credit||0)}</td><td>${fmtHTG(t.balance||0)}</td>
           <td style="color:${(t.balance||0)>0?'#c0392b':'#0f7b4f'};font-weight:600;">${esc(t.client||'')}</td>
           ${statutCell}
+          ${actionsCell}
         </tr>`;
       });
 
@@ -3007,7 +3023,7 @@ function renderMySales() {
         <td>${fmtHTG(dayTotCash)}</td>
         <td>${fmtHTG(dayTotCredit)}</td>
         <td>${fmtHTG(dayTotBalance)}</td>
-        <td colspan="2" style="font-size:.8rem;">${dayVentes.length} vente(s)</td>
+        <td colspan="3" style="font-size:.8rem;">${dayVentes.length} vente(s)</td>
       </tr>`;
     });
 
@@ -3018,11 +3034,34 @@ function renderMySales() {
       <td>${fmtHTG(totCash)}</td>
       <td>${fmtHTG(totCredit)}</td>
       <td>${fmtHTG(totBalance)}</td>
-      <td colspan="2">${ventes.length} vente(s)</td>
+      <td colspan="3">${ventes.length} vente(s)</td>
     </tr>`;
   });
 
   body.innerHTML = html;
+}
+
+// Admin/gestionnaire : effacer en un clic TOUTES les ventes du jour même
+// (regroupement "totalement" plutôt que vente par vente). Le bouton 🗑 sur
+// chaque ligne de renderMySales() permet lui de supprimer une vente
+// "séparément". Action irréversible, confirmation demandée.
+async function deleteTodaysSales() {
+  if (!requireAdminOrGest()) return;
+  const todayIso = isoDate();
+  const todaySales = STATE.transactions.filter(t => t.type==='vente' && t.id && getIsoFromTx(t) === todayIso);
+  if (!todaySales.length) { showToast('⚠ Aucune vente du jour à effacer.','warn'); return; }
+  if (!confirm(`⚠ Supprimer définitivement les ${todaySales.length} vente(s) du jour (${todayStr()}) ? Cette action est irréversible.`)) return;
+  if (!STATE.isOnline || !STATE.fbReady) {
+    showToast('⚠ Hors ligne — impossible d\'effacer les ventes du jour maintenant.','warn'); return;
+  }
+  try {
+    const {doc, deleteDoc} = window._fbFns;
+    await Promise.all(todaySales.map(t => deleteDoc(doc(window._db,'transactions',t.id))));
+    await logNotification('🗑 Suppression des ventes du jour',
+      `${todaySales.length} vente(s) du ${todayStr()} supprimée(s) par ${STATE.currentUser.username}`);
+    showToast(`🗑 ${todaySales.length} vente(s) du jour supprimée(s).`,'warn');
+    markUnsaved();
+  } catch(e) { showToast('⚠ Erreur: '+e.message,'warn'); }
 }
 
 // ============================================================
@@ -4226,7 +4265,6 @@ function refreshAccounting() {
   buildJournal();
   buildGrandLivre();
   buildBalance();
-  buildBilan();
   renderChargesHistory();
   buildAnalyse();
   buildTauxMargeManutention();
@@ -4272,7 +4310,7 @@ async function submitCharge() {
   }
   markUnsaved();
   renderChargesHistory();
-  if (currentTab === 'compta') buildAnalyse();
+  if (currentTab === 'compta') refreshAccounting();
   document.getElementById('ch-date').value='';
   document.getElementById('ch-montant').value='';
   document.getElementById('ch-desc').value='';
@@ -4292,7 +4330,7 @@ async function deleteCharge(id) {
     } catch(e) { showToast('⚠ Erreur: '+e.message,'warn'); }
   }
   renderChargesHistory();
-  if (currentTab === 'compta') buildAnalyse();
+  if (currentTab === 'compta') refreshAccounting();
 }
 
 function renderChargesHistory() {
@@ -4363,7 +4401,7 @@ async function submitApport() {
   }
   markUnsaved();
   renderApports();
-  if (currentTab === 'compta') buildAnalyse();
+  if (currentTab === 'compta') refreshAccounting();
   document.getElementById('ap-date').value='';
   document.getElementById('ap-montant').value='';
   document.getElementById('ap-source').value='';
@@ -4383,7 +4421,7 @@ async function deleteApport(id) {
     } catch(e) { showToast('⚠ Erreur: '+e.message,'warn'); }
   }
   renderApports();
-  if (currentTab === 'compta') buildAnalyse();
+  if (currentTab === 'compta') refreshAccounting();
 }
 
 function renderApports() {
@@ -4444,7 +4482,7 @@ async function submitDepenseDom() {
   markUnsaved();
   renderDepensesDom();
   renderChargesHistory();
-  if (currentTab === 'compta') buildAnalyse();
+  if (currentTab === 'compta') refreshAccounting();
   document.getElementById('dd-date').value='';
   document.getElementById('dd-montant').value='';
   document.getElementById('dd-desc').value='';
@@ -4465,7 +4503,7 @@ async function deleteDepenseDom(id) {
   }
   renderDepensesDom();
   renderChargesHistory();
-  if (currentTab === 'compta') buildAnalyse();
+  if (currentTab === 'compta') refreshAccounting();
 }
 
 function renderDepensesDom() {
@@ -4486,55 +4524,111 @@ function renderDepensesDom() {
   </tr>`).join('');
 }
 
+// Construit la liste des écritures comptables (une par pièce) à partir de
+// TOUTES les collections concernées : ventes, achats (désormais traités comme
+// des CHARGES et non comme un actif de stock — crédité en Caisse si achat
+// cash, ou en Fournisseurs si achat à crédit), apports (comptés dans un
+// compte de PRODUITS), charges hors marchandises et dépenses domestiques
+// (toutes deux comptées comme des charges). Chaque écriture porte toujours
+// un compte débiteur ET un compte créditeur pour le MÊME montant : impossible
+// donc d'avoir un total Débit différent du total Crédit — le journal général,
+// le grand livre, la balance de vérification et les exports Excel utilisent
+// tous cette même liste, pour ne jamais afficher des chiffres différents.
+function computeJournalEntries() {
+  const entries = [];
+  STATE.transactions.filter(t=>t.type==='vente').forEach(t=>{
+    entries.push({
+      date:t.date, isoDate:t.isoDate||'', time:t.time||'',
+      debit:'5100 – Caisse', credit:'7000 – Ventes',
+      label:t.description||'Vente', amount:t.amount||0
+    });
+  });
+  (STATE.stocks||[]).forEach(s=>{
+    const credit = s.paymentMode === 'credit' ? '4010 – Fournisseurs' : '5100 – Caisse';
+    entries.push({
+      date:s.date, isoDate:s.isoDate||'', time:s.time||'',
+      debit:'6100 – Achats marchandises', credit,
+      label:s.description||'Achat', amount:s.amount||0
+    });
+  });
+  (STATE.apports||[]).forEach(a=>{
+    entries.push({
+      date:a.date, isoDate:a.isoDate||a.date||'', time:a.time||'',
+      debit:'5100 – Caisse', credit:'7100 – Apports',
+      label:a.source||'Apport', amount:a.montant||0
+    });
+  });
+  (STATE.charges||[]).forEach(c=>{
+    entries.push({
+      date:c.date, isoDate:c.isoDate||c.date||'', time:c.time||'',
+      debit:'6200 – Charges diverses', credit:'5100 – Caisse',
+      label:c.description||'Charge', amount:c.montant||0
+    });
+  });
+  (STATE.depensesDomestiques||[]).forEach(d=>{
+    entries.push({
+      date:d.date, isoDate:d.isoDate||d.date||'', time:d.time||'',
+      debit:'6300 – Dépenses domestiques', credit:'5100 – Caisse',
+      label:d.description||'Dépense domestique', amount:d.montant||0
+    });
+  });
+  entries.sort((a,b)=>(a.isoDate||'').localeCompare(b.isoDate||'')||(a.time||'').localeCompare(b.time||''));
+  return entries;
+}
+
 function buildTransSheet() {
   const body = document.getElementById('sheet-trans-body');
   const total = document.getElementById('trans-total');
-  const sales = STATE.transactions.filter(t=>t.type==='vente')
-    .sort((a,b)=>(a.isoDate||'').localeCompare(b.isoDate||'')||(a.time||'').localeCompare(b.time||''));
-  let cum=0;
-  body.innerHTML = sales.map((t,i)=>{
-    cum+=t.amount;
-    return `<tr><td>${i+1}</td><td>${t.date}</td><td>${t.time}</td><td>${esc(t.seller)}</td>
-      <td>${esc(t.description)}</td><td>${t.quantity}</td><td>${fmtHTG(t.amount)}</td>
-      <td>Vente</td><td>${fmtHTG(cum)}</td></tr>`;
+  const items = [];
+  STATE.transactions.filter(t=>t.type==='vente').forEach(t=>items.push({...t, _label:'Vente', _isVente:true}));
+  (STATE.stocks||[]).forEach(s=>items.push({...s, montant:s.amount, _label:'Achat'}));
+  (STATE.apports||[]).forEach(a=>items.push({...a, description:a.source||'Apport', _label:'Apport'}));
+  (STATE.charges||[]).forEach(c=>items.push({...c, _label:'Charge hors marchandises'}));
+  (STATE.depensesDomestiques||[]).forEach(d=>items.push({...d, _label:'Dépense domestique'}));
+  items.sort((a,b)=>(a.isoDate||a.date||'').localeCompare(b.isoDate||b.date||'')||(a.time||'').localeCompare(b.time||''));
+  let cum=0, grandTotal=0;
+  body.innerHTML = items.map((t,i)=>{
+    const montant = t._isVente ? (t.amount||0) : (t.montant||0);
+    grandTotal += montant;
+    if (t._isVente) cum += montant;
+    return `<tr><td>${i+1}</td><td>${t.date||''}</td><td>${t.time||''}</td><td>${esc(t.seller||'')}</td>
+      <td>${esc(t.description||'')}</td><td>${t._isVente?(t.quantity||''):''}</td><td>${fmtHTG(montant)}</td>
+      <td>${t._label}</td><td>${t._isVente?fmtHTG(cum):'—'}</td></tr>`;
   }).join('') || '<tr><td colspan="9" style="text-align:center;color:var(--text3);padding:1rem;">Aucune transaction.</td></tr>';
-  total.textContent = fmtHTG(sales.reduce((a,t)=>a+t.amount,0));
+  total.textContent = fmtHTG(grandTotal);
 }
 
 function buildJournal() {
   const body = document.getElementById('journal-body');
   const dTot = document.getElementById('journal-debit');
   const cTot = document.getElementById('journal-credit');
-  const txns = [...STATE.transactions].sort((a,b)=>(a.isoDate||'').localeCompare(b.isoDate||''));
-  let rows=[],dSum=0,cSum=0,pce=1;
-  txns.forEach(t=>{
-    if(t.type==='vente'){
-      rows.push({date:t.date,pce:`PC-${String(pce).padStart(4,'0')}`,debit:'5100 – Caisse',credit:'7000 – Ventes',label:t.description,dAmt:t.amount,cAmt:t.amount});
-      dSum+=t.amount; cSum+=t.amount;
-    } else {
-      rows.push({date:t.date,pce:`PC-${String(pce).padStart(4,'0')}`,debit:'3100 – Stocks',credit:'4010 – Fournisseurs',label:t.description,dAmt:t.amount,cAmt:t.amount});
-      dSum+=t.amount; cSum+=t.amount;
-    }
+  const entries = computeJournalEntries();
+  let dSum=0,cSum=0,pce=1;
+  body.innerHTML = entries.map(e=>{
+    dSum+=e.amount; cSum+=e.amount;
+    const row = `<tr>
+      <td>${e.date}</td><td>PC-${String(pce).padStart(4,'0')}</td><td>${e.debit}</td><td>${e.credit}</td>
+      <td>${esc(e.label)}</td><td>${fmtHTG(e.amount)}</td><td>${fmtHTG(e.amount)}</td>
+    </tr>`;
     pce++;
-  });
-  body.innerHTML=rows.map(r=>`<tr>
-    <td>${r.date}</td><td>${r.pce}</td><td>${r.debit}</td><td>${r.credit}</td>
-    <td>${esc(r.label)}</td><td>${fmtHTG(r.dAmt)}</td><td>${fmtHTG(r.cAmt)}</td>
-  </tr>`).join('') || '<tr><td colspan="7" style="text-align:center;color:var(--text3);padding:1rem;">Aucune écriture.</td></tr>';
+    return row;
+  }).join('') || '<tr><td colspan="7" style="text-align:center;color:var(--text3);padding:1rem;">Aucune écriture.</td></tr>';
   dTot.textContent=fmtHTG(dSum); cTot.textContent=fmtHTG(cSum);
 }
 
 function buildGrandLivre() {
   const cont = document.getElementById('grandlivre-content');
-  const accs={'5100 – Caisse':[],'7000 – Ventes':[],'3100 – Stocks marchandises':[],'4010 – Fournisseurs':[]};
-  STATE.transactions.forEach(t=>{
-    if(t.type==='vente'){
-      accs['5100 – Caisse'].push({date:t.date,label:t.description,d:t.amount,c:0});
-      accs['7000 – Ventes'].push({date:t.date,label:t.description,d:0,c:t.amount});
-    } else {
-      accs['3100 – Stocks marchandises'].push({date:t.date,label:t.description,d:t.amount,c:0});
-      accs['4010 – Fournisseurs'].push({date:t.date,label:t.description,d:0,c:t.amount});
-    }
+  const entries = computeJournalEntries();
+  // Ordre d'affichage fixe (toujours affichés, même sans mouvement) pour que
+  // la structure du grand livre reste stable d'une consultation à l'autre.
+  const order = ['5100 – Caisse','7000 – Ventes','6100 – Achats marchandises','4010 – Fournisseurs','7100 – Apports','6200 – Charges diverses','6300 – Dépenses domestiques'];
+  const accs = {};
+  order.forEach(acc => accs[acc] = []);
+  entries.forEach(e=>{
+    if (!accs[e.debit]) accs[e.debit] = [];
+    if (!accs[e.credit]) accs[e.credit] = [];
+    accs[e.debit].push({date:e.date, label:e.label, d:e.amount, c:0});
+    accs[e.credit].push({date:e.date, label:e.label, d:0, c:e.amount});
   });
   cont.innerHTML=Object.entries(accs).map(([acc,ents])=>{
     const totD=ents.reduce((a,e)=>a+e.d,0), totC=ents.reduce((a,e)=>a+e.c,0);
@@ -4553,39 +4647,34 @@ function buildGrandLivre() {
 function buildBalance() {
   const body=document.getElementById('balance-body');
   const bd=document.getElementById('bal-debit'), bc=document.getElementById('bal-credit');
-  const vt=STATE.transactions.filter(t=>t.type==='vente').reduce((a,t)=>a+t.amount,0);
-  const st=STATE.stocks.reduce((a,s)=>a+s.amount,0);
-  const rows=[
-    {num:'3100',label:'Stocks marchandises',d:st,c:0},
-    {num:'4010',label:'Fournisseurs',d:0,c:st},
-    {num:'5100',label:'Caisse',d:vt,c:0},
-    {num:'7000',label:'Ventes',d:0,c:vt}
+  const entries = computeJournalEntries();
+  const accountDefs = [
+    {num:'5100', label:'Caisse', key:'5100 – Caisse'},
+    {num:'7000', label:'Ventes', key:'7000 – Ventes'},
+    {num:'6100', label:'Achats marchandises', key:'6100 – Achats marchandises'},
+    {num:'4010', label:'Fournisseurs', key:'4010 – Fournisseurs'},
+    {num:'7100', label:'Apports', key:'7100 – Apports'},
+    {num:'6200', label:'Charges diverses', key:'6200 – Charges diverses'},
+    {num:'6300', label:'Dépenses domestiques', key:'6300 – Dépenses domestiques'}
   ];
+  const sums = {};
+  entries.forEach(e=>{
+    if (!sums[e.debit]) sums[e.debit] = {d:0,c:0};
+    if (!sums[e.credit]) sums[e.credit] = {d:0,c:0};
+    sums[e.debit].d += e.amount;
+    sums[e.credit].c += e.amount;
+  });
+  let dTotal=0, cTotal=0;
+  const rows = accountDefs.map(a=>{
+    const s = sums[a.key] || {d:0,c:0};
+    dTotal += s.d; cTotal += s.c;
+    return {num:a.num, label:a.label, d:s.d, c:s.c};
+  });
+  // Grâce à cette construction, chaque écriture crédite un compte pour le
+  // même montant qu'elle en débite un autre : les totaux Débit et Crédit de
+  // la balance sont donc TOUJOURS égaux (aucune erreur de saisie possible).
   body.innerHTML=rows.map(r=>`<tr><td>${r.num}</td><td>${r.label}</td><td>${r.d?fmtHTG(r.d):''}</td><td>${r.c?fmtHTG(r.c):''}</td></tr>`).join('');
-  bd.textContent=fmtHTG(st+vt); bc.textContent=fmtHTG(st+vt);
-}
-
-function buildBilan() {
-  const cont=document.getElementById('bilan-content');
-  const vt=STATE.transactions.filter(t=>t.type==='vente').reduce((a,t)=>a+t.amount,0);
-  const st=STATE.stocks.reduce((a,s)=>a+s.amount,0);
-  cont.innerHTML=`
-  <div>
-    <div style="font-weight:700;font-size:.9rem;background:var(--accent-bg);color:var(--accent-text);padding:8px 12px;border-radius:7px 7px 0 0;border:1px solid var(--border);">ACTIF</div>
-    <div style="border:1px solid var(--border);border-top:none;border-radius:0 0 7px 7px;overflow:hidden;">
-      <table style="width:100%;"><tbody>
-        <tr><td style="padding:7px 12px;">Stocks</td><td style="padding:7px 12px;text-align:right;font-weight:500;">${fmtHTG(st)}</td></tr>
-        <tr><td style="padding:7px 12px;">Caisse</td><td style="padding:7px 12px;text-align:right;font-weight:500;">${fmtHTG(vt)}</td></tr>
-        <tr style="background:var(--surface2);font-weight:700;"><td style="padding:7px 12px;">Total Actif</td><td style="padding:7px 12px;text-align:right;">${fmtHTG(st+vt)}</td></tr>
-      </tbody></table></div></div>
-  <div>
-    <div style="font-weight:700;font-size:.9rem;background:var(--success-bg);color:var(--success);padding:8px 12px;border-radius:7px 7px 0 0;border:1px solid var(--border);">PASSIF & CAPITAUX</div>
-    <div style="border:1px solid var(--border);border-top:none;border-radius:0 0 7px 7px;overflow:hidden;">
-      <table style="width:100%;"><tbody>
-        <tr><td style="padding:7px 12px;">Fournisseurs</td><td style="padding:7px 12px;text-align:right;font-weight:500;">${fmtHTG(st)}</td></tr>
-        <tr><td style="padding:7px 12px;">Résultat (ventes)</td><td style="padding:7px 12px;text-align:right;font-weight:500;">${fmtHTG(vt)}</td></tr>
-        <tr style="background:var(--surface2);font-weight:700;"><td style="padding:7px 12px;">Total Passif</td><td style="padding:7px 12px;text-align:right;">${fmtHTG(st+vt)}</td></tr>
-      </tbody></table></div></div>`;
+  bd.textContent=fmtHTG(dTotal); bc.textContent=fmtHTG(cTotal);
 }
 
 // Analyse financière cumulée jour après jour et par mois.
@@ -4701,7 +4790,7 @@ function buildAnalyse() {
   let html = `
   <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px;margin-bottom:1.2rem;">
     <div class="metric-card accent"><div class="label">Chiffre d'affaires total</div><div class="value">${fmtHTG(vt)}</div></div>
-    <div class="metric-card success"><div class="label">Valeur du stock</div><div class="value">${fmtHTG(st)}</div></div>
+    <div class="metric-card success"><div class="label">Achats marchandises (total)</div><div class="value">${fmtHTG(st)}</div></div>
     <div class="metric-card accent"><div class="label">Produits (total)</div><div class="value">${fmtHTG(totals.produits)}</div></div>
     <div class="metric-card"><div class="label">Charges (total)</div><div class="value">${fmtHTG(totals.charges)}</div></div>
     <div class="metric-card ${mg>=0?'success':''}"><div class="label">Marge brute estimée</div><div class="value">${mg.toFixed(1)}%</div></div>
@@ -5068,50 +5157,91 @@ function hashCode(str) {
 // ============================================================
 // EXCEL EXPORT
 // ============================================================
+// Construit, à partir de computeJournalEntries() (mêmes écritures que le
+// Journal général / Grand livre / Balance affichés à l'écran), les feuilles
+// Excel "Journal général", "Grand livre" et "Balance de vérification" —
+// réutilisé par exportAllToExcel() et buildFullWorkbook() pour que les deux
+// exports affichent toujours exactement les mêmes chiffres que l'écran.
+function buildJournalExcelSheets(wb, names) {
+  names = names || {};
+  const journalName = names.journal || 'Journal général';
+  const grandLivreName = names.grandLivre || 'Grand livre';
+  const balanceName = names.balance || 'Balance de vérification';
+  const entries = computeJournalEntries();
+
+  let pce=1;
+  const jRows=[['Date','N° Pièce','Compte débiteur','Compte créditeur','Libellé','Débit HTG','Crédit HTG']];
+  entries.forEach(e=>{
+    jRows.push([e.date,`PC-${String(pce).padStart(4,'0')}`,e.debit,e.credit,e.label,e.amount,e.amount]);
+    pce++;
+  });
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(jRows),journalName);
+
+  const order = ['5100 – Caisse','7000 – Ventes','6100 – Achats marchandises','4010 – Fournisseurs','7100 – Apports','6200 – Charges diverses','6300 – Dépenses domestiques'];
+  const glRows=[['Compte','Date','Libellé','Débit','Crédit','Solde']];
+  const accs={};
+  order.forEach(acc=>accs[acc]=[]);
+  entries.forEach(e=>{
+    if(!accs[e.debit]) accs[e.debit]=[];
+    if(!accs[e.credit]) accs[e.credit]=[];
+    accs[e.debit].push({d:e.date,l:e.label,db:e.amount,cr:0});
+    accs[e.credit].push({d:e.date,l:e.label,db:0,cr:e.amount});
+  });
+  Object.entries(accs).forEach(([acc,ents])=>{let s=0;ents.forEach(e=>{s+=e.db-e.cr;glRows.push([acc,e.d,e.l,e.db||'',e.cr||'',s]);});});
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(glRows),grandLivreName);
+
+  const accountDefs = [
+    {num:'5100', label:'Caisse', key:'5100 – Caisse'},
+    {num:'7000', label:'Ventes', key:'7000 – Ventes'},
+    {num:'6100', label:'Achats marchandises', key:'6100 – Achats marchandises'},
+    {num:'4010', label:'Fournisseurs', key:'4010 – Fournisseurs'},
+    {num:'7100', label:'Apports', key:'7100 – Apports'},
+    {num:'6200', label:'Charges diverses', key:'6200 – Charges diverses'},
+    {num:'6300', label:'Dépenses domestiques', key:'6300 – Dépenses domestiques'}
+  ];
+  const sums = {};
+  entries.forEach(e=>{
+    if(!sums[e.debit]) sums[e.debit]={d:0,c:0};
+    if(!sums[e.credit]) sums[e.credit]={d:0,c:0};
+    sums[e.debit].d += e.amount; sums[e.credit].c += e.amount;
+  });
+  let dTotal=0, cTotal=0;
+  const balRows=[['N° Compte','Intitulé','Débit HTG','Crédit HTG']];
+  accountDefs.forEach(a=>{
+    const s = sums[a.key]||{d:0,c:0};
+    dTotal+=s.d; cTotal+=s.c;
+    balRows.push([a.num,a.label,s.d,s.c]);
+  });
+  balRows.push(['','Totaux',dTotal,cTotal]);
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(balRows),balanceName);
+}
+
 function exportAllToExcel() {
   if (typeof XLSX === 'undefined') { showToast('⚠ Bibliothèque Excel non disponible.','warn'); return; }
   const wb = XLSX.utils.book_new();
   const vt=STATE.transactions.filter(t=>t.type==='vente').reduce((a,t)=>a+t.amount,0);
   const st=STATE.stocks.reduce((a,s)=>a+s.amount,0);
 
-  // Transactions
+  // Transactions (ventes, achats, apports, charges hors marchandises et
+  // dépenses domestiques, toutes confondues et triées chronologiquement).
   let cum=0;
-  const sales=STATE.transactions.filter(t=>t.type==='vente').sort((a,b)=>(a.isoDate||'').localeCompare(b.isoDate||''));
+  const items = [];
+  STATE.transactions.filter(t=>t.type==='vente').forEach(t=>items.push({...t, _label:'Vente', _isVente:true}));
+  (STATE.stocks||[]).forEach(s=>items.push({...s, montant:s.amount, _label:'Achat'}));
+  (STATE.apports||[]).forEach(a=>items.push({...a, description:a.source||'Apport', _label:'Apport'}));
+  (STATE.charges||[]).forEach(c=>items.push({...c, _label:'Charge hors marchandises'}));
+  (STATE.depensesDomestiques||[]).forEach(d=>items.push({...d, _label:'Dépense domestique'}));
+  items.sort((a,b)=>(a.isoDate||a.date||'').localeCompare(b.isoDate||b.date||'')||(a.time||'').localeCompare(b.time||''));
   XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([
     ['#','Date','Heure','Vendeur','Description','Quantité','Montant HTG','Type','Cumul ventes'],
-    ...sales.map((t,i)=>{cum+=t.amount;return[i+1,t.date,t.time,t.seller,t.description,t.quantity,t.amount,'Vente',cum];})
+    ...items.map((t,i)=>{
+      const montant = t._isVente ? (t.amount||0) : (t.montant||0);
+      if (t._isVente) cum+=montant;
+      return [i+1,t.date||'',t.time||'',t.seller||'',t.description||'',t._isVente?(t.quantity||''):'',montant,t._label,t._isVente?cum:''];
+    })
   ]),'Transactions');
 
-  // Journal
-  let pce=1;
-  const jRows=[['Date','N° Pièce','Compte débiteur','Compte créditeur','Libellé','Débit HTG','Crédit HTG']];
-  STATE.transactions.sort((a,b)=>(a.isoDate||'').localeCompare(b.isoDate||'')).forEach(t=>{
-    if(t.type==='vente') jRows.push([t.date,`PC-${String(pce).padStart(4,'0')}`,'5100 – Caisse','7000 – Ventes',t.description,t.amount,t.amount]);
-    else jRows.push([t.date,`PC-${String(pce).padStart(4,'0')}`,'3100 – Stocks','4010 – Fournisseurs',t.description,t.amount,t.amount]);
-    pce++;
-  });
-  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(jRows),'Journal général');
-
-  // Grand livre
-  const glRows=[['Compte','Date','Libellé','Débit','Crédit','Solde']];
-  const accs={'5100 – Caisse':[],'7000 – Ventes':[],'3100 – Stocks':[],'4010 – Fournisseurs':[]};
-  STATE.transactions.forEach(t=>{
-    if(t.type==='vente'){accs['5100 – Caisse'].push({d:t.date,l:t.description,db:t.amount,cr:0});accs['7000 – Ventes'].push({d:t.date,l:t.description,db:0,cr:t.amount});}
-    else{accs['3100 – Stocks'].push({d:t.date,l:t.description,db:t.amount,cr:0});accs['4010 – Fournisseurs'].push({d:t.date,l:t.description,db:0,cr:t.amount});}
-  });
-  Object.entries(accs).forEach(([acc,ents])=>{let s=0;ents.forEach(e=>{s+=e.db-e.cr;glRows.push([acc,e.d,e.l,e.db||'',e.cr||'',s]);});});
-  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(glRows),'Grand livre');
-
-  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([
-    ['N° Compte','Intitulé','Débit HTG','Crédit HTG'],
-    ['3100','Stocks',st,0],['4010','Fournisseurs',0,st],
-    ['5100','Caisse',vt,0],['7000','Ventes',0,vt],['','Totaux',st+vt,st+vt]
-  ]),'Balance de vérification');
-
-  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([
-    ['ACTIF','Montant HTG','PASSIF','Montant HTG'],
-    ['Stocks',st,'Fournisseurs',st],['Caisse',vt,'Résultat',vt],['Total Actif',st+vt,'Total Passif',st+vt]
-  ]),'Bilan');
+  buildJournalExcelSheets(wb);
 
   XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(buildAnalyseSheetRows(vt, st)), 'Analyse financière');
 
@@ -5130,7 +5260,7 @@ function buildAnalyseSheetRows(vt, st) {
   const rows = [
     ['Indicateur','Valeur'],
     ["Chiffre d'affaires total", vt],
-    ['Valeur du stock', st],
+    ['Achats marchandises (total)', st],
     ['Produits (total)', totals.produits],
     ['Charges (total)', totals.charges],
     ['Marge brute estimée (%)', st>0?parseFloat(mg.toFixed(2)):0],
@@ -5296,44 +5426,18 @@ function buildFullWorkbook() {
     ['Date d\'export', isoDate()]
   ]), '📊 Tableau de Bord');
 
-  // 8. Journal Général (comptabilité complète — comme l'onglet Comptabilité)
-  let pce=1;
-  const jRows=[['Date','N° Pièce','Compte débiteur','Compte créditeur','Libellé','Débit HTG','Crédit HTG']];
-  const txSorted = [...(STATE.transactions||[])].sort((a,b)=>(a.isoDate||'').localeCompare(b.isoDate||''));
-  txSorted.forEach(t=>{
-    if(t.type==='vente') jRows.push([t.date,`PC-${String(pce).padStart(4,'0')}`,'5100 – Caisse','7000 – Ventes',t.description,t.amount,t.amount]);
-    else jRows.push([t.date,`PC-${String(pce).padStart(4,'0')}`,'3100 – Stocks','4010 – Fournisseurs',t.description,t.amount,t.amount]);
-    pce++;
-  });
-  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(jRows), '📒 Journal Général');
-
-  // 9. Grand Livre
+  // 8-10. Journal Général / Grand Livre / Balance de Vérification
+  // (comptabilité complète — mêmes écritures, mêmes chiffres que l'onglet
+  // Comptabilité : ventes, achats considérés comme des charges, apports,
+  // charges hors marchandises et dépenses domestiques.)
   const vt = sales.reduce((a,t)=>a+(t.amount||0),0);
-  const nbV = sales.length;
-  const glRows=[['Compte','Date','Libellé','Débit','Crédit','Solde']];
-  const accs={'5100 – Caisse':[],'7000 – Ventes':[],'3100 – Stocks':[],'4010 – Fournisseurs':[]};
-  txSorted.forEach(t=>{
-    if(t.type==='vente'){accs['5100 – Caisse'].push({d:t.date,l:t.description,db:t.amount,cr:0});accs['7000 – Ventes'].push({d:t.date,l:t.description,db:0,cr:t.amount});}
-    else{accs['3100 – Stocks'].push({d:t.date,l:t.description,db:t.amount,cr:0});accs['4010 – Fournisseurs'].push({d:t.date,l:t.description,db:0,cr:t.amount});}
+  buildJournalExcelSheets(wb, {
+    journal: '📒 Journal Général',
+    grandLivre: '📗 Grand Livre',
+    balance: '⚖️ Balance de Vérification'
   });
-  Object.entries(accs).forEach(([acc,ents])=>{let s=0;ents.forEach(e=>{s+=e.db-e.cr;glRows.push([acc,e.d,e.l,e.db||'',e.cr||'',s]);});});
-  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(glRows), '📗 Grand Livre');
 
-  // 10. Balance de Vérification
-  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([
-    ['N° Compte','Intitulé','Débit HTG','Crédit HTG'],
-    ['3100','Stocks',stockVal,0],['4010','Fournisseurs',0,stockVal],
-    ['5100','Caisse',vt,0],['7000','Ventes',0,vt],['','Totaux',stockVal+vt,stockVal+vt]
-  ]), '⚖️ Balance de Vérification');
-
-  // 11. Bilan
-  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([
-    ['ACTIF','Montant HTG','PASSIF','Montant HTG'],
-    ['Stocks',stockVal,'Fournisseurs',stockVal],['Caisse',vt,'Résultat',vt],
-    ['Total Actif',stockVal+vt,'Total Passif',stockVal+vt]
-  ]), '📑 Bilan');
-
-  // 12. Analyse Financière
+  // 11. Analyse Financière
   XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(buildAnalyseSheetRows(vt, stockVal)), '📈 Analyse Financière');
 
   return wb;
