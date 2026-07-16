@@ -5264,28 +5264,34 @@ async function deleteTransaction(id) {
 
 // Admin/gestionnaire : effacer TOUTES les transactions ET tout ce qui
 // alimente la Comptabilité (onglet "Transactions"/"Journal Général"/"Grand
-// Livre"/"Balance") en tant qu'écriture ponctuelle : ventes, achats
-// (mouvements de stock), charges (salaires/primes/charges diverses) et
-// retraits de caisse. Auparavant, cette fonction n'effaçait QUE la collection
-// 'transactions' (les ventes) — les achats de STATE.stocks, les charges et
-// les retraits de caisse restaient donc visibles dans la Comptabilité même
-// après avoir "tout effacé", ce qui donnait l'impression d'informations
-// bloquées/en trop. Les remboursements de crédit client et les paiements de
-// dette fournisseur ne sont volontairement PAS supprimés ici : ce sont des
-// mouvements sur un solde suivi dans la durée (une créance/dette), pas des
-// écritures ponctuelles — les effacer romprait le suivi de ces dettes au lieu
-// de simplement "vider la comptabilité". Action irréversible, double
-// confirmation.
+// Livre"/"Balance") : ventes, achats (mouvements de stock), charges
+// (salaires/primes/charges diverses), retraits de caisse, ET les créances
+// clients / dettes fournisseurs issues des ventes/achats à crédit.
+// ⚠ IMPORTANT : les créances/dettes (STATE.credits / STATE.fournisseurPayments)
+// stockent sur UN SEUL enregistrement à la fois la dette (due) ET ce qui a
+// déjà été remboursé (paid) — il n'existe pas de registre séparé "juste
+// l'historique des remboursements". Les effacer efface donc aussi le solde
+// dû restant, pas seulement l'historique de paiement : un client qui devait
+// encore de l'argent n'apparaîtra plus dans "Liste des Dettes" après ce
+// nettoyage. C'est un choix assumé pour permettre une remise à zéro complète
+// de la comptabilité, mais l'admin/gestionnaire en est averti explicitement
+// avant de confirmer (voir le texte de confirmation ci-dessous). Les
+// créances/dettes préexistantes ajoutées manuellement (STATE.manualClientDebts
+// / STATE.manualSupplierDebts, gérées depuis "Liste des Dettes") ne sont PAS
+// touchées ici : elles ont leur propre suppression dédiée dans cet onglet.
+// Action irréversible, double confirmation.
 async function deleteAllTransactions() {
   if (!requireAdminOrGest()) return;
   const transCount = STATE.transactions.length;
   const stockCount = (STATE.stocks||[]).length;
   const chargeCount = (STATE.charges||[]).length;
   const retraitCount = (STATE.caisseRetraits||[]).length;
-  const total = transCount + stockCount + chargeCount + retraitCount;
+  const creditCount = (STATE.credits||[]).length;
+  const fournisseurPaymentCount = (STATE.fournisseurPayments||[]).length;
+  const total = transCount + stockCount + chargeCount + retraitCount + creditCount + fournisseurPaymentCount;
   if (!total) { showToast('⚠ Aucune transaction à effacer.','warn'); return; }
-  if (!confirm(`⚠ Cette action va supprimer DÉFINITIVEMENT : ${transCount} transaction(s) (ventes/achats), ${stockCount} mouvement(s) de stock, ${chargeCount} charge(s) et ${retraitCount} retrait(s) de caisse. Les remboursements de crédit client et paiements fournisseur ne sont PAS affectés. Continuer ?`)) return;
-  if (!confirm('Confirmer une dernière fois : effacer TOUTES ces données ? Cette action est irréversible.')) return;
+  if (!confirm(`⚠ Cette action va supprimer DÉFINITIVEMENT : ${transCount} transaction(s) (ventes/achats), ${stockCount} mouvement(s) de stock, ${chargeCount} charge(s), ${retraitCount} retrait(s) de caisse, ${creditCount} créance(s) client et ${fournisseurPaymentCount} dette(s) fournisseur.\n\n⚠ ATTENTION : effacer les créances/dettes efface aussi le solde encore DÛ, pas seulement l'historique de remboursement — un client qui devait encore de l'argent n'apparaîtra plus comme débiteur après cette action. Continuer ?`)) return;
+  if (!confirm('Confirmer une dernière fois : effacer TOUTES ces données, y compris les soldes dus restants ? Cette action est irréversible.')) return;
   if (!STATE.isOnline || !STATE.fbReady) {
     showToast('⚠ Hors ligne — impossible d\'effacer les transactions maintenant.','warn'); return;
   }
@@ -5295,29 +5301,37 @@ async function deleteAllTransactions() {
     const stockIds = (STATE.stocks||[]).map(s=>s.id).filter(Boolean);
     const chargeIds = (STATE.charges||[]).map(c=>c.id).filter(Boolean);
     const retraitIds = (STATE.caisseRetraits||[]).map(r=>r.id).filter(Boolean);
+    const creditIds = (STATE.credits||[]).map(c=>c.id).filter(Boolean);
+    const fournisseurPaymentIds = (STATE.fournisseurPayments||[]).map(p=>p.id).filter(Boolean);
     await Promise.all([
       ...transIds.map(id => deleteDoc(doc(window._db,'transactions',id))),
       ...stockIds.map(id => deleteDoc(doc(window._db,'stocks',id))),
       ...chargeIds.map(id => deleteDoc(doc(window._db,'charges',id))),
-      ...retraitIds.map(id => deleteDoc(doc(window._db,'caisse_retraits',id)))
+      ...retraitIds.map(id => deleteDoc(doc(window._db,'caisse_retraits',id))),
+      ...creditIds.map(id => deleteDoc(doc(window._db,'credits',id))),
+      ...fournisseurPaymentIds.map(id => deleteDoc(doc(window._db,'fournisseur_payments',id)))
     ]);
     await logNotification('🗑 Suppression de toutes les transactions',
-      `${transIds.length} transaction(s), ${stockIds.length} mouvement(s) de stock, ${chargeIds.length} charge(s), ${retraitIds.length} retrait(s) supprimé(s) par ${STATE.currentUser.username}`);
+      `${transIds.length} transaction(s), ${stockIds.length} mouvement(s) de stock, ${chargeIds.length} charge(s), ${retraitIds.length} retrait(s), ${creditIds.length} créance(s) client, ${fournisseurPaymentIds.length} dette(s) fournisseur supprimé(s) par ${STATE.currentUser.username}`);
     STATE.transactions = [];
     STATE.stocks = [];
     STATE.charges = [];
     STATE.caisseRetraits = [];
+    STATE.credits = [];
+    STATE.fournisseurPayments = [];
     renderMySales();
     renderDashboard();
     renderStocks();
     renderStockActuel();
     renderDettes();
+    renderDettesFournisseurs();
+    renderFournisseurPayments();
     renderAdminTrans();
     renderChargesHistory();
     renderCaisseRetraits();
     renderCaisse();
     if (currentTab === 'compta') refreshAccounting();
-    showToast(`🗑 ${transIds.length + stockIds.length + chargeIds.length + retraitIds.length} enregistrement(s) supprimé(s) de Firebase.`,'warn');
+    showToast(`🗑 ${transIds.length + stockIds.length + chargeIds.length + retraitIds.length + creditIds.length + fournisseurPaymentIds.length} enregistrement(s) supprimé(s) de Firebase.`,'warn');
     markUnsaved();
   } catch(e) { showToast('⚠ Erreur: '+e.message,'warn'); }
 }
