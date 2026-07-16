@@ -1182,6 +1182,18 @@ tr:hover td{background:#f7f9ff;}
   </div>
 </div>
 
+<div class="edit-modal-bg" id="association-modal-bg">
+  <div class="edit-modal" style="max-width:760px;max-height:85vh;overflow-y:auto;">
+    <h3>🔗 Associations de produits lors des ventes</h3>
+    <p style="margin:.2rem 0 .8rem;color:var(--text2);font-size:.85rem;">Quels produits sont le plus souvent vendus ensemble dans une même fiche de vente, classés par ordre d'importance (du plus fréquent au moins fréquent).</p>
+    <div class="form-group"><label>Date spécifique</label><input type="date" id="assoc-date" onchange="renderAssociationModal()"/></div>
+    <div id="assoc-content"></div>
+    <div style="display:flex;gap:8px;margin-top:.8rem;">
+      <button class="btn btn-outline" onclick="closeAssociationModal()" style="flex:1;">Fermer</button>
+    </div>
+  </div>
+</div>
+
 <div class="edit-modal-bg" id="logout-modal-bg">
   <div class="edit-modal">
     <h3>⚠ Modifications non sauvegardées</h3>
@@ -1430,6 +1442,10 @@ function startFirebaseListeners() {
       renderCredits();
       renderDettes();
       renderMySales();
+      // Les remboursements de crédit par les clients sont désormais comptés
+      // dans le Journal général / Grand livre / Balance / Feuille de
+      // transactions de la Comptabilité.
+      if (currentTab === 'compta') refreshAccounting();
     },
     err => console.error('Credits listener:', err)
   );
@@ -1442,6 +1458,9 @@ function startFirebaseListeners() {
       STATE.fournisseurPayments = snap.docs.map(d => ({id: d.id, ...d.data()}));
       renderFournisseurPayments();
       renderDettesFournisseurs();
+      // Les paiements de dettes fournisseurs sont désormais comptés dans le
+      // Journal général / Grand livre / Balance / Feuille de transactions.
+      if (currentTab === 'compta') refreshAccounting();
     },
     err => console.error('Fournisseur payments listener:', err)
   );
@@ -1477,6 +1496,9 @@ function startFirebaseListeners() {
       STATE.caisseRetraits = snap.docs.map(d => ({id: d.id, ...d.data()}));
       if (currentTab === 'caisse') { renderCaisseRetraits(); renderCaisse(); }
       if (currentTab === 'tableau') renderDashboard();
+      // Les retraits de caisse sont désormais comptés dans le Journal
+      // général / Grand livre / Balance / Feuille de transactions.
+      if (currentTab === 'compta') refreshAccounting();
     },
     err => console.error('CaisseRetraits listener:', err)
   );
@@ -3675,12 +3697,225 @@ function renderMarginDetailModal() {
 }
 
 // ============================================================
+// ASSOCIATIONS DE PRODUITS LORS DES VENTES (analyse du "panier" — quels
+// produits sont vendus ENSEMBLE dans une même fiche de vente). Repose sur
+// saleGroupId, l'identifiant partagé par toutes les lignes-produit d'une même
+// fiche multi-produits (voir submitSale()) : une vente mono-produit (sans
+// saleGroupId partagé avec une autre ligne, ou saleGroupId absent pour les
+// anciennes ventes/ventes glacées) ne peut par nature générer aucune
+// association. Réservé à admin/gestionnaire.
+// ============================================================
+
+// Calcule, pour un sous-ensemble de ventes donné, toutes les paires de
+// produits ayant été vendus ensemble dans une même fiche, classées par ordre
+// d'importance (nombre de fiches où la paire apparaît, du plus fréquent au
+// moins fréquent).
+function computeProductAssociations(ventesSubset) {
+  const groups = {};
+  (ventesSubset||[]).forEach(t => {
+    if (!t.saleGroupId) return;
+    const key = normProduit(t.description);
+    if (!key) return;
+    if (!groups[t.saleGroupId]) groups[t.saleGroupId] = new Set();
+    groups[t.saleGroupId].add(key);
+  });
+  const pairCounts = {};
+  Object.values(groups).forEach(productSet => {
+    const products = [...productSet];
+    if (products.length < 2) return;
+    for (let i=0; i<products.length; i++) {
+      for (let j=i+1; j<products.length; j++) {
+        const pair = [products[i], products[j]].sort();
+        const key = pair.join('|||');
+        pairCounts[key] = (pairCounts[key]||0) + 1;
+      }
+    }
+  });
+  return Object.entries(pairCounts)
+    .map(([key,count]) => { const [produitA,produitB] = key.split('|||'); return {produitA, produitB, count}; })
+    .sort((a,b) => b.count - a.count || a.produitA.localeCompare(b.produitA));
+}
+
+function computeAssociationsForDate(isoDateStr) {
+  const ventes = (STATE.transactions||[]).filter(t=>t.type==='vente' && getIsoFromTx(t)===isoDateStr);
+  return { label: formatGroupLabel(isoDateStr), rows: computeProductAssociations(ventes) };
+}
+
+// Automatique pour TOUTES les semaines ayant au moins une vente (pas
+// seulement la semaine de la date choisie), triées de la plus récente à la
+// plus ancienne — même principe que computeAllWeeksMarginRates().
+function computeAllWeeksAssociations() {
+  const ventes = (STATE.transactions||[]).filter(t=>t.type==='vente');
+  const weekBuckets = {};
+  ventes.forEach(t => {
+    const day = getIsoFromTx(t);
+    if (!day) return;
+    const {startIso, endIso} = getWeekRangeForIsoDate(day);
+    if (!weekBuckets[startIso]) weekBuckets[startIso] = {startIso, endIso, ventes:[]};
+    weekBuckets[startIso].ventes.push(t);
+  });
+  return Object.values(weekBuckets)
+    .sort((a,b) => b.startIso.localeCompare(a.startIso))
+    .map(w => ({
+      startIso: w.startIso, endIso: w.endIso,
+      label: `Semaine du ${w.startIso.split('-').reverse().join('/')} au ${w.endIso.split('-').reverse().join('/')}`,
+      rows: computeProductAssociations(w.ventes)
+    }));
+}
+
+// Automatique pour les 12 mois de l'année donnée, y compris ceux sans vente
+// (rows vide) — même principe que computeAllMonthsMarginRatesForYear().
+function computeAllMonthsAssociationsForYear(year) {
+  const ventes = (STATE.transactions||[]).filter(t=>t.type==='vente');
+  const monthNames = ['Janvier','Février','Mars','Avril','Mai','Juin','Juillet','Août','Septembre','Octobre','Novembre','Décembre'];
+  const rows = [];
+  for (let m=1; m<=12; m++) {
+    const monthKey = `${year}-${String(m).padStart(2,'0')}`;
+    const ventesMois = ventes.filter(t => getIsoFromTx(t).slice(0,7) === monthKey);
+    rows.push({ month: monthKey, label: `${monthNames[m-1]} ${year}`, rows: computeProductAssociations(ventesMois) });
+  }
+  return rows;
+}
+
+// Fenêtre "Associations de produits" (bouton dans Data Analyse, admin/
+// gestionnaire uniquement) : liste complète des associations classées par
+// ordre d'importance pour le jour choisi, puis — automatiquement — la
+// meilleure association de CHAQUE semaine et de CHAQUE mois de l'année.
+function openAssociationModal() {
+  if (!requireAdminOrGest()) return;
+  const dateField = document.getElementById('assoc-date');
+  if (dateField && !dateField.value) dateField.value = isoDate();
+  renderAssociationModal();
+  document.getElementById('association-modal-bg').classList.add('show');
+}
+
+function closeAssociationModal() {
+  document.getElementById('association-modal-bg').classList.remove('show');
+}
+
+// Section détaillée (jour choisi) : toutes les paires, classées par ordre
+// d'importance (nombre de fiches où elles apparaissent ensemble).
+function renderAssociationSection(title, period) {
+  let html = `<div style="margin-bottom:1.2rem;">
+    <div style="font-weight:700;font-size:.88rem;color:var(--text2);margin-bottom:.4rem;">${title} — ${esc(period.label)}</div>`;
+  if (!period.rows || !period.rows.length) {
+    html += `<div style="color:var(--text3);padding:.4rem 0;font-size:.85rem;">Aucune association de produits pour cette période (il faut au moins une vente avec plusieurs produits dans la même fiche).</div></div>`;
+    return html;
+  }
+  html += `<div class="table-wrap"><table><thead><tr><th>Rang</th><th>Produit A</th><th>Produit B</th><th>Nombre de fiches associées</th></tr></thead><tbody>` +
+    period.rows.map((r,i)=>`<tr><td>${i+1}</td><td>${esc(r.produitA)}</td><td>${esc(r.produitB)}</td><td>${r.count}</td></tr>`).join('') +
+    `</tbody></table></div></div>`;
+  return html;
+}
+
+// Tableau compact (Période | Association la plus fréquente | Nombre) utilisé
+// pour lister automatiquement TOUTES les semaines ou TOUS les mois — même
+// principe que renderMarginRateSummaryTable().
+function renderAssociationSummaryTable(title, periods) {
+  let html = `<div style="margin-bottom:1.2rem;">
+    <div style="font-weight:700;font-size:.88rem;color:var(--text2);margin-bottom:.4rem;">${title}</div>`;
+  if (!periods.length) {
+    html += `<div style="color:var(--text3);padding:.4rem 0;font-size:.85rem;">Aucune donnée.</div></div>`;
+    return html;
+  }
+  html += `<div class="table-wrap"><table><thead><tr><th>Période</th><th>Association la plus fréquente</th><th>Nombre de fiches</th></tr></thead><tbody>` +
+    periods.map(p => {
+      const top = p.rows && p.rows.length ? p.rows[0] : null;
+      return `<tr><td>${esc(p.label)}</td>
+        <td style="color:${top?'inherit':'var(--text3)'};">${top ? `${esc(top.produitA)} + ${esc(top.produitB)}` : 'Aucune association'}</td>
+        <td style="font-weight:600;">${top ? top.count : '—'}</td></tr>`;
+    }).join('') + `</tbody></table></div></div>`;
+  return html;
+}
+
+function renderAssociationModal() {
+  const cont = document.getElementById('assoc-content');
+  if (!cont) return;
+  const dateField = document.getElementById('assoc-date');
+  const dateVal = (dateField && dateField.value) || isoDate();
+  const year = dateVal.slice(0,4);
+  const jour = computeAssociationsForDate(dateVal);
+  const allWeeks = computeAllWeeksAssociations();
+  const allMonths = computeAllMonthsAssociationsForYear(year);
+  let html = '';
+  html += renderAssociationSection('📅 Associations de produits, par ordre d\'importance — jour', jour);
+  html += renderAssociationSummaryTable('🗓️ Association la plus fréquente par semaine (automatique, toutes les semaines)', allWeeks);
+  html += renderAssociationSummaryTable(`📆 Association la plus fréquente par mois — année ${year} (automatique, les 12 mois)`, allMonths);
+  cont.innerHTML = html;
+}
+
+// ============================================================
 // DATA ANALYSE — vue panoramique jour/mois : produits les plus/moins vendus
 // et décisions à prendre (comparaison du mois en cours vs le mois précédent).
 // ============================================================
+// Alerte stock : produits dont le stock actuel (Stock de départ + Entrées
+// achats - Sorties ventes, en équivalent caisses — même méthode que "Stock
+// Actuel"/l'export Excel) risque de s'épuiser bientôt, au rythme des ventes
+// moyennes des 30 derniers jours. Ne renvoie que les produits ayant vendu au
+// moins une fois récemment (sinon "jours restants" n'a pas de sens), triés
+// du plus urgent (le moins de jours restants) au moins urgent.
+function computeStockAlerts() {
+  const departMap = {}, entreesMap = {}, sortiesMap = {};
+  (STATE.stockDepart||[]).forEach(s=>{
+    const key = normProduit(s.description); if (!key) return;
+    departMap[key] = (departMap[key]||0) + (parseFloat(s.quantity)||0);
+  });
+  (STATE.stocks||[]).forEach(s=>{
+    const key = normProduit(s.description); if (!key) return;
+    entreesMap[key] = (entreesMap[key]||0) + (parseFloat(s.quantityCaisses||s.quantity)||0);
+  });
+  const ventesAll = (STATE.transactions||[]).filter(t=>t.type==='vente');
+  ventesAll.forEach(t=>{
+    const key = normProduit(t.description); if (!key) return;
+    sortiesMap[key] = (sortiesMap[key]||0) + getQtyCaisses(t);
+  });
+  const cutoff = new Date(); cutoff.setDate(cutoff.getDate()-30);
+  const cutoffIso = `${cutoff.getFullYear()}-${String(cutoff.getMonth()+1).padStart(2,'0')}-${String(cutoff.getDate()).padStart(2,'0')}`;
+  const recentQtyMap = {};
+  ventesAll.filter(t=>getIsoFromTx(t) >= cutoffIso).forEach(t=>{
+    const key = normProduit(t.description); if (!key) return;
+    recentQtyMap[key] = (recentQtyMap[key]||0) + getQtyCaisses(t);
+  });
+  const allProducts = new Set([...Object.keys(departMap), ...Object.keys(entreesMap), ...Object.keys(sortiesMap)]);
+  return [...allProducts].map(p => {
+    const actuel = Math.max(0, (departMap[p]||0) + (entreesMap[p]||0) - (sortiesMap[p]||0));
+    const venteMoyenneParJour = (recentQtyMap[p]||0) / 30;
+    const joursRestants = venteMoyenneParJour > 0 ? actuel / venteMoyenneParJour : null;
+    return { produit:p, actuel, venteMoyenneParJour, joursRestants };
+  }).filter(r => r.joursRestants != null)
+    .sort((a,b) => a.joursRestants - b.joursRestants);
+}
+
+// Dettes clients / fournisseurs les plus importantes en cours, mêmes
+// agrégations (ventes/achats à crédit + créances manuelles - paiements) que
+// getClientDebt()/getSupplierDebt() et que la "Liste des Dettes" de
+// buildFullWorkbook(), triées de la plus grosse balance restante à la plus
+// petite.
+function computeClientDebtAlerts() {
+  const clientsSet = new Set();
+  (STATE.transactions||[]).forEach(t=>{ if (t.type==='vente' && t.client) clientsSet.add(t.client); });
+  (STATE.credits||[]).forEach(c=>{ if (c.client) clientsSet.add(c.client); });
+  (STATE.manualClientDebts||[]).forEach(m=>{ if (m.client) clientsSet.add(m.client); });
+  return [...clientsSet]
+    .map(client => ({ client, balance: getClientDebt(client) }))
+    .filter(d => d.balance > 0)
+    .sort((a,b) => b.balance - a.balance);
+}
+function computeSupplierDebtAlerts() {
+  const suppliersSet = new Set();
+  (STATE.stocks||[]).forEach(s=>{ if (s.supplier) suppliersSet.add(s.supplier); });
+  (STATE.fournisseurPayments||[]).forEach(p=>{ if (p.supplier) suppliersSet.add(p.supplier); });
+  (STATE.manualSupplierDebts||[]).forEach(m=>{ if (m.supplier) suppliersSet.add(m.supplier); });
+  return [...suppliersSet]
+    .map(supplier => ({ supplier, balance: getSupplierDebt(supplier) }))
+    .filter(d => d.balance > 0)
+    .sort((a,b) => b.balance - a.balance);
+}
+
 function renderDataAnalyse() {
   const cont = document.getElementById('data-analyse-content');
   if (!cont) return;
+  const isAdminOrGest = STATE.currentUser && (STATE.currentUser.role==='admin' || STATE.currentUser.role==='gestionnaire');
   const ventes = (STATE.transactions||[]).filter(t=>t.type==='vente');
   if (!ventes.length) {
     cont.innerHTML = '<div class="card"><div style="text-align:center;color:var(--text3);padding:1.5rem;">Aucune vente enregistrée pour le moment.</div></div>';
@@ -3810,6 +4045,78 @@ function renderDataAnalyse() {
       `</tbody></table></div>`;
   }
   html += `</div>`;
+
+  // --- Carte Associations de produits lors des ventes (jour/semaine/mois,
+  // classées par ordre d'importance) — réservé à admin/gestionnaire ---
+  html += `<div class="card"><div class="card-title" style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;">
+      <span>🔗 Associations de produits lors des ventes</span>
+      ${isAdminOrGest ? `<button class="btn btn-primary" style="font-size:.78rem;padding:5px 12px;width:auto;" onclick="openAssociationModal()">📈 Voir les associations (jour / semaine / mois)</button>` : ''}
+    </div>
+    <div style="color:var(--text3);font-size:.85rem;padding:.3rem 0;">
+      ${isAdminOrGest ? "Découvrez quels produits sont le plus souvent vendus ensemble dans une même fiche de vente, classés par ordre d'importance." : "Réservé à l'administrateur et au gestionnaire."}
+    </div>
+  </div>`;
+
+  // --- Carte Alerte stock (rupture potentielle) ---
+  const stockAlerts = computeStockAlerts();
+  const urgentStock = stockAlerts.filter(r => r.joursRestants < 7).slice(0,5);
+  html += `<div class="card"><div class="card-title">📦 Alerte stock (rupture potentielle)</div>`;
+  if (!urgentStock.length) {
+    html += `<div style="color:var(--text3);padding:.5rem 0;">Aucun produit actif ne semble en rupture proche (moins de 7 jours de stock au rythme actuel des ventes).</div>`;
+  } else {
+    html += `<div class="table-wrap"><table><thead><tr><th>Produit</th><th>Stock actuel (éq. caisses)</th><th>Ventes moy./jour (30j)</th><th>Jours de stock restants</th></tr></thead><tbody>` +
+      urgentStock.map(r=>`<tr><td>${esc(r.produit)}</td><td>${r.actuel.toFixed(2)}</td><td>${r.venteMoyenneParJour.toFixed(2)}</td><td style="font-weight:600;color:#c0392b;">${r.joursRestants.toFixed(1)}</td></tr>`).join('') +
+      `</tbody></table></div>
+      <div style="background:var(--surface2);border-radius:8px;padding:10px 12px;font-size:.85rem;line-height:1.5;margin-top:.6rem;">💡 <strong>Recommandation</strong> : réapprovisionner en priorité les produits ci-dessus avant qu'ils ne soient en rupture.</div>`;
+  }
+  html += `</div>`;
+
+  // --- Carte Dettes clients à surveiller ---
+  const allClientDebts = computeClientDebtAlerts();
+  const topClientDebts = allClientDebts.slice(0,5);
+  const totalClientDebt = allClientDebts.reduce((a,d)=>a+d.balance,0);
+  html += `<div class="card"><div class="card-title">💰 Dettes clients à surveiller</div>
+    <div class="metric-card" style="margin-bottom:1rem;max-width:280px;"><div class="label">Total des dettes clients en cours</div><div class="value">${fmtHTG(totalClientDebt)}</div></div>`;
+  if (!topClientDebts.length) {
+    html += `<div style="color:var(--text3);padding:.5rem 0;">Aucune dette client en cours.</div>`;
+  } else {
+    html += `<div class="table-wrap"><table><thead><tr><th>Rang</th><th>Client</th><th>Balance restante (HTG)</th></tr></thead><tbody>` +
+      topClientDebts.map((d,i)=>`<tr><td>${i+1}</td><td>${esc(d.client)}</td><td style="font-weight:600;color:#c0392b;">${fmtHTG(d.balance)}</td></tr>`).join('') +
+      `</tbody></table></div>
+      <div style="background:var(--surface2);border-radius:8px;padding:10px 12px;font-size:.85rem;line-height:1.5;margin-top:.6rem;">💡 <strong>Recommandation</strong> : relancer en priorité les clients ayant la plus grosse balance restante pour limiter le risque d'impayé.</div>`;
+  }
+  html += `</div>`;
+
+  // --- Carte Dettes fournisseurs à surveiller ---
+  const allSupplierDebts = computeSupplierDebtAlerts();
+  const topSupplierDebts = allSupplierDebts.slice(0,5);
+  const totalSupplierDebt = allSupplierDebts.reduce((a,d)=>a+d.balance,0);
+  html += `<div class="card"><div class="card-title">🚚 Dettes fournisseurs à surveiller</div>
+    <div class="metric-card" style="margin-bottom:1rem;max-width:280px;"><div class="label">Total des dettes fournisseurs en cours</div><div class="value">${fmtHTG(totalSupplierDebt)}</div></div>`;
+  if (!topSupplierDebts.length) {
+    html += `<div style="color:var(--text3);padding:.5rem 0;">Aucune dette fournisseur en cours.</div>`;
+  } else {
+    html += `<div class="table-wrap"><table><thead><tr><th>Rang</th><th>Fournisseur</th><th>Balance restante (HTG)</th></tr></thead><tbody>` +
+      topSupplierDebts.map((d,i)=>`<tr><td>${i+1}</td><td>${esc(d.supplier)}</td><td style="font-weight:600;color:#c0392b;">${fmtHTG(d.balance)}</td></tr>`).join('') +
+      `</tbody></table></div>
+      <div style="background:var(--surface2);border-radius:8px;padding:10px 12px;font-size:.85rem;line-height:1.5;margin-top:.6rem;">💡 <strong>Recommandation</strong> : prioriser le paiement des fournisseurs ayant la plus grosse dette pour préserver la relation commerciale et éviter une rupture d'approvisionnement.</div>`;
+  }
+  html += `</div>`;
+
+  // --- Carte Répartition des ventes cash vs crédit (ce mois-ci) ---
+  const ventesCurMonth = ventes.filter(t=>getIsoFromTx(t).slice(0,7)===currentMonth);
+  const cashCurMonth = ventesCurMonth.reduce((a,t)=>a+(t.cash||0),0);
+  const creditCurMonth = ventesCurMonth.reduce((a,t)=>a+(t.credit||0),0);
+  const totalCurMonth = cashCurMonth + creditCurMonth;
+  const pctCredit = totalCurMonth>0 ? (creditCurMonth/totalCurMonth*100) : null;
+  html += `<div class="card"><div class="card-title">💳 Répartition des ventes : cash vs crédit (ce mois-ci)</div>
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:12px;margin-bottom:.8rem;">
+      <div class="metric-card success"><div class="label">Ventes cash</div><div class="value">${fmtHTG(cashCurMonth)}</div></div>
+      <div class="metric-card"><div class="label">Ventes à crédit</div><div class="value">${fmtHTG(creditCurMonth)}</div></div>
+      <div class="metric-card ${pctCredit!=null && pctCredit>40?'':'success'}"><div class="label">Part du crédit</div><div class="value">${pctCredit!=null?pctCredit.toFixed(1)+'%':'—'}</div></div>
+    </div>
+    <div style="background:var(--surface2);border-radius:8px;padding:10px 12px;font-size:.85rem;line-height:1.5;">💡 <strong>Recommandation</strong> : ${pctCredit==null?"pas assez de ventes ce mois-ci pour évaluer la répartition.":(pctCredit>40?"la part du crédit dépasse 40% des ventes du mois — envisager de resserrer la politique de crédit ou d'accélérer le recouvrement auprès des clients.":"la part du crédit reste maîtrisée (moins de 40% des ventes du mois).")}</div>
+  </div>`;
 
   // --- Carte Décisions à prendre ---
   html += `<div class="card"><div class="card-title">💡 Décisions à prendre</div>`;
@@ -4524,16 +4831,31 @@ function renderDepensesDom() {
   </tr>`).join('');
 }
 
+// Retourne le compte de charge à débiter pour une entrée de la collection
+// "charges" (Charges hors marchandises) selon sa description : Salaire et
+// Prime ont chacun leur propre compte dédié (visibles séparément dans le
+// Grand livre / la Balance), tout le reste (Transport, Manutention,
+// Carburant, Fourniture de bureau, Autres charges...) reste regroupé sous
+// "Charges diverses".
+function chargeAccountFor(description) {
+  if (description === 'Salaire') return '6410 – Salaires';
+  if (description === 'Prime') return '6420 – Primes';
+  return '6200 – Charges diverses';
+}
+
 // Construit la liste des écritures comptables (une par pièce) à partir de
-// TOUTES les collections concernées : ventes, achats (désormais traités comme
-// des CHARGES et non comme un actif de stock — crédité en Caisse si achat
-// cash, ou en Fournisseurs si achat à crédit), apports (comptés dans un
-// compte de PRODUITS), charges hors marchandises et dépenses domestiques
-// (toutes deux comptées comme des charges). Chaque écriture porte toujours
-// un compte débiteur ET un compte créditeur pour le MÊME montant : impossible
-// donc d'avoir un total Débit différent du total Crédit — le journal général,
-// le grand livre, la balance de vérification et les exports Excel utilisent
-// tous cette même liste, pour ne jamais afficher des chiffres différents.
+// TOUTES les transactions effectuées dans l'application : ventes, achats
+// (désormais traités comme des CHARGES et non comme un actif de stock —
+// crédité en Caisse si achat cash, ou en Fournisseurs si achat à crédit),
+// apports (comptés dans un compte de PRODUITS), charges hors marchandises —
+// salaires et primes ayant chacun leur propre compte —, dépenses
+// domestiques, remboursements de crédit par les clients, paiements des
+// dettes envers les fournisseurs, et retraits de caisse. Chaque écriture
+// porte toujours un compte débiteur ET un compte créditeur pour le MÊME
+// montant : impossible donc d'avoir un total Débit différent du total
+// Crédit — le journal général, le grand livre, la balance de vérification
+// et les exports Excel utilisent tous cette même liste, pour ne jamais
+// afficher des chiffres différents.
 function computeJournalEntries() {
   const entries = [];
   STATE.transactions.filter(t=>t.type==='vente').forEach(t=>{
@@ -4561,7 +4883,7 @@ function computeJournalEntries() {
   (STATE.charges||[]).forEach(c=>{
     entries.push({
       date:c.date, isoDate:c.isoDate||c.date||'', time:c.time||'',
-      debit:'6200 – Charges diverses', credit:'5100 – Caisse',
+      debit:chargeAccountFor(c.description), credit:'5100 – Caisse',
       label:c.description||'Charge', amount:c.montant||0
     });
   });
@@ -4570,6 +4892,34 @@ function computeJournalEntries() {
       date:d.date, isoDate:d.isoDate||d.date||'', time:d.time||'',
       debit:'6300 – Dépenses domestiques', credit:'5100 – Caisse',
       label:d.description||'Dépense domestique', amount:d.montant||0
+    });
+  });
+  // Remboursement de crédit par un client : seuls les vrais paiements
+  // (paid > 0) comptent — l'entrée créée automatiquement au moment de la
+  // vente à crédit elle-même a toujours paid=0 et n'est pas un mouvement.
+  (STATE.credits||[]).filter(c=>(c.paid||0) > 0).forEach(c=>{
+    entries.push({
+      date:c.date, isoDate:c.isoDate||c.date||'', time:c.time||'',
+      debit:'5100 – Caisse', credit:'4110 – Clients',
+      label:`Remboursement crédit – ${c.client||'?'}`, amount:c.paid||0
+    });
+  });
+  // Paiement d'une dette envers un fournisseur : seuls les vrais paiements
+  // (paid > 0) comptent — l'entrée créée au moment de l'achat à crédit
+  // lui-même a toujours paid=0 et n'est pas un mouvement.
+  (STATE.fournisseurPayments||[]).filter(p=>(p.paid||0) > 0).forEach(p=>{
+    entries.push({
+      date:p.date, isoDate:p.isoDate||p.date||'', time:p.time||'',
+      debit:'4010 – Fournisseurs', credit:'5100 – Caisse',
+      label:`Paiement fournisseur – ${p.supplier||'?'}`, amount:p.paid||0
+    });
+  });
+  // Retrait de caisse (argent sorti du tiroir pour un motif quelconque).
+  (STATE.caisseRetraits||[]).forEach(r=>{
+    entries.push({
+      date:r.date, isoDate:r.isoDate||r.date||'', time:r.time||'',
+      debit:'6400 – Retraits de caisse', credit:'5100 – Caisse',
+      label:`Retrait – ${r.personne||'?'} (${r.objet||'?'})`, amount:r.montant||0
     });
   });
   entries.sort((a,b)=>(a.isoDate||'').localeCompare(b.isoDate||'')||(a.time||'').localeCompare(b.time||''));
@@ -4583,8 +4933,11 @@ function buildTransSheet() {
   STATE.transactions.filter(t=>t.type==='vente').forEach(t=>items.push({...t, _label:'Vente', _isVente:true}));
   (STATE.stocks||[]).forEach(s=>items.push({...s, montant:s.amount, _label:'Achat'}));
   (STATE.apports||[]).forEach(a=>items.push({...a, description:a.source||'Apport', _label:'Apport'}));
-  (STATE.charges||[]).forEach(c=>items.push({...c, _label:'Charge hors marchandises'}));
+  (STATE.charges||[]).forEach(c=>items.push({...c, _label:(c.description==='Salaire'||c.description==='Prime')?c.description:'Charge hors marchandises'}));
   (STATE.depensesDomestiques||[]).forEach(d=>items.push({...d, _label:'Dépense domestique'}));
+  (STATE.credits||[]).filter(c=>(c.paid||0)>0).forEach(c=>items.push({...c, montant:c.paid, description:`Remboursement crédit – ${c.client||'?'}`, _label:'Paiement crédit client'}));
+  (STATE.fournisseurPayments||[]).filter(p=>(p.paid||0)>0).forEach(p=>items.push({...p, montant:p.paid, description:`Paiement fournisseur – ${p.supplier||'?'}`, _label:'Paiement dette fournisseur'}));
+  (STATE.caisseRetraits||[]).forEach(r=>items.push({...r, montant:r.montant, description:`Retrait – ${r.personne||'?'} (${r.objet||'?'})`, _label:'Retrait de caisse'}));
   items.sort((a,b)=>(a.isoDate||a.date||'').localeCompare(b.isoDate||b.date||'')||(a.time||'').localeCompare(b.time||''));
   let cum=0, grandTotal=0;
   body.innerHTML = items.map((t,i)=>{
@@ -4621,7 +4974,7 @@ function buildGrandLivre() {
   const entries = computeJournalEntries();
   // Ordre d'affichage fixe (toujours affichés, même sans mouvement) pour que
   // la structure du grand livre reste stable d'une consultation à l'autre.
-  const order = ['5100 – Caisse','7000 – Ventes','6100 – Achats marchandises','4010 – Fournisseurs','7100 – Apports','6200 – Charges diverses','6300 – Dépenses domestiques'];
+  const order = ['5100 – Caisse','7000 – Ventes','6100 – Achats marchandises','4010 – Fournisseurs','7100 – Apports','6410 – Salaires','6420 – Primes','6200 – Charges diverses','6300 – Dépenses domestiques','4110 – Clients','6400 – Retraits de caisse'];
   const accs = {};
   order.forEach(acc => accs[acc] = []);
   entries.forEach(e=>{
@@ -4654,8 +5007,12 @@ function buildBalance() {
     {num:'6100', label:'Achats marchandises', key:'6100 – Achats marchandises'},
     {num:'4010', label:'Fournisseurs', key:'4010 – Fournisseurs'},
     {num:'7100', label:'Apports', key:'7100 – Apports'},
+    {num:'6410', label:'Salaires', key:'6410 – Salaires'},
+    {num:'6420', label:'Primes', key:'6420 – Primes'},
     {num:'6200', label:'Charges diverses', key:'6200 – Charges diverses'},
-    {num:'6300', label:'Dépenses domestiques', key:'6300 – Dépenses domestiques'}
+    {num:'6300', label:'Dépenses domestiques', key:'6300 – Dépenses domestiques'},
+    {num:'4110', label:'Clients', key:'4110 – Clients'},
+    {num:'6400', label:'Retraits de caisse', key:'6400 – Retraits de caisse'}
   ];
   const sums = {};
   entries.forEach(e=>{
@@ -5177,7 +5534,7 @@ function buildJournalExcelSheets(wb, names) {
   });
   XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(jRows),journalName);
 
-  const order = ['5100 – Caisse','7000 – Ventes','6100 – Achats marchandises','4010 – Fournisseurs','7100 – Apports','6200 – Charges diverses','6300 – Dépenses domestiques'];
+  const order = ['5100 – Caisse','7000 – Ventes','6100 – Achats marchandises','4010 – Fournisseurs','7100 – Apports','6410 – Salaires','6420 – Primes','6200 – Charges diverses','6300 – Dépenses domestiques','4110 – Clients','6400 – Retraits de caisse'];
   const glRows=[['Compte','Date','Libellé','Débit','Crédit','Solde']];
   const accs={};
   order.forEach(acc=>accs[acc]=[]);
@@ -5196,8 +5553,12 @@ function buildJournalExcelSheets(wb, names) {
     {num:'6100', label:'Achats marchandises', key:'6100 – Achats marchandises'},
     {num:'4010', label:'Fournisseurs', key:'4010 – Fournisseurs'},
     {num:'7100', label:'Apports', key:'7100 – Apports'},
+    {num:'6410', label:'Salaires', key:'6410 – Salaires'},
+    {num:'6420', label:'Primes', key:'6420 – Primes'},
     {num:'6200', label:'Charges diverses', key:'6200 – Charges diverses'},
-    {num:'6300', label:'Dépenses domestiques', key:'6300 – Dépenses domestiques'}
+    {num:'6300', label:'Dépenses domestiques', key:'6300 – Dépenses domestiques'},
+    {num:'4110', label:'Clients', key:'4110 – Clients'},
+    {num:'6400', label:'Retraits de caisse', key:'6400 – Retraits de caisse'}
   ];
   const sums = {};
   entries.forEach(e=>{
@@ -5222,15 +5583,20 @@ function exportAllToExcel() {
   const vt=STATE.transactions.filter(t=>t.type==='vente').reduce((a,t)=>a+t.amount,0);
   const st=STATE.stocks.reduce((a,s)=>a+s.amount,0);
 
-  // Transactions (ventes, achats, apports, charges hors marchandises et
-  // dépenses domestiques, toutes confondues et triées chronologiquement).
+  // Transactions (ventes, achats, apports, charges hors marchandises —
+  // salaires/primes inclus —, dépenses domestiques, remboursements de crédit
+  // clients, paiements de dettes fournisseurs et retraits de caisse, toutes
+  // confondues et triées chronologiquement).
   let cum=0;
   const items = [];
   STATE.transactions.filter(t=>t.type==='vente').forEach(t=>items.push({...t, _label:'Vente', _isVente:true}));
   (STATE.stocks||[]).forEach(s=>items.push({...s, montant:s.amount, _label:'Achat'}));
   (STATE.apports||[]).forEach(a=>items.push({...a, description:a.source||'Apport', _label:'Apport'}));
-  (STATE.charges||[]).forEach(c=>items.push({...c, _label:'Charge hors marchandises'}));
+  (STATE.charges||[]).forEach(c=>items.push({...c, _label:(c.description==='Salaire'||c.description==='Prime')?c.description:'Charge hors marchandises'}));
   (STATE.depensesDomestiques||[]).forEach(d=>items.push({...d, _label:'Dépense domestique'}));
+  (STATE.credits||[]).filter(c=>(c.paid||0)>0).forEach(c=>items.push({...c, montant:c.paid, description:`Remboursement crédit – ${c.client||'?'}`, _label:'Paiement crédit client'}));
+  (STATE.fournisseurPayments||[]).filter(p=>(p.paid||0)>0).forEach(p=>items.push({...p, montant:p.paid, description:`Paiement fournisseur – ${p.supplier||'?'}`, _label:'Paiement dette fournisseur'}));
+  (STATE.caisseRetraits||[]).forEach(r=>items.push({...r, montant:r.montant, description:`Retrait – ${r.personne||'?'} (${r.objet||'?'})`, _label:'Retrait de caisse'}));
   items.sort((a,b)=>(a.isoDate||a.date||'').localeCompare(b.isoDate||b.date||'')||(a.time||'').localeCompare(b.time||''));
   XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([
     ['#','Date','Heure','Vendeur','Description','Quantité','Montant HTG','Type','Cumul ventes'],
@@ -5522,6 +5888,7 @@ async function submitCredit() {
         renderCredits();
         renderDettes();
         renderMySales();
+        if (currentTab === 'compta') refreshAccounting();
         if (currentTab === 'dettes') {
           const body = document.getElementById('dettes-table-body');
           if (body) body.innerHTML = '<tr><td colspan="5" style="text-align:center;">Mise à jour...</td></tr>';
@@ -5572,6 +5939,7 @@ async function submitCredit() {
   renderCredits();
   renderDettes();
   renderMySales();
+  if (currentTab === 'compta') refreshAccounting();
   document.getElementById('cr-client').value = '';
   document.getElementById('cr-balance-due').value = '';
   document.getElementById('cr-paid').value = '';
@@ -5771,6 +6139,7 @@ async function deleteCredit(id) {
       renderCredits();
       renderDettes();
       renderMySales();
+      if (currentTab === 'compta') refreshAccounting();
       setTimeout(() => renderDettes(), 200);
     } catch(e) { showToast('⚠ Erreur: '+e.message,'warn'); }
   } else {
@@ -5778,6 +6147,7 @@ async function deleteCredit(id) {
     renderCredits();
     renderDettes();
     renderMySales();
+    if (currentTab === 'compta') refreshAccounting();
   }
 }
 
@@ -6334,6 +6704,7 @@ async function submitFournisseurPayment(prefix) {
         if (idx>=0) STATE.fournisseurPayments[idx] = {...STATE.fournisseurPayments[idx], paid, finalBalance:final, status: final===0?'soldé':'partiel'};
         renderFournisseurPayments();
         renderDettesFournisseurs();
+        if (currentTab === 'compta') refreshAccounting();
       } catch(e) { showToast('⚠ Erreur: '+e.message,'warn'); }
     } else {
       showToast('⚠ Hors ligne — impossible de modifier ce paiement maintenant.','warn');
@@ -6377,6 +6748,7 @@ async function submitFournisseurPayment(prefix) {
   }
   renderFournisseurPayments();
   renderDettesFournisseurs();
+  if (currentTab === 'compta') refreshAccounting();
   document.getElementById(prefix+'-supplier').value = '';
   document.getElementById(prefix+'-balance-due').value = '';
   document.getElementById(prefix+'-paid').value = '';
@@ -6503,11 +6875,13 @@ async function deleteFournisseurPayment(id) {
       STATE.fournisseurPayments = (STATE.fournisseurPayments||[]).filter(p => p.id !== id);
       renderFournisseurPayments();
       renderDettesFournisseurs();
+      if (currentTab === 'compta') refreshAccounting();
     } catch(e) { showToast('⚠ Erreur: '+e.message,'warn'); }
   } else {
     STATE.fournisseurPayments = (STATE.fournisseurPayments||[]).filter(p => p.id !== id);
     renderFournisseurPayments();
     renderDettesFournisseurs();
+    if (currentTab === 'compta') refreshAccounting();
   }
 }
 
@@ -6864,6 +7238,7 @@ async function submitRetraitCaisse() {
   renderCaisseRetraits();
   renderCaisse();
   renderDashboard();
+  if (currentTab === 'compta') refreshAccounting();
   document.getElementById('cxr-date').value='';
   document.getElementById('cxr-montant').value='';
   document.getElementById('cxr-personne').value='';
@@ -6885,6 +7260,7 @@ async function deleteCaisseRetrait(id) {
   renderCaisseRetraits();
   renderCaisse();
   renderDashboard();
+  if (currentTab === 'compta') refreshAccounting();
 }
 
 function renderCaisseRetraits() {
