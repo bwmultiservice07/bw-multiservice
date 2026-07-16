@@ -180,6 +180,34 @@ th{text-align:left;padding:7px 10px;background:var(--surface2);color:var(--text2
 td{padding:7px 10px;border-bottom:1px solid #f0f2f7;color:var(--text);vertical-align:middle;}
 tr:last-child td{border-bottom:none;}
 tr:hover td{background:#f7f9ff;}
+
+/* "Vente du jour (tous vendeurs)" : colonnes figées façon Excel ("freeze
+   panes") sur Date, Heure, Vendeur et Description — ces 4 colonnes restent
+   visibles pendant le défilement horizontal vers Qté, Unité...Actions.
+   Largeurs fixes obligatoires pour que les décalages "left" cumulés restent
+   corrects (position:sticky). :not([colspan]) exclut les lignes de
+   séparation (mois/jour) et la ligne "Total du jour", qui utilisent des
+   cellules avec colspan et ne doivent pas être rétrécies/figées. */
+#my-sales-wrap th:not([colspan]):nth-child(1),
+#my-sales-wrap td:not([colspan]):nth-child(1),
+#my-sales-wrap th:not([colspan]):nth-child(2),
+#my-sales-wrap td:not([colspan]):nth-child(2),
+#my-sales-wrap th:not([colspan]):nth-child(3),
+#my-sales-wrap td:not([colspan]):nth-child(3),
+#my-sales-wrap th:not([colspan]):nth-child(4),
+#my-sales-wrap td:not([colspan]):nth-child(4){
+  position:sticky; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+}
+#my-sales-wrap th:not([colspan]):nth-child(1), #my-sales-wrap td:not([colspan]):nth-child(1){ left:0; width:95px; min-width:95px; max-width:95px; }
+#my-sales-wrap th:not([colspan]):nth-child(2), #my-sales-wrap td:not([colspan]):nth-child(2){ left:95px; width:65px; min-width:65px; max-width:65px; }
+#my-sales-wrap th:not([colspan]):nth-child(3), #my-sales-wrap td:not([colspan]):nth-child(3){ left:160px; width:90px; min-width:90px; max-width:90px; }
+#my-sales-wrap th:not([colspan]):nth-child(4), #my-sales-wrap td:not([colspan]):nth-child(4){ left:250px; width:150px; min-width:150px; max-width:150px; box-shadow:2px 0 4px -2px rgba(0,0,0,.18); }
+#my-sales-wrap td:not([colspan]):nth-child(1), #my-sales-wrap td:not([colspan]):nth-child(2),
+#my-sales-wrap td:not([colspan]):nth-child(3), #my-sales-wrap td:not([colspan]):nth-child(4){ background:var(--surface); z-index:2; }
+#my-sales-wrap th:not([colspan]):nth-child(1), #my-sales-wrap th:not([colspan]):nth-child(2),
+#my-sales-wrap th:not([colspan]):nth-child(3), #my-sales-wrap th:not([colspan]):nth-child(4){ background:var(--surface2); z-index:3; }
+#my-sales-wrap tr:hover td:not([colspan]):nth-child(1), #my-sales-wrap tr:hover td:not([colspan]):nth-child(2),
+#my-sales-wrap tr:hover td:not([colspan]):nth-child(3), #my-sales-wrap tr:hover td:not([colspan]):nth-child(4){ background:#f7f9ff; }
 .badge{display:inline-block;padding:2px 9px;border-radius:20px;font-size:.73rem;font-weight:600;}
 .badge-pending{background:#fef3e2;color:#b45309;}
 .badge-sent{background:var(--success-bg);color:var(--success);}
