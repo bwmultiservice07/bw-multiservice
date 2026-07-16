@@ -343,7 +343,7 @@ tr:hover td{background:#f7f9ff;}
                   <option value="bout">Bout (12 unités)</option>
                   <option value="caisse-1-2">Caisse et 1/2 (36 unités)</option>
                   <option value="bout-1-2">Bout et 1/2 (18 unités)</option>
-                  <option value="caisse-beller">Caisse Beller (48 unités)</option>
+                  <option value="caisse-beller">Caisse Beller (40 unités)</option>
                   <option value="unite">Unité (1 unité)</option>
                 </select>
               </div>
@@ -399,7 +399,7 @@ tr:hover td{background:#f7f9ff;}
       </div>
 
       <div class="card">
-        <div class="card-title">🧊 Enregistrer une vente glacée</div>
+        <div class="card-title">🧊 Vente produits glacés</div>
         <div class="form-row">
           <div class="form-group" style="flex:2;min-width:200px;">
             <label>Produit</label>
@@ -409,16 +409,8 @@ tr:hover td{background:#f7f9ff;}
         </div>
         <div class="form-row">
           <div class="form-group">
-            <label>Quantité</label>
-            <input type="number" id="vg-qty" min="1" placeholder="Ex: 10" oninput="calcMontantGlace()"/>
-          </div>
-          <div class="form-group">
-            <label>Prix unitaire (HTG)</label>
-            <input type="number" id="vg-prix" min="0" step="0.01" placeholder="Ex: 50.00" oninput="calcMontantGlace()"/>
-          </div>
-          <div class="form-group">
-            <label>Montant total (HTG) — automatique</label>
-            <input type="number" id="vg-amount" min="0" step="0.01" placeholder="0.00" readonly style="background:#f0f2f7;font-weight:700;color:#1a56db;"/>
+            <label>Montant en gourdes (HTG)</label>
+            <input type="number" id="vg-amount" min="0" step="0.01" placeholder="Ex: 500.00"/>
           </div>
         </div>
         <button class="send-btn" onclick="submitSaleGlace()">Envoyer ➤</button>
@@ -446,7 +438,7 @@ tr:hover td{background:#f7f9ff;}
     <div class="tab-content" id="tab-credit">
       <div class="accounting-tabs">
         <button class="credit-sub-tab active" onclick="switchCreditSubTab('clients',this)">💳 Paiement Clients — Remboursement de crédit</button>
-        <button class="credit-sub-tab" onclick="switchCreditSubTab('fournisseurs',this)">🚚 Paiement Dettes envers Fournisseurs</button>
+        <button id="credit-sub-fournisseurs-btn" class="credit-sub-tab" onclick="switchCreditSubTab('fournisseurs',this)">🚚 Paiement Dettes envers Fournisseurs</button>
       </div>
 
       <div class="credit-sub-sheet active" id="credit-sub-clients">
@@ -478,7 +470,7 @@ tr:hover td{background:#f7f9ff;}
           </div>
           <button class="send-btn" onclick="submitCredit()">Enregistrer paiement ➤</button>
 
-          <div style="margin-top:1.8rem;padding-top:1.4rem;border-top:1.5px dashed var(--border);">
+          <div id="fpq-shortcut-wrap" style="margin-top:1.8rem;padding-top:1.4rem;border-top:1.5px dashed var(--border);">
             <div class="card-title" style="margin-bottom:.8rem;">🚚 Rembourser une dette fournisseur</div>
             <div class="form-row">
               <div class="form-group" style="flex:2;min-width:200px;">
@@ -857,7 +849,7 @@ tr:hover td{background:#f7f9ff;}
               <option value="bout">Bout (12 unités)</option>
               <option value="caisse-1-2">Caisse et 1/2 (36 unités)</option>
               <option value="bout-1-2">Bout et 1/2 (18 unités)</option>
-              <option value="caisse-beller">Caisse Beller (48 unités)</option>
+              <option value="caisse-beller">Caisse Beller (40 unités)</option>
             </select>
           </div>
           <div class="form-group">
@@ -2098,6 +2090,12 @@ function finishLogin(user) {
     document.getElementById('tab-depenses-dom-btn').style.display = 'block';
     // Seuls admin et gestionnaire peuvent corriger une vente déjà envoyée
     document.getElementById('btn-corriger-vente').style.display = 'inline-flex';
+    // Seuls admin et gestionnaire voient la carte "Rembourser une dette
+    // fournisseur" (raccourci sous Paiement Client) et le sous-onglet dédié
+    // "Paiement Dettes envers Fournisseurs" — le vendeur garde "Paiement
+    // Client" (crédit client) intact.
+    document.getElementById('fpq-shortcut-wrap').style.display = '';
+    document.getElementById('credit-sub-fournisseurs-btn').style.display = '';
   } else {
     // Vendeur : onglets Ventes, Crédit Client, Liste des Dettes
     document.getElementById('tab-admin-btn').style.display = 'none';
@@ -2117,6 +2115,15 @@ function finishLogin(user) {
     // Le vendeur ne peut plus corriger/supprimer lui-même ses ventes :
     // seuls admin et gestionnaire en ont le droit désormais.
     document.getElementById('btn-corriger-vente').style.display = 'none';
+    // Le vendeur n'a pas accès à "Rembourser une dette fournisseur" : ni le
+    // raccourci sous Paiement Client, ni le sous-onglet dédié. "Paiement
+    // Client" (crédit client) reste intact et pleinement fonctionnel.
+    document.getElementById('fpq-shortcut-wrap').style.display = 'none';
+    document.getElementById('credit-sub-fournisseurs-btn').style.display = 'none';
+    // Si le sous-onglet fournisseur était actif (état résiduel d'une session
+    // précédente sur cet appareil), revenir sur "Paiement Clients" pour ne
+    // jamais laisser un vendeur bloqué sur un sous-onglet désormais masqué.
+    switchCreditSubTab('clients', null);
   }
   updateConnStatus();
   renderAll();
@@ -2458,8 +2465,8 @@ function normalizeProduitField(fieldId) {
 // SALES
 // ============================================================
 // Table des facteurs "caisse" par type d'unité (nouvelle liste à 5 options).
-// Un caisse = 24 unités (48 pour Beller). Bout = 1/2 caisse. Caisse et 1/2 = 1.5
-// caisse. Bout et 1/2 = 1.5 bout = 0.75 caisse. Caisse Beller = 1 caisse de 48 unités.
+// Un caisse = 24 unités (40 pour Beller). Bout = 1/2 caisse. Caisse et 1/2 = 1.5
+// caisse. Bout et 1/2 = 1.5 bout = 0.75 caisse. Caisse Beller = 1 caisse de 40 unités.
 const UNIT_FACTORS = {
   'caisse': 1,
   'bout': 0.5,
@@ -2469,12 +2476,12 @@ const UNIT_FACTORS = {
 };
 
 // Détermine la taille d'une caisse (en unités) pour un produit/unité donné.
-// Beller = 48 unités/caisse ; sinon 24 unités/caisse. Le produit est détecté
+// Beller = 40 unités/caisse ; sinon 24 unités/caisse. Le produit est détecté
 // via le nom (contient "beller") ou via le choix explicite "Caisse Beller".
 function getCasseSize(produit, unit) {
   const isBellerProduit = (produit||'').toLowerCase().includes('beller');
   const isBellerUnit = unit === 'caisse-beller';
-  return (isBellerProduit || isBellerUnit) ? 48 : 24;
+  return (isBellerProduit || isBellerUnit) ? 40 : 24;
 }
 
 // Nombre d'unités individuelles représentées par le choix "Prix caisse/bout"
@@ -2482,7 +2489,7 @@ function getCasseSize(produit, unit) {
 // unitaire = prix de vente d'une seule unité = Prix caisse/bout ÷ ce nombre.
 function getUnitsPerSelection(produit, unit) {
   // "unite" = exactement 1 unité individuelle, quelle que soit la taille
-  // réelle d'une caisse pour ce produit (24 ou 48 pour Beller) — pas une
+  // réelle d'une caisse pour ce produit (24 ou 40 pour Beller) — pas une
   // valeur fixe dans UNIT_FACTORS, calculée à part.
   if (unit === 'unite') return 1;
   const casseSize = getCasseSize(produit, unit);
@@ -2548,9 +2555,10 @@ function calcPrixUnitaire(prefix) {
 
 // Calcule le sous-total d'UNE ligne produit (prefix 'v', 'v2', 'v3'...) et
 // l'écrit dans son propre champ "-row-amount", puis redéclenche le recalcul
-// du montant total de la vente (somme de toutes les lignes) — sauf pour le
-// formulaire "vente glacée" (prefix 'vg') qui n'a pas de lignes multiples ni
-// de champ -row-amount et gère son propre montant via calcMontantGlace().
+// du montant total de la vente (somme de toutes les lignes) — le formulaire
+// "vente glacée" (prefix 'vg') n'utilise pas cette fonction : son montant en
+// gourdes est saisi manuellement par le vendeur, directement dans le champ
+// vg-amount.
 function calcMontant(prefix) {
   prefix = prefix || 'v';
   const qty = parseFloat(document.getElementById(prefix+'-qty').value) || 0;
@@ -2564,7 +2572,7 @@ function calcMontant(prefix) {
   // Montant (sous-total de cette ligne) = (Quantité × facteur de l'unité × Prix caisse)
   //                                     + (Nombre d'unité × Prix unitaire)
   // "unite" = 1 unité individuelle : son facteur dépend de la taille réelle
-  // d'une caisse pour ce produit (24, ou 48 pour Beller), donc calculé à
+  // d'une caisse pour ce produit (24, ou 40 pour Beller), donc calculé à
   // part plutôt que dans la table fixe UNIT_FACTORS.
   const factor = unit === 'unite' ? (1 / getCasseSize(produit, unit)) : (UNIT_FACTORS[unit] !== undefined ? UNIT_FACTORS[unit] : 1);
   const montant = (qty * factor * prixCaisse) + (nbUnite * prixUnit);
@@ -2628,7 +2636,7 @@ function addVenteProductRow() {
           <option value="bout">Bout (12 unités)</option>
           <option value="caisse-1-2">Caisse et 1/2 (36 unités)</option>
           <option value="bout-1-2">Bout et 1/2 (18 unités)</option>
-          <option value="caisse-beller">Caisse Beller (48 unités)</option>
+          <option value="caisse-beller">Caisse Beller (40 unités)</option>
           <option value="unite">Unité (1 unité)</option>
         </select>
       </div>
@@ -2958,27 +2966,23 @@ async function submitSale() {
   unlockSaleForm();
 }
 
-// Montant total = Quantité × Prix unitaire (formulaire simplifié "vente glacée").
-function calcMontantGlace() {
-  const qty = parseFloat(document.getElementById('vg-qty').value) || 0;
-  const prix = parseFloat(document.getElementById('vg-prix').value) || 0;
-  document.getElementById('vg-amount').value = (qty*prix).toFixed(2);
-}
-
-// Vente d'un produit "glacé" — formulaire simplifié : Produit, Quantité, Prix
-// unitaire, Montant total (auto). La description du produit reste identique
-// (ex: "Sprite", sans suffixe) pour rester compatible avec le calcul du
-// chiffre d'affaires, les taux de marge et Data Analyse ; seul le champ
-// isGlace:true distingue cette vente, affiché comme badge 🧊 dans "Vente du
-// jour" (elle y apparaît automatiquement car type:'vente'). Vente considérée
-// entièrement cash (pas de champ client/crédit dans ce formulaire simplifié).
+// Vente d'un produit "glacé" — formulaire simplifié : Produit + Montant en
+// gourdes saisi manuellement par le vendeur (pas de calcul quantité × prix
+// unitaire, le vendeur tape directement le montant total encaissé). La
+// description du produit reste identique (ex: "Sprite", sans suffixe) pour
+// rester compatible avec le chiffre d'affaires et Data Analyse ; le champ
+// prixCaisse reste à 0 pour ce type de vente afin de ne PAS entrer dans le
+// calcul du taux de marge (computeProductPriceMaps() ignore déjà toute vente
+// dont prixCaisse est à 0 — comportement inchangé par rapport à avant). Seul
+// le champ isGlace:true distingue cette vente, affiché comme badge 🧊 dans
+// "Vente du jour (tous vendeurs)" (elle y apparaît automatiquement car
+// type:'vente'). Vente considérée entièrement cash (pas de champ
+// client/crédit dans ce formulaire simplifié).
 async function submitSaleGlace() {
   const desc = document.getElementById('vg-desc').value.trim();
-  const qty = parseFloat(document.getElementById('vg-qty').value);
-  const prix = parseFloat(document.getElementById('vg-prix').value);
   const amount = parseFloat(document.getElementById('vg-amount').value);
-  if (!desc||isNaN(qty)||qty<=0||isNaN(prix)||prix<=0||isNaN(amount)||amount<=0) {
-    showToast('⚠ Veuillez remplir tous les champs obligatoires (produit, quantité, prix unitaire).','warn'); return;
+  if (!desc||isNaN(amount)||amount<=0) {
+    showToast('⚠ Veuillez remplir tous les champs obligatoires (produit, montant en gourdes).','warn'); return;
   }
   const saleDate = todayStr(), saleIsoDate = isoDate(), saleTime = nowStr();
   // Caractéristiques de l'appareil du vendeur, capturées automatiquement (voir
@@ -2987,7 +2991,7 @@ async function submitSaleGlace() {
   const tx = {
     type:'vente', date:saleDate, isoDate:saleIsoDate, time:saleTime,
     seller:STATE.currentUser.username, description:desc, unit:'unite', isGlace:true,
-    quantity:qty, unitPrice:prix, nombreUnite:0, prixCaisse:0, amount:amount, cash:amount, credit:0, balance:0,
+    quantity:1, unitPrice:amount, nombreUnite:0, prixCaisse:0, amount:amount, cash:amount, credit:0, balance:0,
     client:'', status:'sent', deviceInfo, createdAt: new Date().toISOString()
   };
   if (STATE.isOnline && STATE.fbReady) {
@@ -3014,8 +3018,6 @@ async function submitSaleGlace() {
   renderMySales();
   renderDashboard();
   document.getElementById('vg-desc').value='';
-  document.getElementById('vg-qty').value='';
-  document.getElementById('vg-prix').value='';
   document.getElementById('vg-amount').value='';
 }
 
