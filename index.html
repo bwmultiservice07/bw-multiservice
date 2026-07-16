@@ -401,13 +401,6 @@ tr:hover td{background:#f7f9ff;}
       <div class="card">
         <div class="card-title">🧊 Vente produits glacés</div>
         <div class="form-row">
-          <div class="form-group" style="flex:2;min-width:200px;">
-            <label>Produit</label>
-            <input type="text" id="vg-desc" list="produit-list" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" placeholder="Tapez le nom du produit..."
-              oninput="updateProduitList('vg-desc')" onchange="normalizeProduitField('vg-desc')" onfocus="updateProduitList('vg-desc')"/>
-          </div>
-        </div>
-        <div class="form-row">
           <div class="form-group">
             <label>Montant en gourdes (HTG)</label>
             <input type="number" id="vg-amount" min="0" step="0.01" placeholder="Ex: 500.00"/>
@@ -2966,23 +2959,22 @@ async function submitSale() {
   unlockSaleForm();
 }
 
-// Vente d'un produit "glacé" — formulaire simplifié : Produit + Montant en
-// gourdes saisi manuellement par le vendeur (pas de calcul quantité × prix
-// unitaire, le vendeur tape directement le montant total encaissé). La
-// description du produit reste identique (ex: "Sprite", sans suffixe) pour
-// rester compatible avec le chiffre d'affaires et Data Analyse ; le champ
-// prixCaisse reste à 0 pour ce type de vente afin de ne PAS entrer dans le
-// calcul du taux de marge (computeProductPriceMaps() ignore déjà toute vente
-// dont prixCaisse est à 0 — comportement inchangé par rapport à avant). Seul
-// le champ isGlace:true distingue cette vente, affiché comme badge 🧊 dans
-// "Vente du jour (tous vendeurs)" (elle y apparaît automatiquement car
-// type:'vente'). Vente considérée entièrement cash (pas de champ
-// client/crédit dans ce formulaire simplifié).
+// Vente d'un produit "glacé" — carte réduite à l'essentiel : uniquement le
+// montant en gourdes, saisi manuellement par le vendeur (pas de champ
+// Produit, pas de calcul quantité × prix unitaire). La description est fixée
+// à "Produits glacés" (constante, pas de saisie) ; le champ prixCaisse reste
+// à 0 pour ce type de vente afin de ne PAS entrer dans le calcul du taux de
+// marge (computeProductPriceMaps() ignore déjà toute vente dont prixCaisse
+// est à 0 — comportement inchangé par rapport à avant). Seul le champ
+// isGlace:true distingue cette vente, affiché comme badge 🧊 dans "Vente du
+// jour (tous vendeurs)" (elle y apparaît automatiquement car type:'vente',
+// exactement associée aux autres ventes du jour). Vente considérée
+// entièrement cash (pas de champ client/crédit dans ce formulaire simplifié).
 async function submitSaleGlace() {
-  const desc = document.getElementById('vg-desc').value.trim();
+  const desc = 'Produits glacés';
   const amount = parseFloat(document.getElementById('vg-amount').value);
-  if (!desc||isNaN(amount)||amount<=0) {
-    showToast('⚠ Veuillez remplir tous les champs obligatoires (produit, montant en gourdes).','warn'); return;
+  if (isNaN(amount)||amount<=0) {
+    showToast('⚠ Veuillez indiquer le montant en gourdes.','warn'); return;
   }
   const saleDate = todayStr(), saleIsoDate = isoDate(), saleTime = nowStr();
   // Caractéristiques de l'appareil du vendeur, capturées automatiquement (voir
@@ -3017,7 +3009,6 @@ async function submitSaleGlace() {
   markUnsaved();
   renderMySales();
   renderDashboard();
-  document.getElementById('vg-desc').value='';
   document.getElementById('vg-amount').value='';
 }
 
