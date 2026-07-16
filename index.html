@@ -5256,7 +5256,11 @@ async function saveProfileFromModal() {
   const deviceBrand = document.getElementById('profile-device-brand').value.trim();
   const deviceModel = document.getElementById('profile-device-model').value.trim();
   const deviceSerial = document.getElementById('profile-device-serial').value.trim();
-  if (!fbId) return;
+  // Ces deux cas d'échec restaient auparavant quasi invisibles (la fenêtre ne
+  // se fermait pas, mais rien n'expliquait pourquoi) — on les rend explicites
+  // pour pouvoir diagnostiquer précisément un blocage (ex: compte pas encore
+  // synchronisé, ou règles de sécurité Firestore).
+  if (!fbId) { showToast('⚠ Erreur interne : identifiant du compte introuvable — fermez la fenêtre et rouvrez "Profil" depuis la liste.','warn'); return; }
   if (!STATE.isOnline || !STATE.fbReady) { showToast('⚠ Hors ligne — impossible de modifier le profil maintenant.','warn'); return; }
   try {
     const {doc, updateDoc} = window._fbFns;
@@ -5266,7 +5270,16 @@ async function saveProfileFromModal() {
     renderUsers();
     closeEditProfileModal();
     showToast('✅ Profil mis à jour.');
-  } catch(e) { showToast('⚠ Erreur: '+e.message,'warn'); }
+  } catch(e) {
+    // Erreur rendue bien visible (alerte bloquante, pas seulement un toast
+    // discret facile à manquer) : affiche le CODE exact retourné par Firebase
+    // (ex: "permission-denied" = règles de sécurité Firestore à ajuster côté
+    // console Firebase, "unavailable" = problème réseau) pour pouvoir
+    // diagnostiquer précisément un échec silencieux au lieu de deviner.
+    console.error('saveProfileFromModal:', e);
+    alert("Échec de l'enregistrement du profil.\n\nCode : " + (e.code || 'inconnu') + "\nMessage : " + e.message);
+    showToast('⚠ Échec de l\'enregistrement du profil — voir le message affiché.','warn');
+  }
 }
 
 // Seul admin peut changer le rôle (= les permissions) d'un utilisateur déjà
