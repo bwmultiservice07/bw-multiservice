@@ -1182,6 +1182,27 @@ tr:hover td{background:#f7f9ff;}
   </div>
 </div>
 
+<div class="edit-modal-bg" id="margin-evolution-modal-bg">
+  <div class="edit-modal" style="max-width:760px;max-height:85vh;overflow-y:auto;">
+    <h3>📈 Marge commerciale par produit — évolution</h3>
+    <p style="margin:.2rem 0 .8rem;color:var(--text2);font-size:.85rem;">Marge commerciale = (Prix de vente − Prix d'achat) / Prix d'achat, calculée pour chaque produit et suivie période après période (jour, semaine ou mois) pour voir si elle progresse ou recule. Le prix d'achat utilisé est le coût moyen pondéré cumulé de toutes les entrées Achats jusqu'à la période considérée : c'est ce qui fait évoluer la marge dans le temps.</p>
+    <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:.6rem;">
+      <div class="form-group" style="flex:1;min-width:200px;"><label>Produit</label><select id="mge-produit" onchange="renderMarginEvolutionModal()"></select></div>
+      <div class="form-group" style="flex:1;min-width:180px;"><label>Période</label>
+        <select id="mge-granularite" onchange="renderMarginEvolutionModal()">
+          <option value="jour">Par jour</option>
+          <option value="semaine">Par semaine</option>
+          <option value="mois">Par mois</option>
+        </select>
+      </div>
+    </div>
+    <div id="mge-content"></div>
+    <div style="display:flex;gap:8px;margin-top:.8rem;">
+      <button class="btn btn-outline" onclick="closeMarginEvolutionModal()" style="flex:1;">Fermer</button>
+    </div>
+  </div>
+</div>
+
 <div class="edit-modal-bg" id="association-modal-bg">
   <div class="edit-modal" style="max-width:760px;max-height:85vh;overflow-y:auto;">
     <h3>🔗 Associations de produits lors des ventes</h3>
@@ -3697,6 +3718,159 @@ function renderMarginDetailModal() {
 }
 
 // ============================================================
+// MARGE COMMERCIALE PAR PRODUIT — VUE ÉVOLUTIVE (jour / semaine / mois).
+// Différence avec la fenêtre "Détail du taux de marge par produit" ci-dessus
+// : celle-ci affiche une CONTRIBUTION pondérée par le volume vendu (taux ×
+// quota) pour un instantané (un jour/une semaine/un mois choisi). Ici, on
+// affiche la MARGE COMMERCIALE BRUTE de CHAQUE produit — littéralement
+// (Prix de vente − Prix d'achat) / Prix d'achat, SANS pondération par
+// quota — et on la fait ÉVOLUER dans le temps : une ligne par période
+// (jour/semaine/mois où le produit a été vendu), du plus ancien au plus
+// récent, pour voir si sa marge commerciale progresse ou recule. Le prix
+// d'achat utilisé est le COÛT MOYEN PONDÉRÉ CUMULÉ (toutes les entrées
+// Achats de ce produit dont la date est ≤ à la période considérée) : c'est
+// la seule composante qui évolue réellement (le prix de vente vient du
+// Stock de départ et reste la référence catalogue courante).
+// ============================================================
+
+// Historique du coût moyen pondéré cumulé d'un produit : une entrée par date
+// d'achat, avec le coût moyen pondéré de TOUTES les entrées Achats de ce
+// produit depuis le début jusqu'à (et y compris) cette date.
+function computeCumulativePrixAchatCheckpoints(productKey) {
+  const purchases = (STATE.stocks||[])
+    .filter(s => normProduit(s.description) === productKey)
+    .map(s => ({ isoDate: s.isoDate || s.date || '', qty: parseFloat(s.quantityCaisses||s.quantity)||0, prix: s.unitPrice||0 }))
+    .filter(p => p.isoDate && p.qty > 0 && p.prix > 0)
+    .sort((a,b) => a.isoDate.localeCompare(b.isoDate));
+  const checkpoints = [];
+  let sumPrixQty = 0, sumQty = 0;
+  purchases.forEach(p => {
+    sumPrixQty += p.prix * p.qty;
+    sumQty += p.qty;
+    checkpoints.push({ isoDate: p.isoDate, prixAchatCumule: sumQty > 0 ? sumPrixQty / sumQty : 0 });
+  });
+  return checkpoints;
+}
+
+// Renvoie le coût moyen pondéré cumulé connu à une date donnée (le dernier
+// point ≤ isoDateStr) — ou, si aucun achat n'est encore survenu à cette
+// date, le tout premier point connu (repli raisonnable pour ne pas afficher
+// "aucune donnée" pour des ventes antérieures au premier achat enregistré).
+function getPrixAchatCumuleAsOf(checkpoints, isoDateStr) {
+  let result = null;
+  for (const cp of checkpoints) {
+    if (cp.isoDate <= isoDateStr) result = cp.prixAchatCumule;
+    else break;
+  }
+  if (result == null && checkpoints.length) result = checkpoints[0].prixAchatCumule;
+  return result;
+}
+
+// Calcule, pour CHAQUE produit vendu, l'évolution de sa marge commerciale
+// période après période (granularity: 'jour' | 'semaine' | 'mois'), triée du
+// plus ancien au plus récent.
+function computeProductMarginEvolution(granularity) {
+  const ventes = (STATE.transactions||[]).filter(t=>t.type==='vente');
+  const {prixVenteMap} = computeProductPriceMaps();
+
+  const byProduct = {};
+  ventes.forEach(t => {
+    const key = normProduit(t.description); if (!key) return;
+    const day = getIsoFromTx(t); if (!day) return;
+    let periodKey, periodLabel, sortKey;
+    if (granularity === 'semaine') {
+      const {startIso, endIso} = getWeekRangeForIsoDate(day);
+      periodKey = startIso; sortKey = startIso;
+      periodLabel = `Semaine du ${startIso.split('-').reverse().join('/')} au ${endIso.split('-').reverse().join('/')}`;
+    } else if (granularity === 'mois') {
+      periodKey = day.slice(0,7); sortKey = periodKey;
+      periodLabel = formatMonthLabel(periodKey);
+    } else {
+      periodKey = day; sortKey = day; periodLabel = formatGroupLabel(day);
+    }
+    if (!byProduct[key]) byProduct[key] = {};
+    if (!byProduct[key][periodKey]) byProduct[key][periodKey] = { periodKey, sortKey, periodLabel, refDate: day };
+    if (day > byProduct[key][periodKey].refDate) byProduct[key][periodKey].refDate = day;
+  });
+
+  const result = {};
+  Object.keys(byProduct).forEach(produit => {
+    const checkpoints = computeCumulativePrixAchatCheckpoints(produit);
+    const prixVente = prixVenteMap[produit] || 0;
+    const periods = Object.values(byProduct[produit]).sort((a,b)=>a.sortKey.localeCompare(b.sortKey));
+    result[produit] = periods.map(p => {
+      const prixAchat = getPrixAchatCumuleAsOf(checkpoints, p.refDate);
+      const donneesOk = prixVente > 0 && prixAchat != null && prixAchat > 0;
+      const margeCommerciale = donneesOk ? (prixVente - prixAchat) / prixAchat * 100 : null;
+      return { periodLabel: p.periodLabel, prixVente, prixAchat: prixAchat||0, margeCommerciale, donneesOk };
+    });
+  });
+  return result;
+}
+
+// Fenêtre "Marge commerciale par produit — évolution" : sélection d'un
+// produit et d'une granularité, puis affichage de l'évolution de sa marge
+// commerciale période après période, avec une flèche indiquant si elle
+// progresse, recule ou reste stable par rapport à la période précédente.
+function openMarginEvolutionModal() {
+  const sel = document.getElementById('mge-produit');
+  if (sel) {
+    const ventes = (STATE.transactions||[]).filter(t=>t.type==='vente');
+    const products = [...new Set(ventes.map(t=>normProduit(t.description)).filter(Boolean))].sort();
+    const prevVal = sel.value;
+    sel.innerHTML = products.length
+      ? products.map(p=>`<option value="${esc(p)}">${esc(p)}</option>`).join('')
+      : '<option value="">Aucun produit</option>';
+    if (products.includes(prevVal)) sel.value = prevVal;
+  }
+  renderMarginEvolutionModal();
+  document.getElementById('margin-evolution-modal-bg').classList.add('show');
+}
+
+function closeMarginEvolutionModal() {
+  document.getElementById('margin-evolution-modal-bg').classList.remove('show');
+}
+
+function renderMarginEvolutionModal() {
+  const cont = document.getElementById('mge-content');
+  if (!cont) return;
+  const sel = document.getElementById('mge-produit');
+  const produit = sel ? sel.value : '';
+  const granSel = document.getElementById('mge-granularite');
+  const granularity = granSel ? granSel.value : 'jour';
+  if (!produit) {
+    cont.innerHTML = '<div style="color:var(--text3);padding:1rem 0;">Aucun produit vendu pour le moment.</div>';
+    return;
+  }
+  const evolution = computeProductMarginEvolution(granularity);
+  const rows = evolution[produit] || [];
+  if (!rows.length) {
+    cont.innerHTML = '<div style="color:var(--text3);padding:1rem 0;">Aucune donnée pour ce produit.</div>';
+    return;
+  }
+  let html = `<div class="table-wrap"><table><thead><tr><th>Période</th><th>Prix de vente caisse/bout</th><th>Prix d'achat caisse/bout (coût moyen cumulé)</th><th>Marge commerciale</th><th>Évolution</th></tr></thead><tbody>`;
+  let prevMarge = null;
+  rows.forEach(r => {
+    let evoIcon = '—';
+    if (r.donneesOk && prevMarge != null) {
+      if (r.margeCommerciale > prevMarge + 0.01) evoIcon = '📈 En hausse';
+      else if (r.margeCommerciale < prevMarge - 0.01) evoIcon = '📉 En baisse';
+      else evoIcon = '➡️ Stable';
+    }
+    html += `<tr>
+      <td>${esc(r.periodLabel)}</td>
+      <td>${fmtHTG(r.prixVente)}</td>
+      <td>${fmtHTG(r.prixAchat)}</td>
+      <td style="font-weight:600;color:${r.donneesOk?(r.margeCommerciale>=0?'#1a7a4c':'#c0392b'):'var(--text3)'};">${r.donneesOk?r.margeCommerciale.toFixed(1)+'%':'Données insuffisantes'}</td>
+      <td>${evoIcon}</td>
+    </tr>`;
+    if (r.donneesOk) prevMarge = r.margeCommerciale;
+  });
+  html += `</tbody></table></div>`;
+  cont.innerHTML = html;
+}
+
+// ============================================================
 // ASSOCIATIONS DE PRODUITS LORS DES VENTES (analyse du "panier" — quels
 // produits sont vendus ENSEMBLE dans une même fiche de vente). Repose sur
 // saleGroupId, l'identifiant partagé par toutes les lignes-produit d'une même
@@ -3912,6 +4086,109 @@ function computeSupplierDebtAlerts() {
     .sort((a,b) => b.balance - a.balance);
 }
 
+// ============================================================
+// STATISTIQUES SUPPLÉMENTAIRES POUR L'ANALYSE DES DONNÉES (distinctes des
+// cartes déjà existantes : Alerte stock, Dettes clients, Dettes fournisseurs,
+// Répartition cash/crédit, Taux de marge par produit).
+// ============================================================
+
+// Contribution au PROFIT (en HTG) de chaque produit — distinct du "Taux de
+// marge par produit" qui raisonne en %. Un produit à fort taux de marge %
+// peut ne générer que peu de profit réel faute de volume vendu, et
+// inversement un produit à faible marge % peut être un gros contributeur au
+// profit total grâce à son volume : ce classement révèle où l'argent est
+// réellement gagné.
+function computeProductProfitContribution() {
+  const ventes = (STATE.transactions||[]).filter(t=>t.type==='vente');
+  const {prixVenteMap, prixAchatMap} = computeProductPriceMaps();
+  const qtyMap = {};
+  ventes.forEach(t => {
+    const key = normProduit(t.description); if (!key) return;
+    qtyMap[key] = (qtyMap[key]||0) + getQtyCaisses(t);
+  });
+  return Object.keys(qtyMap).map(p => {
+    const prixVente = prixVenteMap[p] || 0;
+    const prixAchat = prixAchatMap[p] || 0;
+    const qty = qtyMap[p] || 0;
+    const donneesOk = prixAchat > 0 && prixVente > 0;
+    const profitUnitaire = donneesOk ? (prixVente - prixAchat) : null;
+    const profitTotal = donneesOk ? profitUnitaire * qty : null;
+    return { produit:p, prixVente, prixAchat, qty, profitUnitaire, profitTotal, donneesOk };
+  }).filter(r=>r.qty>0).sort((a,b)=>(b.profitTotal||0) - (a.profitTotal||0));
+}
+
+// Valeur moyenne d'un "panier" de vente : toutes les lignes-produit partageant
+// le même saleGroupId (une fiche multi-produits) comptent comme UN SEUL
+// panier ; une vente mono-produit sans saleGroupId forme son propre panier.
+function computeAveragePanierValue(ventesSubset) {
+  const baskets = {};
+  let soloIdx = 0;
+  (ventesSubset||[]).forEach(t => {
+    const key = t.saleGroupId || `__solo_${soloIdx++}_${t.id||''}`;
+    baskets[key] = (baskets[key]||0) + (t.amount||0);
+  });
+  const values = Object.values(baskets);
+  if (!values.length) return null;
+  return values.reduce((a,v)=>a+v,0) / values.length;
+}
+
+// Évolution du panier moyen mois après mois (depuis le début) — permet de
+// voir si les clients dépensent de plus en plus, ou de moins en moins, par
+// passage en caisse.
+function computePanierMoyenParMois() {
+  const ventes = (STATE.transactions||[]).filter(t=>t.type==='vente');
+  const byMonth = {};
+  ventes.forEach(t => {
+    const day = getIsoFromTx(t); if (!day) return;
+    const month = day.slice(0,7);
+    if (!byMonth[month]) byMonth[month] = [];
+    byMonth[month].push(t);
+  });
+  return Object.keys(byMonth).sort((a,b)=>a.localeCompare(b)).map(month => ({
+    month, label: formatMonthLabel(month), panierMoyen: computeAveragePanierValue(byMonth[month])
+  }));
+}
+
+// Ventes par jour de la semaine (toutes périodes confondues, depuis le
+// début) — révèle les jours les plus/moins performants pour ajuster le
+// personnel et le réapprovisionnement en conséquence.
+function computeSalesByWeekday() {
+  const ventes = (STATE.transactions||[]).filter(t=>t.type==='vente');
+  const jours = ['Dimanche','Lundi','Mardi','Mercredi','Jeudi','Vendredi','Samedi'];
+  const agg = jours.map((label,idx)=>({idx, label, montant:0, count:0}));
+  ventes.forEach(t => {
+    const day = getIsoFromTx(t); if (!day) return;
+    const [y,m,d] = day.split('-').map(Number);
+    const dow = new Date(y, m-1, d).getDay();
+    agg[dow].montant += t.amount||0;
+    agg[dow].count += 1;
+  });
+  const totalMontant = agg.reduce((a,r)=>a+r.montant,0);
+  return agg.map(r => ({...r, part: totalMontant>0 ? r.montant/totalMontant*100 : 0}))
+    .sort((a,b)=>b.montant-a.montant);
+}
+
+// Fréquence d'achat des clients nommés (hors ventes cash sans client
+// renseigné) : distingue les clients fidèles (achats sur plusieurs jours
+// distincts) des clients occasionnels (un seul jour d'achat), pour cibler
+// les actions de fidélisation.
+function computeClientPurchaseFrequency() {
+  const ventes = (STATE.transactions||[]).filter(t=>t.type==='vente' && (t.client||'').trim());
+  const map = {};
+  ventes.forEach(t => {
+    const client = t.client.trim();
+    const key = client.toLowerCase();
+    if (!map[key]) map[key] = { client, days: new Set(), montant:0, achats:0 };
+    const day = getIsoFromTx(t);
+    if (day) map[key].days.add(day);
+    map[key].montant += t.amount||0;
+    map[key].achats += 1;
+  });
+  return Object.values(map).map(c => ({
+    client: c.client, joursDistincts: c.days.size, montant: c.montant, achats: c.achats
+  })).sort((a,b) => b.joursDistincts - a.joursDistincts || b.montant - a.montant);
+}
+
 function renderDataAnalyse() {
   const cont = document.getElementById('data-analyse-content');
   if (!cont) return;
@@ -4026,7 +4303,10 @@ function renderDataAnalyse() {
   // --- Carte Taux de marge par produit ---
   html += `<div class="card"><div class="card-title" style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;">
       <span>📊 Taux de marge par produit</span>
-      <button class="btn btn-primary" style="font-size:.78rem;padding:5px 12px;width:auto;" onclick="openMarginDetailModal()">📈 Détail par jour / semaine / mois</button>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;">
+        <button class="btn btn-primary" style="font-size:.78rem;padding:5px 12px;width:auto;" onclick="openMarginDetailModal()">📈 Détail par jour / semaine / mois</button>
+        <button class="btn btn-primary" style="font-size:.78rem;padding:5px 12px;width:auto;" onclick="openMarginEvolutionModal()">📊 Marge commerciale évolutive par produit</button>
+      </div>
     </div>
     <div class="metric-card ${tauxMoyenPondere>=0?'success':''}" style="margin-bottom:1rem;max-width:280px;">
       <div class="label">Moyenne taux de marge par produit vendu</div><div class="value">${tauxMoyenPondere.toFixed(1)}%</div>
@@ -4117,6 +4397,79 @@ function renderDataAnalyse() {
     </div>
     <div style="background:var(--surface2);border-radius:8px;padding:10px 12px;font-size:.85rem;line-height:1.5;">💡 <strong>Recommandation</strong> : ${pctCredit==null?"pas assez de ventes ce mois-ci pour évaluer la répartition.":(pctCredit>40?"la part du crédit dépasse 40% des ventes du mois — envisager de resserrer la politique de crédit ou d'accélérer le recouvrement auprès des clients.":"la part du crédit reste maîtrisée (moins de 40% des ventes du mois).")}</div>
   </div>`;
+
+  // --- Carte Contribution au profit par produit (HTG, pas seulement %) ---
+  const profitContribution = computeProductProfitContribution();
+  const topProfit = profitContribution.slice(0,5);
+  const totalProfit = profitContribution.reduce((a,r)=>a+(r.profitTotal||0),0);
+  html += `<div class="card"><div class="card-title">🏅 Contribution au profit par produit</div>
+    <div class="metric-card ${totalProfit>=0?'success':''}" style="margin-bottom:1rem;max-width:280px;"><div class="label">Profit total estimé (produits ayant des données de prix)</div><div class="value">${fmtHTG(totalProfit)}</div></div>`;
+  if (!topProfit.length) {
+    html += `<div style="color:var(--text3);padding:.5rem 0;">Pas assez de données (prix de vente et prix d'achat) pour estimer le profit par produit.</div>`;
+  } else {
+    html += `<div class="table-wrap"><table><thead><tr><th>Rang</th><th>Produit</th><th>Profit unitaire (caisse/bout)</th><th>Quantité vendue (éq. caisses)</th><th>Profit total estimé</th></tr></thead><tbody>` +
+      topProfit.map((r,i)=>`<tr><td>${i+1}</td><td>${esc(r.produit)}</td><td>${r.donneesOk?fmtHTG(r.profitUnitaire):'—'}</td><td>${r.qty.toFixed(2)}</td><td style="font-weight:600;color:${r.donneesOk?(r.profitTotal>=0?'#1a7a4c':'#c0392b'):'var(--text3)'};">${r.donneesOk?fmtHTG(r.profitTotal):'Données insuffisantes'}</td></tr>`).join('') +
+      `</tbody></table></div>
+      <div style="background:var(--surface2);border-radius:8px;padding:10px 12px;font-size:.85rem;line-height:1.5;margin-top:.6rem;">💡 <strong>Recommandation</strong> : concentrer les efforts de réapprovisionnement et de mise en avant sur les produits en tête de ce classement — ce sont eux qui génèrent le plus de profit réel, même si leur taux de marge en % n'est pas toujours le plus élevé.</div>`;
+  }
+  html += `</div>`;
+
+  // --- Carte Panier moyen (évolution mensuelle) ---
+  const panierRows = computePanierMoyenParMois();
+  const panierCur = panierRows.length ? panierRows[panierRows.length-1] : null;
+  const panierPrev = panierRows.length > 1 ? panierRows[panierRows.length-2] : null;
+  let panierEvo = null;
+  if (panierCur && panierCur.panierMoyen != null && panierPrev && panierPrev.panierMoyen) {
+    panierEvo = ((panierCur.panierMoyen - panierPrev.panierMoyen) / panierPrev.panierMoyen) * 100;
+  }
+  html += `<div class="card"><div class="card-title">🧺 Panier moyen par vente (évolution mensuelle)</div>`;
+  if (!panierCur || panierCur.panierMoyen == null) {
+    html += `<div style="color:var(--text3);padding:.5rem 0;">Aucune donnée pour le moment.</div>`;
+  } else {
+    html += `<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:12px;margin-bottom:.8rem;">
+      <div class="metric-card accent"><div class="label">Panier moyen — ${esc(panierCur.label)}</div><div class="value">${fmtHTG(panierCur.panierMoyen)}</div></div>
+      ${panierEvo!=null?`<div class="metric-card ${panierEvo>=0?'success':''}"><div class="label">Évolution vs mois précédent</div><div class="value">${panierEvo>=0?'+':''}${panierEvo.toFixed(1)}%</div></div>`:''}
+    </div>
+    <div class="table-wrap"><table><thead><tr><th>Mois</th><th>Panier moyen</th></tr></thead><tbody>` +
+      panierRows.slice(-6).reverse().map(r=>`<tr><td>${esc(r.label)}</td><td>${r.panierMoyen!=null?fmtHTG(r.panierMoyen):'—'}</td></tr>`).join('') +
+      `</tbody></table></div>
+    <div style="background:var(--surface2);border-radius:8px;padding:10px 12px;font-size:.85rem;line-height:1.5;margin-top:.6rem;">💡 <strong>Recommandation</strong> : ${panierEvo==null?"pas assez de mois pour évaluer la tendance.":(panierEvo<0?"le panier moyen recule ce mois-ci — envisager des ventes complémentaires (suggérer un second produit à la caisse) ou une promotion pour relancer la valeur du panier.":"le panier moyen progresse ou reste stable — continuer les pratiques actuelles de vente.")}</div>`;
+  }
+  html += `</div>`;
+
+  // --- Carte Ventes par jour de la semaine ---
+  const weekdayStats = computeSalesByWeekday();
+  const bestDay = weekdayStats[0], worstDay = weekdayStats[weekdayStats.length-1];
+  html += `<div class="card"><div class="card-title">📅 Ventes par jour de la semaine</div>`;
+  if (!weekdayStats.some(r=>r.count>0)) {
+    html += `<div style="color:var(--text3);padding:.5rem 0;">Aucune donnée pour le moment.</div>`;
+  } else {
+    html += `<div class="table-wrap"><table><thead><tr><th>Jour</th><th>Montant total (HTG)</th><th>Nombre de ventes</th><th>Part du total</th></tr></thead><tbody>` +
+      weekdayStats.map(r=>`<tr><td>${esc(r.label)}</td><td>${fmtHTG(r.montant)}</td><td>${r.count}</td><td>${r.part.toFixed(1)}%</td></tr>`).join('') +
+      `</tbody></table></div>
+    <div style="background:var(--surface2);border-radius:8px;padding:10px 12px;font-size:.85rem;line-height:1.5;margin-top:.6rem;">💡 <strong>Recommandation</strong> : ${bestDay&&bestDay.montant>0?`renforcer le personnel et le stock disponible le <strong>${esc(bestDay.label)}</strong> (jour le plus performant)`:''}${bestDay&&worstDay&&bestDay.montant>0&&worstDay.montant>=0&&bestDay.label!==worstDay.label?`, et envisager une promotion le <strong>${esc(worstDay.label)}</strong> (jour le plus faible) pour lisser les ventes sur la semaine.`:'.'}</div>`;
+  }
+  html += `</div>`;
+
+  // --- Carte Clients fidèles vs occasionnels (fréquence d'achat) ---
+  const clientFreq = computeClientPurchaseFrequency();
+  const fideles = clientFreq.filter(c=>c.joursDistincts>=2);
+  const occasionnels = clientFreq.filter(c=>c.joursDistincts===1);
+  const topFideles = fideles.slice(0,5);
+  html += `<div class="card"><div class="card-title">👥 Clients fidèles vs occasionnels</div>
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:12px;margin-bottom:.8rem;">
+      <div class="metric-card success"><div class="label">Clients fidèles (2+ jours d'achat distincts)</div><div class="value">${fideles.length}</div></div>
+      <div class="metric-card"><div class="label">Clients occasionnels (1 seul jour d'achat)</div><div class="value">${occasionnels.length}</div></div>
+    </div>`;
+  if (!topFideles.length) {
+    html += `<div style="color:var(--text3);padding:.5rem 0;">Aucun client fidèle identifié pour le moment (il faut au moins 2 jours d'achat distincts avec un nom de client renseigné).</div>`;
+  } else {
+    html += `<div class="table-wrap"><table><thead><tr><th>Rang</th><th>Client</th><th>Jours d'achat distincts</th><th>Total acheté (HTG)</th></tr></thead><tbody>` +
+      topFideles.map((c,i)=>`<tr><td>${i+1}</td><td>${esc(c.client)}</td><td>${c.joursDistincts}</td><td>${fmtHTG(c.montant)}</td></tr>`).join('') +
+      `</tbody></table></div>`;
+  }
+  html += `<div style="background:var(--surface2);border-radius:8px;padding:10px 12px;font-size:.85rem;line-height:1.5;margin-top:.6rem;">💡 <strong>Recommandation</strong> : ${occasionnels.length>0?`envisager une offre de fidélisation pour transformer les ${occasionnels.length} client(s) occasionnel(s) en clients réguliers`:'continuer à soigner la relation avec les clients fidèles identifiés ci-dessus'}, et privilégier les clients les plus fidèles pour d'éventuelles facilités de paiement.</div>`;
+  html += `</div>`;
 
   // --- Carte Décisions à prendre ---
   html += `<div class="card"><div class="card-title">💡 Décisions à prendre</div>`;
@@ -4847,15 +5200,17 @@ function chargeAccountFor(description) {
 // TOUTES les transactions effectuées dans l'application : ventes, achats
 // (désormais traités comme des CHARGES et non comme un actif de stock —
 // crédité en Caisse si achat cash, ou en Fournisseurs si achat à crédit),
-// apports (comptés dans un compte de PRODUITS), charges hors marchandises —
-// salaires et primes ayant chacun leur propre compte —, dépenses
-// domestiques, remboursements de crédit par les clients, paiements des
-// dettes envers les fournisseurs, et retraits de caisse. Chaque écriture
-// porte toujours un compte débiteur ET un compte créditeur pour le MÊME
-// montant : impossible donc d'avoir un total Débit différent du total
-// Crédit — le journal général, le grand livre, la balance de vérification
-// et les exports Excel utilisent tous cette même liste, pour ne jamais
-// afficher des chiffres différents.
+// charges hors marchandises — salaires et primes ayant chacun leur propre
+// compte —, remboursements de crédit par les clients, paiements des
+// dettes envers les fournisseurs, et retraits de caisse. Les apports et les
+// dépenses domestiques restent enregistrables (onglets dédiés, pour garder
+// une trace) mais sont volontairement EXCLUS de toutes ces écritures et de
+// tous les calculs de l'application, à la demande explicite du propriétaire.
+// Chaque écriture porte toujours un compte débiteur ET un compte créditeur
+// pour le MÊME montant : impossible donc d'avoir un total Débit différent
+// du total Crédit — le journal général, le grand livre, la balance de
+// vérification et les exports Excel utilisent tous cette même liste, pour
+// ne jamais afficher des chiffres différents.
 function computeJournalEntries() {
   const entries = [];
   STATE.transactions.filter(t=>t.type==='vente').forEach(t=>{
@@ -4873,25 +5228,11 @@ function computeJournalEntries() {
       label:s.description||'Achat', amount:s.amount||0
     });
   });
-  (STATE.apports||[]).forEach(a=>{
-    entries.push({
-      date:a.date, isoDate:a.isoDate||a.date||'', time:a.time||'',
-      debit:'5100 – Caisse', credit:'7100 – Apports',
-      label:a.source||'Apport', amount:a.montant||0
-    });
-  });
   (STATE.charges||[]).forEach(c=>{
     entries.push({
       date:c.date, isoDate:c.isoDate||c.date||'', time:c.time||'',
       debit:chargeAccountFor(c.description), credit:'5100 – Caisse',
       label:c.description||'Charge', amount:c.montant||0
-    });
-  });
-  (STATE.depensesDomestiques||[]).forEach(d=>{
-    entries.push({
-      date:d.date, isoDate:d.isoDate||d.date||'', time:d.time||'',
-      debit:'6300 – Dépenses domestiques', credit:'5100 – Caisse',
-      label:d.description||'Dépense domestique', amount:d.montant||0
     });
   });
   // Remboursement de crédit par un client : seuls les vrais paiements
@@ -4932,9 +5273,7 @@ function buildTransSheet() {
   const items = [];
   STATE.transactions.filter(t=>t.type==='vente').forEach(t=>items.push({...t, _label:'Vente', _isVente:true}));
   (STATE.stocks||[]).forEach(s=>items.push({...s, montant:s.amount, _label:'Achat'}));
-  (STATE.apports||[]).forEach(a=>items.push({...a, description:a.source||'Apport', _label:'Apport'}));
   (STATE.charges||[]).forEach(c=>items.push({...c, _label:(c.description==='Salaire'||c.description==='Prime')?c.description:'Charge hors marchandises'}));
-  (STATE.depensesDomestiques||[]).forEach(d=>items.push({...d, _label:'Dépense domestique'}));
   (STATE.credits||[]).filter(c=>(c.paid||0)>0).forEach(c=>items.push({...c, montant:c.paid, description:`Remboursement crédit – ${c.client||'?'}`, _label:'Paiement crédit client'}));
   (STATE.fournisseurPayments||[]).filter(p=>(p.paid||0)>0).forEach(p=>items.push({...p, montant:p.paid, description:`Paiement fournisseur – ${p.supplier||'?'}`, _label:'Paiement dette fournisseur'}));
   (STATE.caisseRetraits||[]).forEach(r=>items.push({...r, montant:r.montant, description:`Retrait – ${r.personne||'?'} (${r.objet||'?'})`, _label:'Retrait de caisse'}));
@@ -4974,7 +5313,7 @@ function buildGrandLivre() {
   const entries = computeJournalEntries();
   // Ordre d'affichage fixe (toujours affichés, même sans mouvement) pour que
   // la structure du grand livre reste stable d'une consultation à l'autre.
-  const order = ['5100 – Caisse','7000 – Ventes','6100 – Achats marchandises','4010 – Fournisseurs','7100 – Apports','6410 – Salaires','6420 – Primes','6200 – Charges diverses','6300 – Dépenses domestiques','4110 – Clients','6400 – Retraits de caisse'];
+  const order = ['5100 – Caisse','7000 – Ventes','6100 – Achats marchandises','4010 – Fournisseurs','6410 – Salaires','6420 – Primes','6200 – Charges diverses','4110 – Clients','6400 – Retraits de caisse'];
   const accs = {};
   order.forEach(acc => accs[acc] = []);
   entries.forEach(e=>{
@@ -5006,11 +5345,9 @@ function buildBalance() {
     {num:'7000', label:'Ventes', key:'7000 – Ventes'},
     {num:'6100', label:'Achats marchandises', key:'6100 – Achats marchandises'},
     {num:'4010', label:'Fournisseurs', key:'4010 – Fournisseurs'},
-    {num:'7100', label:'Apports', key:'7100 – Apports'},
     {num:'6410', label:'Salaires', key:'6410 – Salaires'},
     {num:'6420', label:'Primes', key:'6420 – Primes'},
     {num:'6200', label:'Charges diverses', key:'6200 – Charges diverses'},
-    {num:'6300', label:'Dépenses domestiques', key:'6300 – Dépenses domestiques'},
     {num:'4110', label:'Clients', key:'4110 – Clients'},
     {num:'6400', label:'Retraits de caisse', key:'6400 – Retraits de caisse'}
   ];
@@ -5037,15 +5374,14 @@ function buildBalance() {
 // Analyse financière cumulée jour après jour et par mois.
 // Formules (telles que redéfinies par l'utilisateur) :
 //   Chiffre d'affaires = Quantité de produits vendus × Prix de vente
-//   Produits           = Ventes (cash) + Paiements crédits + Apport
+//   Produits           = Ventes (cash) + Paiements crédits
 //   Charges            = Achats marchandises + toutes les autres dépenses
 //                        (onglet Charges hors marchandises, toutes descriptions confondues)
 //   Valeur Ajoutée     = Produits - Coût d'achat des marchandises
 //                        - Coût transport - Coût manutention
 //   Bénéfice Brut      = Valeur Ajoutée - Total charges hors marchandises,
 //                        sauf Coût manutention, Coût transport et Impôt
-//                        (déjà comptés ailleurs dans la formule) - Dépenses
-//                        domestiques (comptées comme des charges)
+//                        (déjà comptés ailleurs dans la formule)
 //   Bénéfice Net       = Bénéfice Brut - Impôt
 //   Taux de marge sur les ventes = (Chiffre d'affaires - prix d'achat des
 //                        produits - Coût manutention - Coût transport) / Chiffre d'affaires
@@ -5057,13 +5393,15 @@ function buildBalance() {
 // Le Coût transport, le Coût manutention et l'Impôt sont extraits des entrées
 // de l'onglet "Charges hors marchandises" via leur champ Description ; tout
 // le reste de ces entrées (Salaire, Carburant, Fourniture de bureau, Prime,
-// Taxes, etc.) forme le poste "Autres charges", combiné aux Dépenses
-// domestiques, utilisé dans le calcul du Bénéfice Brut.
+// Taxes, etc.) forme le poste "Autres charges", utilisé dans le calcul du
+// Bénéfice Brut. Les Apports et les Dépenses domestiques restent
+// enregistrables (onglets dédiés, à titre de suivi) mais sont volontairement
+// EXCLUS de tous ces calculs, à la demande explicite du propriétaire.
 // Calcul partagé entre l'affichage (buildAnalyse) et les exports Excel/Drive,
 // pour garantir que les mêmes chiffres apparaissent partout.
 function computeFinancialAnalysis() {
-  const caMap = {}, ventesCashMap = {}, rembCreditMap = {}, apportMap = {},
-        achatsMap = {}, transportMap = {}, manutentionMap = {}, autresChargesMap = {}, impotMap = {}, depensesDomMap = {};
+  const caMap = {}, ventesCashMap = {}, rembCreditMap = {},
+        achatsMap = {}, transportMap = {}, manutentionMap = {}, autresChargesMap = {}, impotMap = {};
   STATE.transactions.filter(t=>t.type==='vente').forEach(t => {
     const day = getIsoFromTx(t);
     caMap[day] = (caMap[day]||0) + (t.amount||0);
@@ -5072,10 +5410,6 @@ function computeFinancialAnalysis() {
   (STATE.credits||[]).forEach(c => {
     const day = getIsoFromTx(c);
     rembCreditMap[day] = (rembCreditMap[day]||0) + (c.paid||0);
-  });
-  (STATE.apports||[]).forEach(a => {
-    const day = a.isoDate || a.date || '';
-    apportMap[day] = (apportMap[day]||0) + (a.montant||0);
   });
   STATE.transactions.filter(t=>t.type==='stock-in').forEach(t => {
     const day = getIsoFromTx(t);
@@ -5089,15 +5423,11 @@ function computeFinancialAnalysis() {
     else if (c.description==='Impôt') impotMap[day] = (impotMap[day]||0) + montant;
     else autresChargesMap[day] = (autresChargesMap[day]||0) + montant;
   });
-  (STATE.depensesDomestiques||[]).forEach(d => {
-    const day = d.isoDate || d.date || '';
-    depensesDomMap[day] = (depensesDomMap[day]||0) + (d.montant||0);
-  });
 
   const allDays = new Set([
-    ...Object.keys(caMap), ...Object.keys(ventesCashMap), ...Object.keys(rembCreditMap), ...Object.keys(apportMap),
+    ...Object.keys(caMap), ...Object.keys(ventesCashMap), ...Object.keys(rembCreditMap),
     ...Object.keys(achatsMap), ...Object.keys(transportMap),
-    ...Object.keys(manutentionMap), ...Object.keys(autresChargesMap), ...Object.keys(impotMap), ...Object.keys(depensesDomMap)
+    ...Object.keys(manutentionMap), ...Object.keys(autresChargesMap), ...Object.keys(impotMap)
   ].filter(Boolean));
 
   const sortedAsc = [...allDays].sort((a,b)=>a.localeCompare(b));
@@ -5105,30 +5435,28 @@ function computeFinancialAnalysis() {
   let running = 0;
   const days = sortedAsc.map(day => {
     const ca = caMap[day]||0;
-    const ventesCash = ventesCashMap[day]||0, rembCredit = rembCreditMap[day]||0, apport = apportMap[day]||0;
-    const produits = ventesCash + rembCredit + apport;
+    const ventesCash = ventesCashMap[day]||0, rembCredit = rembCreditMap[day]||0;
+    const produits = ventesCash + rembCredit;
     const achats = achatsMap[day]||0;
     const transport = transportMap[day]||0;
     const manutention = manutentionMap[day]||0;
     const va = produits - achats - transport - manutention;
     const autresCharges = autresChargesMap[day]||0;
-    const depensesDom = depensesDomMap[day]||0;
-    const benBrut = va - autresCharges - depensesDom;
+    const benBrut = va - autresCharges;
     const impot = impotMap[day]||0;
     const benNet = benBrut - impot;
-    const charges = achats + transport + manutention + impot + autresCharges + depensesDom;
+    const charges = achats + transport + manutention + impot + autresCharges;
     running += benNet;
     cumulMap[day] = running;
-    return {day, ca, ventesCash, rembCredit, apport, produits, achats, transport, manutention, va, autresCharges, depensesDom, charges, benBrut, impot, benNet, cumul:running};
+    return {day, ca, ventesCash, rembCredit, produits, achats, transport, manutention, va, autresCharges, charges, benBrut, impot, benNet, cumul:running};
   });
 
   const totals = days.reduce((a,d) => ({
-    ca: a.ca+d.ca, ventesCash: a.ventesCash+d.ventesCash, rembCredit: a.rembCredit+d.rembCredit, apport: a.apport+d.apport,
+    ca: a.ca+d.ca, ventesCash: a.ventesCash+d.ventesCash, rembCredit: a.rembCredit+d.rembCredit,
     produits: a.produits+d.produits, achats: a.achats+d.achats, transport: a.transport+d.transport,
     manutention: a.manutention+d.manutention, va: a.va+d.va, autresCharges: a.autresCharges+d.autresCharges,
-    depensesDom: a.depensesDom+d.depensesDom,
     charges: a.charges+d.charges, benBrut: a.benBrut+d.benBrut, impot: a.impot+d.impot, benNet: a.benNet+d.benNet
-  }), {ca:0,ventesCash:0,rembCredit:0,apport:0,produits:0,achats:0,transport:0,manutention:0,va:0,autresCharges:0,depensesDom:0,charges:0,benBrut:0,impot:0,benNet:0});
+  }), {ca:0,ventesCash:0,rembCredit:0,produits:0,achats:0,transport:0,manutention:0,va:0,autresCharges:0,charges:0,benBrut:0,impot:0,benNet:0});
   totals.tauxManutentionTransport = totals.ca > 0 ? (totals.manutention + totals.transport) / totals.ca * 100 : 0;
 
   return {days, cumulMap, totals};
@@ -5534,7 +5862,7 @@ function buildJournalExcelSheets(wb, names) {
   });
   XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(jRows),journalName);
 
-  const order = ['5100 – Caisse','7000 – Ventes','6100 – Achats marchandises','4010 – Fournisseurs','7100 – Apports','6410 – Salaires','6420 – Primes','6200 – Charges diverses','6300 – Dépenses domestiques','4110 – Clients','6400 – Retraits de caisse'];
+  const order = ['5100 – Caisse','7000 – Ventes','6100 – Achats marchandises','4010 – Fournisseurs','6410 – Salaires','6420 – Primes','6200 – Charges diverses','4110 – Clients','6400 – Retraits de caisse'];
   const glRows=[['Compte','Date','Libellé','Débit','Crédit','Solde']];
   const accs={};
   order.forEach(acc=>accs[acc]=[]);
@@ -5552,11 +5880,9 @@ function buildJournalExcelSheets(wb, names) {
     {num:'7000', label:'Ventes', key:'7000 – Ventes'},
     {num:'6100', label:'Achats marchandises', key:'6100 – Achats marchandises'},
     {num:'4010', label:'Fournisseurs', key:'4010 – Fournisseurs'},
-    {num:'7100', label:'Apports', key:'7100 – Apports'},
     {num:'6410', label:'Salaires', key:'6410 – Salaires'},
     {num:'6420', label:'Primes', key:'6420 – Primes'},
     {num:'6200', label:'Charges diverses', key:'6200 – Charges diverses'},
-    {num:'6300', label:'Dépenses domestiques', key:'6300 – Dépenses domestiques'},
     {num:'4110', label:'Clients', key:'4110 – Clients'},
     {num:'6400', label:'Retraits de caisse', key:'6400 – Retraits de caisse'}
   ];
@@ -5583,17 +5909,16 @@ function exportAllToExcel() {
   const vt=STATE.transactions.filter(t=>t.type==='vente').reduce((a,t)=>a+t.amount,0);
   const st=STATE.stocks.reduce((a,s)=>a+s.amount,0);
 
-  // Transactions (ventes, achats, apports, charges hors marchandises —
-  // salaires/primes inclus —, dépenses domestiques, remboursements de crédit
-  // clients, paiements de dettes fournisseurs et retraits de caisse, toutes
-  // confondues et triées chronologiquement).
+  // Transactions (ventes, achats, charges hors marchandises — salaires/primes
+  // inclus —, remboursements de crédit clients, paiements de dettes
+  // fournisseurs et retraits de caisse, toutes confondues et triées
+  // chronologiquement). Les apports et dépenses domestiques sont exclus de
+  // ce récapitulatif — ils restent consultables dans leurs onglets dédiés.
   let cum=0;
   const items = [];
   STATE.transactions.filter(t=>t.type==='vente').forEach(t=>items.push({...t, _label:'Vente', _isVente:true}));
   (STATE.stocks||[]).forEach(s=>items.push({...s, montant:s.amount, _label:'Achat'}));
-  (STATE.apports||[]).forEach(a=>items.push({...a, description:a.source||'Apport', _label:'Apport'}));
   (STATE.charges||[]).forEach(c=>items.push({...c, _label:(c.description==='Salaire'||c.description==='Prime')?c.description:'Charge hors marchandises'}));
-  (STATE.depensesDomestiques||[]).forEach(d=>items.push({...d, _label:'Dépense domestique'}));
   (STATE.credits||[]).filter(c=>(c.paid||0)>0).forEach(c=>items.push({...c, montant:c.paid, description:`Remboursement crédit – ${c.client||'?'}`, _label:'Paiement crédit client'}));
   (STATE.fournisseurPayments||[]).filter(p=>(p.paid||0)>0).forEach(p=>items.push({...p, montant:p.paid, description:`Paiement fournisseur – ${p.supplier||'?'}`, _label:'Paiement dette fournisseur'}));
   (STATE.caisseRetraits||[]).forEach(r=>items.push({...r, montant:r.montant, description:`Retrait – ${r.personne||'?'} (${r.objet||'?'})`, _label:'Retrait de caisse'}));
@@ -5794,8 +6119,8 @@ function buildFullWorkbook() {
 
   // 8-10. Journal Général / Grand Livre / Balance de Vérification
   // (comptabilité complète — mêmes écritures, mêmes chiffres que l'onglet
-  // Comptabilité : ventes, achats considérés comme des charges, apports,
-  // charges hors marchandises et dépenses domestiques.)
+  // Comptabilité : ventes, achats considérés comme des charges, charges
+  // hors marchandises. Apports et dépenses domestiques exclus des calculs.)
   const vt = sales.reduce((a,t)=>a+(t.amount||0),0);
   buildJournalExcelSheets(wb, {
     journal: '📒 Journal Général',
