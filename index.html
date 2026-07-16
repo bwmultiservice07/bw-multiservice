@@ -431,11 +431,11 @@ tr:hover td{background:#f7f9ff;}
             <button class="btn" style="font-size:.78rem;padding:5px 12px;width:auto;background:var(--danger-bg);color:var(--danger);border:1px solid #f5b7b1;" onclick="deleteTodaysSales()">🗑 Effacer les ventes du jour</button>
           </div>
         </div>
-        <div style="font-size:.78rem;color:var(--text2);background:var(--accent-bg);border-radius:6px;padding:6px 10px;margin-bottom:8px;">↔️ Ce tableau est large : utilisez le curseur ci-dessous (ou glissez dans le tableau) pour voir toutes les colonnes, y compris Cash, Crédit, Balance, Client, Appareil, Vendeur (Nom/Tél), Statut et Actions tout à droite.</div>
+        <div style="font-size:.78rem;color:var(--text2);background:var(--accent-bg);border-radius:6px;padding:6px 10px;margin-bottom:8px;">↔️ Ce tableau est large : utilisez le curseur ci-dessous (ou glissez dans le tableau) pour voir toutes les colonnes, y compris Cash, Crédit, Balance, Client, Appareil, Vendeur (Identité : nom, tél., marque/modèle, n° série), Statut et Actions tout à droite.</div>
         <input type="range" id="my-sales-scrollbar" min="0" max="100" value="0" step="1" oninput="scrollMySalesTable(this.value)" style="width:100%;margin-bottom:8px;cursor:pointer;">
         <div class="table-wrap" id="my-sales-wrap" onscroll="syncMySalesScrollbar()">
           <table style="min-width:1950px;">
-            <thead><tr><th>Date</th><th>Heure</th><th>Vendeur</th><th>Description</th><th>Qté</th><th>Unité</th><th>Nb. unité</th><th>Prix Caisse/Bout</th><th>Prix unit.</th><th>Montant (HTG)</th><th>Cash (HTG)</th><th>Crédit (HTG)</th><th>Balance (HTG)</th><th>Client</th><th>Appareil</th><th>Vendeur (Nom/Tél)</th><th>Statut</th><th>Actions</th></tr></thead>
+            <thead><tr><th>Date</th><th>Heure</th><th>Vendeur</th><th>Description</th><th>Qté</th><th>Unité</th><th>Nb. unité</th><th>Prix Caisse/Bout</th><th>Prix unit.</th><th>Montant (HTG)</th><th>Cash (HTG)</th><th>Crédit (HTG)</th><th>Balance (HTG)</th><th>Client</th><th>Appareil</th><th>Vendeur (Identité)</th><th>Statut</th><th>Actions</th></tr></thead>
             <tbody id="my-sales-body"><tr><td colspan="18" style="text-align:center;color:var(--text3);padding:1.5rem;">Aucune vente aujourd'hui.</td></tr></tbody>
           </table>
         </div>
@@ -1020,7 +1020,7 @@ tr:hover td{background:#f7f9ff;}
         </div>
         <div class="table-wrap">
           <table>
-            <thead><tr><th>Date</th><th>Heure</th><th>Vendeur</th><th>Description</th><th>Qté</th><th>Montant (HTG)</th><th>Cash (HTG)</th><th>Crédit (HTG)</th><th>Balance (HTG)</th><th>Client</th><th>Appareil</th><th>Vendeur (Nom/Tél)</th><th>Type</th></tr></thead>
+            <thead><tr><th>Date</th><th>Heure</th><th>Vendeur</th><th>Description</th><th>Qté</th><th>Montant (HTG)</th><th>Cash (HTG)</th><th>Crédit (HTG)</th><th>Balance (HTG)</th><th>Client</th><th>Appareil</th><th>Vendeur (Identité)</th><th>Type</th></tr></thead>
             <tbody id="all-trans-body"><tr><td colspan="13" style="text-align:center;color:var(--text3);padding:1.5rem;">Aucune transaction.</td></tr></tbody>
           </table>
         </div>
@@ -1161,6 +1161,9 @@ tr:hover td{background:#f7f9ff;}
     <div class="form-group"><label>Mot de passe</label><input type="password" id="new-password" placeholder="••••••••"/></div>
     <div class="form-group"><label>Nom complet</label><input type="text" id="new-fullname" placeholder="ex: Jean Baptiste"/></div>
     <div class="form-group"><label>Numéro de téléphone</label><input type="tel" id="new-phone" placeholder="ex: 3712-3456"/></div>
+    <div class="form-group"><label>Marque du téléphone</label><input type="text" id="new-device-brand" placeholder="ex: Samsung"/></div>
+    <div class="form-group"><label>Modèle du téléphone</label><input type="text" id="new-device-model" placeholder="ex: Galaxy A12"/></div>
+    <div class="form-group"><label>N° de série de l'appareil</label><input type="text" id="new-device-serial" placeholder="ex: R58N123ABCD (voir Paramètres > À propos du téléphone)"/></div>
     <div class="form-group"><label>Rôle</label>
       <select id="new-role">
         <option value="vendeur">Vendeur</option>
@@ -1183,6 +1186,9 @@ tr:hover td{background:#f7f9ff;}
     <input type="hidden" id="profile-user-id"/>
     <div class="form-group"><label>Nom complet</label><input type="text" id="profile-fullname" placeholder="ex: Jean Baptiste"/></div>
     <div class="form-group"><label>Numéro de téléphone</label><input type="tel" id="profile-phone" placeholder="ex: 3712-3456"/></div>
+    <div class="form-group"><label>Marque du téléphone</label><input type="text" id="profile-device-brand" placeholder="ex: Samsung"/></div>
+    <div class="form-group"><label>Modèle du téléphone</label><input type="text" id="profile-device-model" placeholder="ex: Galaxy A12"/></div>
+    <div class="form-group"><label>N° de série de l'appareil</label><input type="text" id="profile-device-serial" placeholder="ex: R58N123ABCD (voir Paramètres > À propos du téléphone)"/></div>
     <div style="display:flex;gap:8px;margin-top:.8rem;">
       <button class="btn btn-primary" onclick="saveProfileFromModal()" style="flex:1;">Enregistrer</button>
       <button class="btn btn-outline" onclick="closeEditProfileModal()" style="flex:1;">Annuler</button>
@@ -1982,16 +1988,16 @@ function initDeviceTracking() {
   enrichDeviceModelInfo();
 }
 
-// Formate l'identité déclarée du vendeur (nom complet + téléphone, voir
-// openEditProfileModal()) rattachée à une vente, pour l'affichage dans les
-// tableaux "Vente du jour" / "Toutes les transactions" — "—" si aucune des
-// deux informations n'est renseignée.
+// Formate l'identité déclarée du vendeur (nom complet + téléphone + marque et
+// modèle du téléphone + numéro de série, voir openEditProfileModal())
+// rattachée à une vente, pour l'affichage dans les tableaux "Vente du jour" /
+// "Toutes les transactions" — "—" si aucune de ces informations n'est
+// renseignée.
 function formatSellerIdentity(t) {
   if (t.type !== 'vente') return '—';
-  const nom = t.sellerFullName || '';
-  const tel = t.sellerPhone || '';
-  if (!nom && !tel) return '—';
-  return nom && tel ? `${nom} — ${tel}` : (nom || tel);
+  const marqueModele = [t.sellerDeviceBrand||'', t.sellerDeviceModel||''].filter(Boolean).join(' ');
+  const parts = [t.sellerFullName||'', t.sellerPhone||'', marqueModele, t.sellerDeviceSerial?('SN: '+t.sellerDeviceSerial):''].filter(Boolean);
+  return parts.length ? parts.join(' — ') : '—';
 }
 
 // Connexion : essaie d'abord un vrai compte Firebase (sécurisé), et si
@@ -2890,14 +2896,17 @@ async function submitSale() {
   // pouvoir les regrouper/tracer même si elles restent des documents séparés.
   const saleGroupId = Date.now()+'-'+Math.random().toString(36).slice(2,8);
   // Caractéristiques de l'appareil du vendeur (capturées à l'ouverture de la
-  // session, voir finishLogin()/initDeviceTracking()) + nom complet/téléphone
-  // déclarés du vendeur (voir openEditProfileModal()) — rattachés à la fiche
-  // pour que l'admin/gestionnaire puisse identifier d'où et par qui chaque
-  // vente a été transmise.
+  // session, voir finishLogin()/initDeviceTracking()) + nom complet/téléphone/
+  // marque/modèle/numéro de série déclarés du vendeur (voir
+  // openEditProfileModal()) — rattachés à la fiche pour que l'admin/
+  // gestionnaire puisse identifier d'où et par qui chaque vente a été transmise.
   const deviceInfo = STATE.currentDeviceInfo || getDeviceCharacteristics();
   const sellerProfile = (STATE.users||[]).find(u => u.username === STATE.currentUser.username) || {};
   const sellerFullName = sellerProfile.fullName || '';
   const sellerPhone = sellerProfile.phone || '';
+  const sellerDeviceSerial = sellerProfile.deviceSerial || '';
+  const sellerDeviceBrand = sellerProfile.deviceBrand || '';
+  const sellerDeviceModel = sellerProfile.deviceModel || '';
   // Le paiement (cash/crédit/balance) porte sur le TOTAL de la fiche : il n'est
   // attaché qu'à la première ligne, les autres lignes ont cash/credit/balance à 0.
   const txList = rows.map((r, i) => ({
@@ -2905,7 +2914,7 @@ async function submitSale() {
     seller:STATE.currentUser.username, description:r.desc, unit:r.unit||'caisse',
     quantity:r.qty, unitPrice:r.prix, nombreUnite:r.nbUnite, prixCaisse:r.prixCaisse,
     amount:r.amount, cash: i===0 ? cash : 0, credit: i===0 ? balance : 0, balance: i===0 ? balance : 0,
-    client:client||'', status:'sent', saleGroupId, deviceInfo, sellerFullName, sellerPhone, createdAt: new Date().toISOString()
+    client:client||'', status:'sent', saleGroupId, deviceInfo, sellerFullName, sellerPhone, sellerDeviceSerial, sellerDeviceBrand, sellerDeviceModel, createdAt: new Date().toISOString()
   }));
   // Si vente à crédit (balance > 0), auto-créer UNE SEULE entrée dans credits
   // pour le montant total de la fiche (pas une par produit).
@@ -2999,17 +3008,21 @@ async function submitSaleGlace() {
     showToast('⚠ Veuillez remplir tous les champs obligatoires (produit, quantité, prix unitaire).','warn'); return;
   }
   const saleDate = todayStr(), saleIsoDate = isoDate(), saleTime = nowStr();
-  // Caractéristiques de l'appareil du vendeur + nom complet/téléphone déclarés
-  // (voir finishLogin()/initDeviceTracking() et openEditProfileModal()).
+  // Caractéristiques de l'appareil du vendeur + nom complet/téléphone/marque/
+  // modèle/numéro de série déclarés (voir finishLogin()/initDeviceTracking()
+  // et openEditProfileModal()).
   const deviceInfo = STATE.currentDeviceInfo || getDeviceCharacteristics();
   const sellerProfileG = (STATE.users||[]).find(u => u.username === STATE.currentUser.username) || {};
   const sellerFullName = sellerProfileG.fullName || '';
   const sellerPhone = sellerProfileG.phone || '';
+  const sellerDeviceSerial = sellerProfileG.deviceSerial || '';
+  const sellerDeviceBrand = sellerProfileG.deviceBrand || '';
+  const sellerDeviceModel = sellerProfileG.deviceModel || '';
   const tx = {
     type:'vente', date:saleDate, isoDate:saleIsoDate, time:saleTime,
     seller:STATE.currentUser.username, description:desc, unit:'unite', isGlace:true,
     quantity:qty, unitPrice:prix, nombreUnite:0, prixCaisse:0, amount:amount, cash:amount, credit:0, balance:0,
-    client:'', status:'sent', deviceInfo, sellerFullName, sellerPhone, createdAt: new Date().toISOString()
+    client:'', status:'sent', deviceInfo, sellerFullName, sellerPhone, sellerDeviceSerial, sellerDeviceBrand, sellerDeviceModel, createdAt: new Date().toISOString()
   };
   if (STATE.isOnline && STATE.fbReady) {
     try {
@@ -5057,10 +5070,10 @@ function renderUsers() {
   container.innerHTML = STATE.users.map(u=>`
     <div class="user-chip">
       <div class="av">${u.username[0].toUpperCase()}</div>
-      <span>${esc(u.username)}${(u.fullName||u.phone)?` <span style="color:var(--text3);font-weight:400;">(${esc(u.fullName||'')}${u.fullName&&u.phone?' — ':''}${esc(u.phone||'')})</span>`:''}</span>
+      <span>${esc(u.username)}${(u.fullName||u.phone||u.deviceBrand||u.deviceModel||u.deviceSerial)?` <span style="color:var(--text3);font-weight:400;">(${[u.fullName,u.phone,[u.deviceBrand,u.deviceModel].filter(Boolean).join(' '),u.deviceSerial?('SN: '+u.deviceSerial):''].filter(Boolean).map(esc).join(' — ')})</span>`:''}</span>
       <span class="role-badge">${esc(u.role)}</span>
       <button class="btn btn-outline" style="font-size:.72rem;padding:3px 9px;" ${u.id?'':'disabled title="Compte pas encore synchronisé"'} onclick="openPermissionsModal('${u.id||''}','${esc(u.username)}','${u.role}')">🛡️ Permissions</button>
-      <button class="btn btn-outline" style="font-size:.72rem;padding:3px 9px;" ${u.id?'':'disabled title="Compte pas encore synchronisé"'} onclick="openEditProfileModal('${u.id||''}','${escJs(u.username)}','${escJs(u.fullName||'')}','${escJs(u.phone||'')}')">🪪 Profil</button>
+      <button class="btn btn-outline" style="font-size:.72rem;padding:3px 9px;" ${u.id?'':'disabled title="Compte pas encore synchronisé"'} onclick="openEditProfileModal('${u.id||''}','${escJs(u.username)}','${escJs(u.fullName||'')}','${escJs(u.phone||'')}','${escJs(u.deviceSerial||'')}','${escJs(u.deviceBrand||'')}','${escJs(u.deviceModel||'')}')">🪪 Profil</button>
       <button class="del-btn" style="background:none;color:var(--accent);border:1px solid var(--accent);font-size:.72rem;" title="Réinitialiser le mot de passe" onclick="resetUserPassword('${esc(u.username)}','${u.id||''}')">🔑</button>
       ${(u.role==='admin' && adminCount<=1)?'':`<button class="del-btn" onclick="deleteUser('${u.username}','${u.id||''}')">×</button>`}
     </div>`).join('');
@@ -5111,6 +5124,9 @@ function closeAddUserModal() {
   document.getElementById('new-password').value='';
   document.getElementById('new-fullname').value='';
   document.getElementById('new-phone').value='';
+  document.getElementById('new-device-brand').value='';
+  document.getElementById('new-device-model').value='';
+  document.getElementById('new-device-serial').value='';
   document.getElementById('add-user-err').textContent='';
 }
 
@@ -5120,9 +5136,13 @@ function closeAddUserModal() {
 // déconnecte pas l'admin en train de l'ajouter — createUserWithEmailAndPassword
 // connecte automatiquement la session utilisée en tant que ce nouveau compte,
 // donc on utilise une session à part, jetée immédiatement après.
-// Nom complet et numéro de téléphone (pour la reconnaissance des vendeurs sur
-// les transactions, voir initDeviceTracking()) sont facultatifs à la création
-// mais fortement recommandés — modifiables ensuite via le bouton 🪪 Profil.
+// Nom complet, numéro de téléphone et numéro de série de l'appareil (pour la
+// reconnaissance des vendeurs sur les transactions, voir initDeviceTracking())
+// sont facultatifs à la création mais fortement recommandés — modifiables
+// ensuite via le bouton 🪪 Profil. La marque, le modèle et le numéro de série
+// sont saisis manuellement par l'admin car ils ne sont pas (ou pas de façon
+// fiable) accessibles depuis un navigateur web (voir le commentaire au-dessus
+// d'enrichDeviceModelInfo()).
 async function addUser() {
   if (!requireAdmin()) return;
   const u = document.getElementById('new-username').value.trim();
@@ -5130,6 +5150,9 @@ async function addUser() {
   const r = document.getElementById('new-role').value;
   const fullName = document.getElementById('new-fullname').value.trim();
   const phone = document.getElementById('new-phone').value.trim();
+  const deviceBrand = document.getElementById('new-device-brand').value.trim();
+  const deviceModel = document.getElementById('new-device-model').value.trim();
+  const deviceSerial = document.getElementById('new-device-serial').value.trim();
   if (!u||!p) { document.getElementById('add-user-err').textContent='Tous les champs sont requis.'; return; }
   if (STATE.users.find(x=>x.username===u)) { document.getElementById('add-user-err').textContent='Nom déjà utilisé.'; return; }
   if (!STATE.isOnline || !STATE.fbReady) { document.getElementById('add-user-err').textContent='Hors ligne — impossible de créer un compte sécurisé maintenant.'; return; }
@@ -5139,9 +5162,9 @@ async function addUser() {
     const email = usernameToEmail(u);
     const cred = await createUserWithEmailAndPassword(window._secondaryAuth, email, p);
     const uid = cred.user.uid;
-    await setDoc(doc(window._db, 'users', uid), { username: u, role: r, fullName, phone });
+    await setDoc(doc(window._db, 'users', uid), { username: u, role: r, fullName, phone, deviceBrand, deviceModel, deviceSerial });
     await signOut(window._secondaryAuth);
-    STATE.users.push({id: uid, username:u, role:r, fullName, phone});
+    STATE.users.push({id: uid, username:u, role:r, fullName, phone, deviceBrand, deviceModel, deviceSerial});
     saveLocal();
     renderUsers();
     closeAddUserModal();
@@ -5199,18 +5222,25 @@ async function savePermissionsFromModal() {
   if (ok) closePermissionsModal();
 }
 
-// Fenêtre "🪪 Profil" (admin uniquement) : renseigner/corriger le nom complet
-// et le numéro de téléphone d'un utilisateur déjà créé — utilisé pour la
-// reconnaissance des vendeurs sur les transactions (voir initDeviceTracking()
-// et submitSale()/submitSaleGlace()), en complément des caractéristiques
-// techniques de l'appareil.
-function openEditProfileModal(fbId, username, fullName, phone) {
+// Fenêtre "🪪 Profil" (admin uniquement) : renseigner/corriger le nom complet,
+// le numéro de téléphone, la marque, le modèle et le numéro de série de
+// l'appareil d'un utilisateur déjà créé — utilisé pour la reconnaissance des
+// vendeurs sur les transactions (voir initDeviceTracking() et
+// submitSale()/submitSaleGlace()), en complément des caractéristiques
+// techniques de l'appareil. Marque/modèle/numéro de série sont saisis
+// manuellement (le modèle technique est parfois capté automatiquement via
+// enrichDeviceModelInfo(), mais pas de façon fiable sur tous les navigateurs ;
+// la marque et le numéro de série ne le sont jamais).
+function openEditProfileModal(fbId, username, fullName, phone, deviceSerial, deviceBrand, deviceModel) {
   if (!requireAdmin()) return;
   if (!fbId) { showToast('⚠ Ce compte n\'est pas encore synchronisé — impossible de modifier son profil maintenant.','warn'); return; }
   document.getElementById('profile-user-id').value = fbId;
   document.getElementById('profile-username-label').textContent = username;
   document.getElementById('profile-fullname').value = fullName || '';
   document.getElementById('profile-phone').value = phone || '';
+  document.getElementById('profile-device-brand').value = deviceBrand || '';
+  document.getElementById('profile-device-model').value = deviceModel || '';
+  document.getElementById('profile-device-serial').value = deviceSerial || '';
   document.getElementById('edit-profile-modal-bg').classList.add('show');
 }
 
@@ -5223,13 +5253,16 @@ async function saveProfileFromModal() {
   const fbId = document.getElementById('profile-user-id').value;
   const fullName = document.getElementById('profile-fullname').value.trim();
   const phone = document.getElementById('profile-phone').value.trim();
+  const deviceBrand = document.getElementById('profile-device-brand').value.trim();
+  const deviceModel = document.getElementById('profile-device-model').value.trim();
+  const deviceSerial = document.getElementById('profile-device-serial').value.trim();
   if (!fbId) return;
   if (!STATE.isOnline || !STATE.fbReady) { showToast('⚠ Hors ligne — impossible de modifier le profil maintenant.','warn'); return; }
   try {
     const {doc, updateDoc} = window._fbFns;
-    await updateDoc(doc(window._db,'users',fbId), { fullName, phone });
+    await updateDoc(doc(window._db,'users',fbId), { fullName, phone, deviceBrand, deviceModel, deviceSerial });
     const idx = STATE.users.findIndex(u => u.id === fbId);
-    if (idx !== -1) STATE.users[idx] = {...STATE.users[idx], fullName, phone};
+    if (idx !== -1) STATE.users[idx] = {...STATE.users[idx], fullName, phone, deviceBrand, deviceModel, deviceSerial};
     renderUsers();
     closeEditProfileModal();
     showToast('✅ Profil mis à jour.');
@@ -6464,7 +6497,7 @@ function buildFullWorkbook() {
   // (Nom/Tél) : identité déclarée du vendeur, voir openEditProfileModal() —
   // "—" pour les ventes historiques enregistrées avant l'ajout de ce suivi).
   XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([
-    ['Date','Heure','Vendeur','Produit','Unité','Quantité','Prix unit.','Montant','Cash','Crédit','Balance','Client','Appareil','Vendeur (Nom/Tél)','Statut'],
+    ['Date','Heure','Vendeur','Produit','Unité','Quantité','Prix unit.','Montant','Cash','Crédit','Balance','Client','Appareil','Vendeur (Identité)','Statut'],
     ...sales.map(t=>[t.date,t.time,t.seller,t.description,formatUnitLabel(t.unit),t.quantity,t.unitPrice||0,t.amount||0,t.cash||0,t.credit||0,t.balance||0,t.client||'',t.deviceInfo||'—',formatSellerIdentity(t),t.balance>0?(t.balance===t.credit?'Non soldé':'Partiel'):'Soldé'])
   ]), '📋 Ventes');
 
@@ -8410,4 +8443,3 @@ if ('serviceWorker' in navigator) {
 </script>
 </body>
 </html>
-
