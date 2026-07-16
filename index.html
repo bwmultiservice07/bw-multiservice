@@ -675,6 +675,9 @@ tr:hover td{background:#f7f9ff;}
       </div>
       <div class="card">
         <div class="card-title">💸 Retrait de caisse</div>
+        <div id="retrait-correction-banner" style="display:none;background:#fef3e2;color:#8a5a00;border:1px solid #f5d59a;border-radius:8px;padding:8px 12px;margin-bottom:12px;font-size:.85rem;font-weight:600;">
+          ✏️ Modification en cours — <span id="retrait-correction-banner-text"></span>. <a href="#" onclick="unlockRetraitForm();return false;" style="color:#8a5a00;text-decoration:underline;">Annuler la correction</a>
+        </div>
         <div class="form-row">
           <div class="form-group">
             <label>Date</label>
@@ -756,6 +759,9 @@ tr:hover td{background:#f7f9ff;}
     <div class="tab-content" id="tab-autres-charges">
       <div class="card">
         <div class="card-title">💸 Enregistrer une charge</div>
+        <div id="charge-correction-banner" style="display:none;background:#fef3e2;color:#8a5a00;border:1px solid #f5d59a;border-radius:8px;padding:8px 12px;margin-bottom:12px;font-size:.85rem;font-weight:600;">
+          ✏️ Modification en cours — <span id="charge-correction-banner-text"></span>. <a href="#" onclick="unlockChargeForm();return false;" style="color:#8a5a00;text-decoration:underline;">Annuler la correction</a>
+        </div>
         <div class="form-row">
           <div class="form-group">
             <label>Date</label>
@@ -1097,9 +1103,9 @@ tr:hover td{background:#f7f9ff;}
         <div class="card">
           <div class="card-title">📋 Feuille de transactions cumulatives</div>
           <div class="table-wrap"><table>
-            <thead><tr><th>#</th><th>Date</th><th>Heure</th><th>Vendeur</th><th>Description</th><th>Qté</th><th>Montant HTG</th><th>Type</th><th>Cumul ventes</th></tr></thead>
+            <thead><tr><th>#</th><th>Date</th><th>Heure</th><th>Vendeur</th><th>Description</th><th>Qté</th><th>Montant HTG</th><th>Type</th><th>Cumul ventes</th><th>Actions</th></tr></thead>
             <tbody id="sheet-trans-body"></tbody>
-            <tfoot><tr><td colspan="6" style="font-weight:700;padding:7px 10px;">Total</td><td id="trans-total" style="font-weight:700;padding:7px 10px;"></td><td colspan="2"></td></tr></tfoot>
+            <tfoot><tr><td colspan="6" style="font-weight:700;padding:7px 10px;">Total</td><td id="trans-total" style="font-weight:700;padding:7px 10px;"></td><td colspan="3"></td></tr></tfoot>
           </table></div>
         </div>
       </div>
@@ -1347,6 +1353,12 @@ let _pendingStockDepartEditId = null;
 // Idem pour une ligne "Achats" du tableau "Historique des mouvements de
 // stock" (collection Firestore 'stocks') — admin/gestionnaire uniquement.
 let _pendingStockEditId = null;
+// Idem pour une charge hors marchandises (collection Firestore 'charges')
+// et pour un retrait de caisse (collection Firestore 'caisse_retraits') —
+// admin/gestionnaire uniquement, chargés depuis leur historique ou depuis la
+// "Feuille de transactions cumulatives" (Comptabilité > Transactions).
+let _pendingChargeEditId = null;
+let _pendingRetraitEditId = null;
 
 function loadLocal() {
   try {
@@ -2204,6 +2216,8 @@ async function performLogout() {
   unlockCreditForm();
   unlockFournisseurPaymentForm();
   unlockStockDepartForm();
+  unlockChargeForm();
+  unlockRetraitForm();
   if (unsubTrans) unsubTrans();
   if (unsubStocks) unsubStocks();
   if (unsubUsers) unsubUsers();
@@ -5362,6 +5376,38 @@ async function submitCharge() {
   if (isNaN(montant) || montant <= 0) {
     showToast('⚠ Veuillez indiquer un montant valide.','warn'); return;
   }
+
+  // Mode modification (clic sur ✏ dans l'historique ou depuis la "Feuille de
+  // transactions cumulatives") : on met à jour l'enregistrement existant au
+  // lieu d'en créer un nouveau.
+  if (_pendingChargeEditId) {
+    const id = _pendingChargeEditId;
+    if (!STATE.isOnline || !STATE.fbReady) {
+      showToast('⚠ Hors ligne — impossible de modifier cette charge maintenant.','warn'); return;
+    }
+    try {
+      const {doc, updateDoc} = window._fbFns;
+      const oldCharge = (STATE.charges||[]).find(c=>c.id===id);
+      await updateDoc(doc(window._db,'charges',id), {
+        date:date, isoDate:date, montant:montant, description:desc, note:note,
+        editedBy: STATE.currentUser.username, editedAt: new Date().toISOString()
+      });
+      await logNotification('✏️ Modification charge', `Description: ${desc} | Ancien montant: ${fmtHTG(oldCharge?.montant||0)} | Nouveau: ${fmtHTG(montant)} | Date: ${date}`);
+      showToast('✅ Charge modifiée.');
+      markUnsaved();
+      const idx = (STATE.charges||[]).findIndex(c=>c.id===id);
+      if (idx>=0) STATE.charges[idx] = {...STATE.charges[idx], date, isoDate:date, montant, description:desc, note};
+      unlockChargeForm();
+      renderChargesHistory();
+      if (currentTab === 'compta') refreshAccounting();
+    } catch(e) { showToast('⚠ Erreur: '+e.message,'warn'); }
+    document.getElementById('ch-date').value='';
+    document.getElementById('ch-montant').value='';
+    document.getElementById('ch-desc').value='';
+    document.getElementById('ch-note').value='';
+    return;
+  }
+
   const entry = { date:date, isoDate:date, montant:montant, description:desc, note:note,
     seller:STATE.currentUser.username, createdAt:new Date().toISOString() };
   if (!STATE.isOnline || !STATE.fbReady) {
@@ -5412,6 +5458,39 @@ async function deleteCharge(id) {
   if (currentTab === 'compta') refreshAccounting();
 }
 
+// Admin/gestionnaire : clic sur ✏ dans l'historique des charges (ou depuis la
+// "Feuille de transactions cumulatives") pour charger une charge dans le
+// formulaire et la corriger — soumettre à nouveau MET À JOUR l'enregistrement
+// existant au lieu d'en créer un doublon (voir submitCharge()).
+function openEditCharge(id) {
+  if (!requireAdminOrGest()) return;
+  const c = (STATE.charges||[]).find(x => x.id === id);
+  if (!c) { showToast('⚠ Charge introuvable.','warn'); return; }
+  document.getElementById('ch-date').value = c.isoDate || c.date || '';
+  document.getElementById('ch-montant').value = c.montant || '';
+  document.getElementById('ch-desc').value = c.description || '';
+  document.getElementById('ch-note').value = c.note || '';
+  _pendingChargeEditId = id;
+  const banner = document.getElementById('charge-correction-banner');
+  const bannerText = document.getElementById('charge-correction-banner-text');
+  if (banner && bannerText) {
+    bannerText.textContent = `${c.description||''} du ${c.date||''}`;
+    banner.style.display = 'block';
+  }
+  document.getElementById('ch-date').scrollIntoView({behavior:'smooth', block:'center'});
+  showToast('✏️ Charge chargée dans le formulaire — corrigez puis cliquez sur Enregistrer.');
+}
+
+function unlockChargeForm() {
+  _pendingChargeEditId = null;
+  const banner = document.getElementById('charge-correction-banner');
+  if (banner) banner.style.display = 'none';
+  document.getElementById('ch-date').value='';
+  document.getElementById('ch-montant').value='';
+  document.getElementById('ch-desc').value='';
+  document.getElementById('ch-note').value='';
+}
+
 function renderChargesHistory() {
   const body = document.getElementById('charges-body');
   if (!body) return;
@@ -5431,12 +5510,15 @@ function renderChargesHistory() {
     const isDom = c._source === 'depense-dom';
     const desc = isDom ? `🏠 Dépense domestique — ${esc(c.description||'')}` : esc(c.description||'');
     const delFn = isDom ? 'deleteDepenseDom' : 'deleteCharge';
+    // La correction n'est proposée que pour les charges hors marchandises
+    // (les dépenses domestiques ont leur propre onglet dédié, non couvert ici).
+    const editBtn = (!isDom && canEdit) ? `<button class="btn btn-outline" style="font-size:.75rem;padding:3px 10px;margin-right:4px;" onclick="openEditCharge('${c.id||''}')">✏️</button>` : '';
     return `<tr>
     <td>${c.date}</td>
     <td>${fmtHTG(c.montant||0)}</td>
     <td>${desc}</td>
     <td>${esc(c.note||'')}</td>
-    <td>${canEdit ? `<button class="btn" style="font-size:.75rem;padding:3px 10px;background:var(--danger-bg);color:var(--danger);border:1px solid #f5b7b1;" onclick="${delFn}('${c.id||''}')">🗑</button>` : '—'}</td>
+    <td>${canEdit ? `${editBtn}<button class="btn" style="font-size:.75rem;padding:3px 10px;background:var(--danger-bg);color:var(--danger);border:1px solid #f5b7b1;" onclick="${delFn}('${c.id||''}')">🗑</button>` : '—'}</td>
   </tr>`;
   }).join('');
 }
@@ -5690,23 +5772,77 @@ function buildTransSheet() {
   const body = document.getElementById('sheet-trans-body');
   const total = document.getElementById('trans-total');
   const items = [];
-  STATE.transactions.filter(t=>t.type==='vente').forEach(t=>items.push({...t, _label:'Vente', _isVente:true}));
-  (STATE.stocks||[]).forEach(s=>items.push({...s, montant:s.amount, _label:'Achat'}));
-  (STATE.charges||[]).forEach(c=>items.push({...c, _label:(c.description==='Salaire'||c.description==='Prime')?c.description:'Charge hors marchandises'}));
-  (STATE.credits||[]).filter(c=>(c.paid||0)>0).forEach(c=>items.push({...c, montant:c.paid, description:`Remboursement crédit – ${c.client||'?'}`, _label:'Paiement crédit client'}));
-  (STATE.fournisseurPayments||[]).filter(p=>(p.paid||0)>0).forEach(p=>items.push({...p, montant:p.paid, description:`Paiement fournisseur – ${p.supplier||'?'}`, _label:'Paiement dette fournisseur'}));
-  (STATE.caisseRetraits||[]).forEach(r=>items.push({...r, montant:r.montant, description:`Retrait – ${r.personne||'?'} (${r.objet||'?'})`, _label:'Retrait de caisse'}));
+  STATE.transactions.filter(t=>t.type==='vente').forEach(t=>items.push({...t, _label:'Vente', _isVente:true, _kind:'vente'}));
+  (STATE.stocks||[]).forEach(s=>items.push({...s, montant:s.amount, _label:'Achat', _kind:'achat'}));
+  (STATE.charges||[]).forEach(c=>items.push({...c, _label:(c.description==='Salaire'||c.description==='Prime')?c.description:'Charge hors marchandises', _kind:'charge'}));
+  (STATE.credits||[]).filter(c=>(c.paid||0)>0).forEach(c=>items.push({...c, montant:c.paid, description:`Remboursement crédit – ${c.client||'?'}`, _label:'Paiement crédit client', _kind:'credit'}));
+  (STATE.fournisseurPayments||[]).filter(p=>(p.paid||0)>0).forEach(p=>items.push({...p, montant:p.paid, description:`Paiement fournisseur – ${p.supplier||'?'}`, _label:'Paiement dette fournisseur', _kind:'fournisseur'}));
+  (STATE.caisseRetraits||[]).forEach(r=>items.push({...r, montant:r.montant, description:`Retrait – ${r.personne||'?'} (${r.objet||'?'})`, _label:'Retrait de caisse', _kind:'retrait'}));
   items.sort((a,b)=>(a.isoDate||a.date||'').localeCompare(b.isoDate||b.date||'')||(a.time||'').localeCompare(b.time||''));
+  const canEdit = STATE.currentUser && (STATE.currentUser.role==='admin' || STATE.currentUser.role==='gestionnaire');
   let cum=0, grandTotal=0;
   body.innerHTML = items.map((t,i)=>{
     const montant = t._isVente ? (t.amount||0) : (t.montant||0);
     grandTotal += montant;
     if (t._isVente) cum += montant;
+    const actions = canEdit
+      ? `<div style="display:flex;gap:4px;flex-wrap:wrap;">
+          <button class="btn btn-outline" style="font-size:.7rem;padding:3px 8px;" onclick="correctFromTransSheet('${t._kind}','${t.id||''}')">✏️</button>
+          <button class="btn" style="font-size:.7rem;padding:3px 8px;background:var(--danger-bg);color:var(--danger);border:1px solid #f5b7b1;" onclick="deleteFromTransSheet('${t._kind}','${t.id||''}')">🗑</button>
+        </div>`
+      : '—';
     return `<tr><td>${i+1}</td><td>${t.date||''}</td><td>${t.time||''}</td><td>${esc(t.seller||'')}</td>
       <td>${esc(t.description||'')}</td><td>${t._isVente?(t.quantity||''):''}</td><td>${fmtHTG(montant)}</td>
-      <td>${t._label}</td><td>${t._isVente?fmtHTG(cum):'—'}</td></tr>`;
-  }).join('') || '<tr><td colspan="9" style="text-align:center;color:var(--text3);padding:1rem;">Aucune transaction.</td></tr>';
+      <td>${t._label}</td><td>${t._isVente?fmtHTG(cum):'—'}</td><td>${actions}</td></tr>`;
+  }).join('') || '<tr><td colspan="10" style="text-align:center;color:var(--text3);padding:1rem;">Aucune transaction.</td></tr>';
   total.textContent = fmtHTG(grandTotal);
+}
+
+// Depuis "Feuille de transactions cumulatives" (Comptabilité > Transactions) :
+// bascule vers l'onglet d'origine de la ligne ET pré-remplit son formulaire
+// de correction, pour permettre de corriger n'importe quelle ligne sans
+// devoir d'abord la retrouver manuellement dans son onglet d'origine.
+function correctFromTransSheet(kind, id) {
+  if (!requireAdminOrGest()) return;
+  if (!id) { showToast('⚠ Enregistrement introuvable.','warn'); return; }
+  if (kind === 'vente') {
+    switchTab('ventes');
+    loadSaleForCorrection(id);
+  } else if (kind === 'achat') {
+    switchTab('stocks');
+    loadStockForCorrection(id);
+  } else if (kind === 'charge') {
+    switchTab('autres-charges');
+    openEditCharge(id);
+  } else if (kind === 'credit') {
+    const c = (STATE.credits||[]).find(x=>x.id===id);
+    if (!c) { showToast('⚠ Enregistrement introuvable.','warn'); return; }
+    switchTab('credit');
+    switchCreditSubTab('clients', null);
+    openEditCredit(c.id, c.client, c.due, c.paid, c.finalBalance, c.date, c.time);
+  } else if (kind === 'fournisseur') {
+    const p = (STATE.fournisseurPayments||[]).find(x=>x.id===id);
+    if (!p) { showToast('⚠ Enregistrement introuvable.','warn'); return; }
+    switchTab('credit');
+    switchCreditSubTab('fournisseurs', null);
+    openEditFournisseurPayment(p.id, p.supplier, p.due, p.paid, p.finalBalance, p.date, p.time);
+  } else if (kind === 'retrait') {
+    switchTab('caisse');
+    openEditRetrait(id);
+  }
+}
+
+// Depuis "Feuille de transactions cumulatives" : efface la ligne dans sa
+// collection d'origine, en réutilisant EXACTEMENT les mêmes fonctions de
+// suppression que dans l'onglet d'origine (mêmes confirmations et mêmes
+// avertissements).
+function deleteFromTransSheet(kind, id) {
+  if (kind === 'vente') deleteTransaction(id);
+  else if (kind === 'achat') deleteStock(id);
+  else if (kind === 'charge') deleteCharge(id);
+  else if (kind === 'credit') deleteCredit(id);
+  else if (kind === 'fournisseur') deleteFournisseurPayment(id);
+  else if (kind === 'retrait') deleteCaisseRetrait(id);
 }
 
 function buildJournal() {
@@ -7956,6 +8092,40 @@ async function submitRetraitCaisse() {
   if (!personne || !objet) {
     showToast('⚠ Veuillez indiquer le nom de la personne et l\'objet du retrait.','warn'); return;
   }
+
+  // Mode modification (clic sur ✏ dans l'historique ou depuis la "Feuille de
+  // transactions cumulatives") : on met à jour l'enregistrement existant au
+  // lieu d'en créer un nouveau.
+  if (_pendingRetraitEditId) {
+    const id = _pendingRetraitEditId;
+    if (!STATE.isOnline || !STATE.fbReady) {
+      showToast('⚠ Hors ligne — impossible de modifier ce retrait maintenant.','warn'); return;
+    }
+    try {
+      const {doc, updateDoc} = window._fbFns;
+      const oldRetrait = (STATE.caisseRetraits||[]).find(c=>c.id===id);
+      await updateDoc(doc(window._db,'caisse_retraits',id), {
+        date:date, isoDate:date, montant:montant, personne:personne, objet:objet,
+        editedBy: STATE.currentUser.username, editedAt: new Date().toISOString()
+      });
+      await logNotification('✏️ Modification retrait de caisse', `Personne: ${personne} | Ancien montant: ${fmtHTG(oldRetrait?.montant||0)} | Nouveau: ${fmtHTG(montant)} | Date: ${date}`);
+      showToast('✅ Retrait modifié.');
+      markUnsaved();
+      const idx = (STATE.caisseRetraits||[]).findIndex(c=>c.id===id);
+      if (idx>=0) STATE.caisseRetraits[idx] = {...STATE.caisseRetraits[idx], date, isoDate:date, montant, personne, objet};
+      unlockRetraitForm();
+      renderCaisseRetraits();
+      renderCaisse();
+      renderDashboard();
+      if (currentTab === 'compta') refreshAccounting();
+    } catch(e) { showToast('⚠ Erreur: '+e.message,'warn'); }
+    document.getElementById('cxr-date').value='';
+    document.getElementById('cxr-montant').value='';
+    document.getElementById('cxr-personne').value='';
+    document.getElementById('cxr-objet').value='';
+    return;
+  }
+
   const entry = { date:date, isoDate:date, time:nowStr(), montant:montant, personne:personne, objet:objet,
     seller:STATE.currentUser.username, createdAt:new Date().toISOString() };
   if (!STATE.isOnline || !STATE.fbReady) {
@@ -8008,6 +8178,39 @@ async function deleteCaisseRetrait(id) {
   renderCaisse();
   renderDashboard();
   if (currentTab === 'compta') refreshAccounting();
+}
+
+// Admin/gestionnaire : clic sur ✏ dans l'historique des retraits (ou depuis
+// la "Feuille de transactions cumulatives") pour charger un retrait dans le
+// formulaire et le corriger — soumettre à nouveau MET À JOUR l'enregistrement
+// existant au lieu d'en créer un doublon (voir submitRetraitCaisse()).
+function openEditRetrait(id) {
+  if (!requireAdminOrGest()) return;
+  const r = (STATE.caisseRetraits||[]).find(x => x.id === id);
+  if (!r) { showToast('⚠ Retrait introuvable.','warn'); return; }
+  document.getElementById('cxr-date').value = r.isoDate || r.date || '';
+  document.getElementById('cxr-montant').value = r.montant || '';
+  document.getElementById('cxr-personne').value = r.personne || '';
+  document.getElementById('cxr-objet').value = r.objet || '';
+  _pendingRetraitEditId = id;
+  const banner = document.getElementById('retrait-correction-banner');
+  const bannerText = document.getElementById('retrait-correction-banner-text');
+  if (banner && bannerText) {
+    bannerText.textContent = `retrait de ${r.personne||''} du ${r.date||''}`;
+    banner.style.display = 'block';
+  }
+  document.getElementById('cxr-date').scrollIntoView({behavior:'smooth', block:'center'});
+  showToast('✏️ Retrait chargé dans le formulaire — corrigez puis cliquez sur Enregistrer.');
+}
+
+function unlockRetraitForm() {
+  _pendingRetraitEditId = null;
+  const banner = document.getElementById('retrait-correction-banner');
+  if (banner) banner.style.display = 'none';
+  document.getElementById('cxr-date').value='';
+  document.getElementById('cxr-montant').value='';
+  document.getElementById('cxr-personne').value='';
+  document.getElementById('cxr-objet').value='';
 }
 
 // Admin/gestionnaire : pré-remplit le formulaire "Enregistrer l'ouverture de
@@ -8087,7 +8290,7 @@ function renderCaisseRetraits() {
     <td style="color:#c0392b;font-weight:600;">-${fmtHTG(c.montant||0)}</td>
     <td>${esc(c.personne||'')}</td>
     <td>${esc(c.objet||'')}</td>
-    <td>${canEdit ? `<button class="btn" style="font-size:.75rem;padding:3px 10px;background:var(--danger-bg);color:var(--danger);border:1px solid #f5b7b1;" onclick="deleteCaisseRetrait('${c.id||''}')">🗑</button>` : '—'}</td>
+    <td>${canEdit ? `<button class="btn btn-outline" style="font-size:.75rem;padding:3px 10px;margin-right:4px;" onclick="openEditRetrait('${c.id||''}')">✏️</button><button class="btn" style="font-size:.75rem;padding:3px 10px;background:var(--danger-bg);color:var(--danger);border:1px solid #f5b7b1;" onclick="deleteCaisseRetrait('${c.id||''}')">🗑</button>` : '—'}</td>
   </tr>`).join('');
 }
 
