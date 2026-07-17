@@ -2382,10 +2382,22 @@ window._logDebugOffline = function(msg) {
 // Stock de départ et Mouvements de Stocks doit toujours montrer les produits
 // en minuscule, quelle que soit la façon dont ils ont été tapés à l'origine.
 const DEFAULT_PRODUCTS = [
-  '7up','beller','couronne','culligan','dassani','frooty','generade',
-  'gros frutop','gros valle','heineken','kinanm','koka','kola real',
+  '7up','beller','coca kola','couronne','culligan','dassani','frooty','generade',
+  'gros frutop','gros valle','heineken','kinanm','kola real',
   'prestige','prorade','sprite','tampico','ti frutop','ti valle'
 ];
+
+// Anciennes orthographes d'un même produit → orthographe canonique à
+// utiliser désormais (demande explicite du 17 juillet 2026 : "koka" et
+// "coca-kola" remplacés par "coca kola"). Appliqué dès la saisie dans
+// normalizeProduitField() pour que "koka"/"coca-kola" tapés (peu importe la
+// casse) s'unifient automatiquement sur "coca kola" au lieu de créer une
+// ligne de produit séparée dans les rapports (Stock Actuel, Analyse, Data
+// Analyse).
+const PRODUCT_NAME_ALIASES = {
+  'koka': 'coca kola',
+  'coca-kola': 'coca kola'
+};
 
 // Fusionne la liste de base avec les produits ajoutés par les utilisateurs
 // (synchronisés via Firestore), sans doublons, tout en minuscule, triée
@@ -2479,14 +2491,17 @@ async function ensureCustomProduct(name) {
 // produit : si le nom tapé correspond déjà à un produit du catalogue à la
 // casse près (ex: "beller" tapé alors que "Beller" existe), on uniformise
 // l'affichage sur l'orthographe déjà connue pour éviter que les rapports
-// comptent le même produit deux fois sous deux graphies différentes. Sinon,
-// on l'ajoute comme nouveau produit.
+// comptent le même produit deux fois sous deux graphies différentes. Les
+// alias connus (PRODUCT_NAME_ALIASES, ex: "koka"/"coca-kola") sont résolus
+// AVANT cette recherche, donc ils s'unifient eux aussi automatiquement sur
+// l'orthographe canonique. Sinon, on l'ajoute comme nouveau produit.
 function normalizeProduitField(fieldId) {
   const field = document.getElementById(fieldId);
   if (!field) return;
   const typed = field.value.trim();
   if (!typed) return;
-  const lower = typed.toLowerCase();
+  let lower = typed.toLowerCase();
+  if (PRODUCT_NAME_ALIASES[lower]) lower = PRODUCT_NAME_ALIASES[lower];
   const match = getProductCatalog().find(p => p === lower);
   field.value = match || lower;
   if (!match) ensureCustomProduct(lower);
