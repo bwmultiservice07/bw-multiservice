@@ -362,11 +362,11 @@ tr:hover td{background:#f7f9ff;}
             <div class="form-row">
               <div class="form-group">
                 <label>Quantité</label>
-                <input type="number" id="v-qty" min="1" placeholder="Ex: 10" oninput="calcMontant('v')"/>
+                <input type="number" id="v-qty" min="1" placeholder="Ex: 10" oninput="updateRowPriceIndicator('v')"/>
               </div>
               <div class="form-group">
                 <label>Unité</label>
-                <select id="v-unit" onchange="calcMontant('v')">
+                <select id="v-unit" onchange="updateRowPriceIndicator('v')">
                   <option value="caisse">Caisse (24 unités)</option>
                   <option value="bout">Bout (12 unités)</option>
                   <option value="caisse-1-2">Caisse et 1/2 (36 unités)</option>
@@ -376,25 +376,22 @@ tr:hover td{background:#f7f9ff;}
                 </select>
               </div>
               <div class="form-group">
-                <label>Prix / Caisse (HTG)</label>
-                <input type="number" id="v-prix-caisse" min="0" step="0.01" placeholder="Ex: 1200.00" oninput="calcPrixUnitaire('v')"/>
-              </div>
-              <div class="form-group">
-                <label>Prix unitaire (HTG) — auto</label>
-                <input type="number" id="v-prix" min="0" step="0.01" placeholder="Ex: 50.00" oninput="calcMontant('v')" readonly style="background:#f0f2f7;"/>
-              </div>
-              <div class="form-group">
                 <label>Nombre d'unité</label>
-                <input type="number" id="v-nb-unite" min="0" step="1" placeholder="Ex: 1, 2, 3..." oninput="calcMontant('v')"/>
+                <input type="number" id="v-nb-unite" min="0" step="1" placeholder="Ex: 1, 2, 3..." oninput="updateRowPriceIndicator('v')"/>
               </div>
               <div class="form-group">
-                <label>Sous-total produit (HTG) — auto</label>
-                <input type="number" id="v-row-amount" min="0" step="0.01" placeholder="0.00" readonly style="background:#f0f2f7;font-weight:600;"/>
+                <label>Montant vente (HTG)</label>
+                <input type="number" id="v-row-amount" min="0" step="0.01" placeholder="Ex: 1200.00" oninput="updateRowPriceIndicator('v');recalcVenteTotal()"/>
+              </div>
+              <div class="form-group">
+                <label id="v-prix-evolutif-label">Prix de vente caisse (estimé)</label>
+                <input type="text" id="v-prix-evolutif" readonly placeholder="—" style="background:#f0f2f7;color:#1a56db;font-weight:600;"/>
               </div>
             </div>
           </div>
         </div>
         <button type="button" id="btn-add-vente-product" class="btn btn-outline" style="margin-bottom:12px;font-size:.85rem;" onclick="addVenteProductRow()">+ Ajouter un autre produit</button>
+        <button type="button" class="btn btn-outline" style="margin-bottom:12px;margin-left:8px;font-size:.85rem;" onclick="openPrixVenteModal()">💲 Prix de vente par produit</button>
         <div class="form-row">
           <div class="form-group">
             <label>Montant total (HTG) — automatique (tous les produits)</label>
@@ -1250,6 +1247,17 @@ tr:hover td{background:#f7f9ff;}
     <div id="mge-content"></div>
     <div style="display:flex;gap:8px;margin-top:.8rem;">
       <button class="btn btn-outline" onclick="closeMarginEvolutionModal()" style="flex:1;">Fermer</button>
+    </div>
+  </div>
+</div>
+
+<div class="edit-modal-bg" id="prix-vente-modal-bg">
+  <div class="edit-modal" style="max-width:760px;max-height:85vh;overflow-y:auto;">
+    <h3>💲 Prix de vente par produit (évolutif)</h3>
+    <p style="margin:.2rem 0 .8rem;color:var(--text2);font-size:.85rem;">Pour chaque produit déjà vendu : Prix de vente = Montant vendu ÷ (Quantité + Nombre d'unité), calculé automatiquement à chaque vente. Ce tableau montre le dernier prix pratiqué, la moyenne, et les derniers prix successifs pour voir comment il évolue/varie.</p>
+    <div id="prix-vente-content"></div>
+    <div style="display:flex;gap:8px;margin-top:.8rem;">
+      <button class="btn btn-outline" onclick="closePrixVenteModal()" style="flex:1;">Fermer</button>
     </div>
   </div>
 </div>
@@ -2584,56 +2592,46 @@ function formatCaissesDisplay(qtyCaisses, casseSize) {
 // prefix par défaut 'v' = la première ligne produit du formulaire de vente ;
 // 'v2', 'v3', ... = les lignes produit supplémentaires ajoutées via "+
 // Ajouter un autre produit" (une vente peut désormais contenir plusieurs
-// produits dans la même fiche) ; 'vg' = le formulaire de vente glacée, qui
-// réutilise exactement la même logique de calcul (prix caisse → prix
-// unitaire → montant), mais reste toujours à une seule ligne.
-function calcPrixUnitaire(prefix) {
+// produits dans la même fiche).
+//
+// Depuis le 17 juillet 2026, le vendeur tape directement le "Montant vente"
+// de chaque ligne (au lieu de taper un prix et de laisser l'app calculer le
+// montant) : le Prix / Caisse-Bout et le Prix unitaire ne sont plus des
+// champs saisis. À la place, un indicateur en lecture seule affiche EN
+// DIRECT, pendant la saisie, le prix de vente que ce montant représente —
+// formule demandée explicitement : Montant vendu ÷ (Quantité + Nombre
+// d'unité). Purement informatif sur cette fonction (aide le vendeur à voir
+// si son prix dérive) ; c'est ce même calcul qui alimente réellement le
+// champ prixCaisse enregistré sur la transaction (voir submitSale()), pour
+// que le taux de marge (Analyse financière / Data Analyse) continue de
+// recevoir de vraies données malgré la disparition du champ "Prix / Caisse".
+function updateRowPriceIndicator(prefix) {
   prefix = prefix || 'v';
-  const prixCaisse = parseFloat(document.getElementById(prefix+'-prix-caisse').value) || 0;
-  const produit = document.getElementById(prefix+'-desc').value;
-  const unit = document.getElementById(prefix+'-unit').value;
-  const casseSize = getCasseSize(produit, unit);
-  // Prix unitaire = prix caisse / nombre d'unités dans une caisse
-  const prixUnit = prixCaisse > 0 ? prixCaisse / casseSize : 0;
-  document.getElementById(prefix+'-prix').value = prixUnit.toFixed(2);
-  calcMontant(prefix);
+  const qtyEl = document.getElementById(prefix+'-qty');
+  const nbUniteEl = document.getElementById(prefix+'-nb-unite');
+  const montantEl = document.getElementById(prefix+'-row-amount');
+  const unitEl = document.getElementById(prefix+'-unit');
+  const indicatorEl = document.getElementById(prefix+'-prix-evolutif');
+  const labelEl = document.getElementById(prefix+'-prix-evolutif-label');
+  if (!qtyEl || !montantEl || !unitEl || !indicatorEl) return;
+
+  const qty = parseFloat(qtyEl.value) || 0;
+  const nbUnite = parseFloat((nbUniteEl && nbUniteEl.value) || 0) || 0;
+  const montant = parseFloat(montantEl.value) || 0;
+  const unit = unitEl.value;
+  const isBout = (unit === 'bout' || unit === 'bout-1-2');
+  if (labelEl) labelEl.textContent = isBout ? 'Prix de vente bout (estimé)' : 'Prix de vente caisse (estimé)';
+
+  const denom = qty + nbUnite;
+  const prix = denom > 0 ? montant / denom : 0;
+  indicatorEl.value = denom > 0 && montant > 0 ? fmtHTG(prix) : '—';
 }
 
-// Calcule le sous-total d'UNE ligne produit (prefix 'v', 'v2', 'v3'...) et
-// l'écrit dans son propre champ "-row-amount", puis redéclenche le recalcul
-// du montant total de la vente (somme de toutes les lignes) — le formulaire
-// "vente glacée" (prefix 'vg') n'utilise pas cette fonction : son montant en
-// gourdes est saisi manuellement par le vendeur, directement dans le champ
-// vg-amount.
-function calcMontant(prefix) {
-  prefix = prefix || 'v';
-  const qty = parseFloat(document.getElementById(prefix+'-qty').value) || 0;
-  const prixCaisse = parseFloat(document.getElementById(prefix+'-prix-caisse').value) || 0;
-  const prixUnit = parseFloat(document.getElementById(prefix+'-prix').value) || 0;
-  const unit = document.getElementById(prefix+'-unit').value;
-  const descEl = document.getElementById(prefix+'-desc');
-  const produit = descEl ? descEl.value : '';
-  const nbUnite = parseFloat(document.getElementById(prefix+'-nb-unite').value) || 0;
-
-  // Montant (sous-total de cette ligne) = (Quantité × facteur de l'unité × Prix caisse)
-  //                                     + (Nombre d'unité × Prix unitaire)
-  // "unite" = 1 unité individuelle : son facteur dépend de la taille réelle
-  // d'une caisse pour ce produit (24, ou 40 pour Beller), donc calculé à
-  // part plutôt que dans la table fixe UNIT_FACTORS.
-  const factor = unit === 'unite' ? (1 / getCasseSize(produit, unit)) : (UNIT_FACTORS[unit] !== undefined ? UNIT_FACTORS[unit] : 1);
-  const montant = (qty * factor * prixCaisse) + (nbUnite * prixUnit);
-
-  const rowAmountEl = document.getElementById(prefix+'-row-amount');
-  if (rowAmountEl) {
-    rowAmountEl.value = montant.toFixed(2);
-    recalcVenteTotal();
-  }
-}
-
-// Additionne le sous-total de CHAQUE ligne produit (v-row-amount, v2-row-amount,
-// v3-row-amount, ...) dans le montant total de la vente, puis recalcule la
-// balance/crédit en fonction du cash payé — appelé à chaque changement d'une
-// ligne produit ou après ajout/suppression d'une ligne.
+// Additionne le "Montant vente" de CHAQUE ligne produit (v-row-amount,
+// v2-row-amount, v3-row-amount, ...) — désormais saisi manuellement par le
+// vendeur — dans le montant total de la vente, puis recalcule la
+// balance/crédit en fonction du cash payé. Appelé à chaque changement du
+// champ Montant vente d'une ligne, ou après ajout/suppression d'une ligne.
 function recalcVenteTotal() {
   const rows = document.querySelectorAll('#v-products-container .v-product-row');
   let total = 0;
@@ -2673,11 +2671,11 @@ function addVenteProductRow() {
     <div class="form-row">
       <div class="form-group">
         <label>Quantité</label>
-        <input type="number" id="${p}-qty" min="1" placeholder="Ex: 10" oninput="calcMontant('${p}')"/>
+        <input type="number" id="${p}-qty" min="1" placeholder="Ex: 10" oninput="updateRowPriceIndicator('${p}')"/>
       </div>
       <div class="form-group">
         <label>Unité</label>
-        <select id="${p}-unit" onchange="calcMontant('${p}')">
+        <select id="${p}-unit" onchange="updateRowPriceIndicator('${p}')">
           <option value="caisse">Caisse (24 unités)</option>
           <option value="bout">Bout (12 unités)</option>
           <option value="caisse-1-2">Caisse et 1/2 (36 unités)</option>
@@ -2687,20 +2685,16 @@ function addVenteProductRow() {
         </select>
       </div>
       <div class="form-group">
-        <label>Prix / Caisse (HTG)</label>
-        <input type="number" id="${p}-prix-caisse" min="0" step="0.01" placeholder="Ex: 1200.00" oninput="calcPrixUnitaire('${p}')"/>
-      </div>
-      <div class="form-group">
-        <label>Prix unitaire (HTG) — auto</label>
-        <input type="number" id="${p}-prix" min="0" step="0.01" placeholder="Ex: 50.00" oninput="calcMontant('${p}')" readonly style="background:#f0f2f7;"/>
-      </div>
-      <div class="form-group">
         <label>Nombre d'unité</label>
-        <input type="number" id="${p}-nb-unite" min="0" step="1" placeholder="Ex: 1, 2, 3..." oninput="calcMontant('${p}')"/>
+        <input type="number" id="${p}-nb-unite" min="0" step="1" placeholder="Ex: 1, 2, 3..." oninput="updateRowPriceIndicator('${p}')"/>
       </div>
       <div class="form-group">
-        <label>Sous-total produit (HTG) — auto</label>
-        <input type="number" id="${p}-row-amount" min="0" step="0.01" placeholder="0.00" readonly style="background:#f0f2f7;font-weight:600;"/>
+        <label>Montant vente (HTG)</label>
+        <input type="number" id="${p}-row-amount" min="0" step="0.01" placeholder="Ex: 1200.00" oninput="updateRowPriceIndicator('${p}');recalcVenteTotal()"/>
+      </div>
+      <div class="form-group">
+        <label id="${p}-prix-evolutif-label">Prix de vente caisse (estimé)</label>
+        <input type="text" id="${p}-prix-evolutif" readonly placeholder="—" style="background:#f0f2f7;color:#1a56db;font-weight:600;"/>
       </div>
     </div>`;
   container.appendChild(div);
@@ -2723,11 +2717,13 @@ function resetVenteProductRows() {
   document.getElementById('v-desc').value='';
   document.getElementById('v-qty').value='';
   document.getElementById('v-unit').value='caisse';
-  document.getElementById('v-prix-caisse').value='';
-  document.getElementById('v-prix').value='';
   document.getElementById('v-nb-unite').value='';
   document.getElementById('v-row-amount').value='';
   document.getElementById('v-amount').value='';
+  const indicatorEl = document.getElementById('v-prix-evolutif');
+  if (indicatorEl) indicatorEl.value = '';
+  const labelEl = document.getElementById('v-prix-evolutif-label');
+  if (labelEl) labelEl.textContent = 'Prix de vente caisse (estimé)';
 }
 
 // Seuls admin et gestionnaire ont le droit de corriger/modifier/supprimer
@@ -2806,15 +2802,14 @@ async function corrigerDerniereVente() {
   document.getElementById('v-desc').value = last.description || '';
   document.getElementById('v-qty').value = last.quantity || '';
   document.getElementById('v-unit').value = last.unit || 'caisse';
-  document.getElementById('v-prix').value = last.unitPrice || '';
   document.getElementById('v-nb-unite').value = last.nombreUnite || '';
-  if (document.getElementById('v-prix-caisse')) document.getElementById('v-prix-caisse').value = last.prixCaisse || '';
   document.getElementById('v-row-amount').value = last.amount || '';
   document.getElementById('v-amount').value = last.amount || '';
   document.getElementById('v-cash').value = last.cash || '';
   document.getElementById('v-credit').value = last.credit || '';
   document.getElementById('v-balance').value = last.balance || '';
   document.getElementById('v-client').value = last.client || '';
+  updateRowPriceIndicator('v');
   lockSaleForCorrection(last);
   // Supprimer la dernière vente pour la remplacer
   if (STATE.isOnline && STATE.fbReady && last.id) {
@@ -2837,15 +2832,14 @@ async function loadSaleForCorrection(id) {
   document.getElementById('v-desc').value = tx.description || '';
   document.getElementById('v-qty').value = tx.quantity || '';
   document.getElementById('v-unit').value = tx.unit || 'caisse';
-  document.getElementById('v-prix').value = tx.unitPrice || '';
   document.getElementById('v-nb-unite').value = tx.nombreUnite || '';
-  if (document.getElementById('v-prix-caisse')) document.getElementById('v-prix-caisse').value = tx.prixCaisse || '';
   document.getElementById('v-row-amount').value = tx.amount || '';
   document.getElementById('v-amount').value = tx.amount || '';
   document.getElementById('v-cash').value = tx.cash || '';
   document.getElementById('v-credit').value = tx.credit || '';
   document.getElementById('v-balance').value = tx.balance || '';
   document.getElementById('v-client').value = tx.client || '';
+  updateRowPriceIndicator('v');
   lockSaleForCorrection(tx);
   document.getElementById('v-desc').scrollIntoView({behavior:'smooth', block:'center'});
   if (STATE.isOnline && STATE.fbReady) {
@@ -2901,14 +2895,22 @@ async function submitSale() {
     }
     const qty = parseFloat(document.getElementById(prefix+'-qty').value);
     const unit = document.getElementById(prefix+'-unit').value;
-    const prix = parseFloat(document.getElementById(prefix+'-prix').value) || 0;
-    const prixCaisse = parseFloat(document.getElementById(prefix+'-prix-caisse').value) || 0;
     const nbUnite = parseFloat(document.getElementById(prefix+'-nb-unite').value) || 0;
     const rowAmount = parseFloat(document.getElementById(prefix+'-row-amount').value);
-    if (isNaN(qty)||qty<=0||prix<=0||isNaN(rowAmount)||rowAmount<=0) {
-      showToast('⚠ Veuillez remplir tous les champs obligatoires (quantité, prix, montant) pour chaque produit.','warn');
+    if (isNaN(qty)||qty<=0||isNaN(rowAmount)||rowAmount<=0) {
+      showToast('⚠ Veuillez remplir tous les champs obligatoires (quantité, montant vente) pour chaque produit.','warn');
       return;
     }
+    // Prix de vente dérivé de cette ligne (alimente prixCaisse, donc le taux
+    // de marge) — formule demandée le 17 juillet 2026 : Montant vendu ÷
+    // (Quantité + Nombre d'unité). Le "prix unitaire" reste dérivé de la
+    // même façon qu'avant (prix caisse ÷ taille de la caisse pour ce
+    // produit), pour rester cohérent avec l'affichage existant (colonne
+    // "Prix unit.") et les formules qui s'appuient dessus en repli.
+    const denom = qty + nbUnite;
+    const prixCaisse = denom > 0 ? rowAmount / denom : 0;
+    const casseSize = getCasseSize(desc, unit);
+    const prix = prixCaisse > 0 ? prixCaisse / casseSize : 0;
     rows.push({ desc, qty, unit, prix, prixCaisse, nbUnite, amount: rowAmount });
   }
   const amount = parseFloat(document.getElementById('v-amount').value);
@@ -2916,7 +2918,7 @@ async function submitSale() {
   const balance = parseFloat(document.getElementById('v-balance').value) || 0;
   const client = document.getElementById('v-client').value.trim();
   if (isNaN(amount)||amount<=0) {
-    showToast('⚠ Veuillez remplir tous les champs obligatoires (quantité, prix, montant).','warn'); return;
+    showToast('⚠ Veuillez remplir tous les champs obligatoires (quantité, montant vente).','warn'); return;
   }
   if (balance > 0 && !client) {
     showToast('⚠ Le nom du client est obligatoire pour une vente à crédit.','warn'); return;
@@ -4302,6 +4304,77 @@ function renderMarginEvolutionModal() {
   });
   html += `</tbody></table></div>`;
   cont.innerHTML = html;
+}
+
+// ============================================================
+// FENÊTRE "PRIX DE VENTE PAR PRODUIT" (bouton dans Ventes, à côté de "+
+// Ajouter un autre produit") — demande explicite du 17 juillet 2026. Depuis
+// que le champ "Montant vente" est saisi directement par le vendeur (voir
+// submitSale()), le prix de vente n'est plus tapé : il est dérivé et stocké
+// dans t.prixCaisse via la formule Montant vendu ÷ (Quantité + Nombre
+// d'unité). Cette fenêtre affiche, pour CHAQUE produit déjà vendu, le
+// dernier prix pratiqué, le prix moyen, et les derniers prix successifs —
+// pour visualiser comment ce prix évolue/varie dans le temps (complément à
+// l'indicateur en direct affiché sur chaque ligne du formulaire, voir
+// updateRowPriceIndicator()). Les ventes glacées (isGlace:true) sont
+// exclues : leur prixCaisse reste à 0 par choix (voir submitSaleGlace()),
+// elles n'ont pas de prix de vente "par unité de caisse/bout" pertinent.
+// ============================================================
+function openPrixVenteModal() {
+  renderPrixVenteModal();
+  document.getElementById('prix-vente-modal-bg').classList.add('show');
+}
+
+function closePrixVenteModal() {
+  document.getElementById('prix-vente-modal-bg').classList.remove('show');
+}
+
+function renderPrixVenteModal() {
+  const cont = document.getElementById('prix-vente-content');
+  if (!cont) return;
+
+  const ventes = (STATE.transactions||[])
+    .filter(t => t.type==='vente' && !t.isGlace && (t.prixCaisse||0) > 0)
+    .sort((a,b) => {
+      const da = getIsoFromTx(a), db = getIsoFromTx(b);
+      if (da !== db) return da.localeCompare(db); // ordre chronologique croissant (le plus ancien en premier)
+      return (a.time||'').localeCompare(b.time||'');
+    });
+
+  if (!ventes.length) {
+    cont.innerHTML = '<div style="color:var(--text3);padding:1rem 0;">Aucune vente enregistrée avec un montant permettant de calculer un prix de vente.</div>';
+    return;
+  }
+
+  const byProduct = {};
+  ventes.forEach(t => {
+    const key = normProduit(t.description);
+    if (!key) return;
+    if (!byProduct[key]) byProduct[key] = [];
+    byProduct[key].push(t);
+  });
+
+  const rows = Object.keys(byProduct).sort((a,b) => a.localeCompare(b, 'fr')).map(key => {
+    const list = byProduct[key];
+    const last = list[list.length - 1];
+    const isBout = (last.unit === 'bout' || last.unit === 'bout-1-2');
+    const uniteLabel = isBout ? 'bout' : 'caisse';
+    const avg = list.reduce((a,t) => a + t.prixCaisse, 0) / list.length;
+    const histo = list.slice(-5).map(t => fmtHTG(t.prixCaisse)).join(' → ');
+    return `<tr>
+      <td>${esc(key)}</td>
+      <td style="font-size:.78rem;color:var(--text2);">${uniteLabel}</td>
+      <td style="font-weight:700;color:#1a56db;">${fmtHTG(last.prixCaisse)}</td>
+      <td>${fmtHTG(avg)}</td>
+      <td>${list.length}</td>
+      <td style="font-size:.75rem;color:var(--text2);">${histo}</td>
+    </tr>`;
+  }).join('');
+
+  cont.innerHTML = `<div class="table-wrap"><table>
+    <thead><tr><th>Produit</th><th>Unité</th><th>Dernier prix</th><th>Prix moyen</th><th>Ventes</th><th>Évolution récente (HTG)</th></tr></thead>
+    <tbody>${rows}</tbody>
+  </table></div>`;
 }
 
 // ============================================================
@@ -7985,10 +8058,12 @@ function renderDettesFournisseurs() {
 }
 
 // Calcule automatiquement la valeur totale du stock de départ à partir de
-// Quantité, Unité, Prix unitaire et Nombre d'unité — même logique que la
-// vente : valeur = (quantité × facteur unité × taille caisse + nombre d'unité) × prix unitaire.
-// Prix unitaire = Prix caisse/bout ÷ taille de la caisse (même logique que
-// calcPrixUnitaire() dans Ventes).
+// Quantité, Unité, Prix unitaire et Nombre d'unité — valeur = (quantité ×
+// facteur unité × taille caisse + nombre d'unité) × prix unitaire.
+// Prix unitaire = Prix caisse/bout ÷ taille de la caisse. (Ce module reste
+// à saisie de prix classique — contrairement à Ventes, qui depuis le 17
+// juillet 2026 fait saisir un "Montant vente" directement et dérive le prix,
+// voir updateRowPriceIndicator().)
 function calcStockDepartPrixUnitaire() {
   const prixCaisse = parseFloat(document.getElementById('sd-prix-caisse').value) || 0;
   const produit = document.getElementById('sd-desc').value;
@@ -8003,7 +8078,6 @@ function calcStockDepartPrixUnitaire() {
 }
 
 // Valeur totale = (Quantité × facteur unité × Prix caisse/bout) + (Nombre d'unité × Prix unitaire)
-// — identique à la formule du Montant total dans Ventes (calcMontant()).
 function calcStockDepartValeur() {
   const qty = parseFloat(document.getElementById('sd-qty').value) || 0;
   const unit = document.getElementById('sd-unit').value;
