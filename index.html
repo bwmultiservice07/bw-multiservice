@@ -453,6 +453,16 @@ tr:hover td{background:#f7f9ff;}
           </table>
         </div>
       </div>
+
+      <div class="card">
+        <div class="section-title">🧊 Ventes glacées (tous vendeurs)</div>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Date</th><th>Montant (HTG)</th><th>Statut</th><th>Actions</th></tr></thead>
+            <tbody id="glace-sales-body"><tr><td colspan="4" style="text-align:center;color:var(--text3);padding:1.5rem;">Aucune vente glacée.</td></tr></tbody>
+          </table>
+        </div>
+      </div>
     </div>
 
     <!-- CREDIT CLIENT / DETTES FOURNISSEURS -->
@@ -3205,9 +3215,12 @@ function renderMySales() {
   // Toutes les ventes de tous les vendeurs — cet onglet est désormais
   // identique pour vendeur, gestionnaire et admin (plus de filtrage par
   // vendeur connecté). Les paiements de crédit n'apparaissent plus ici — ils
-  // ont leur propre historique dans l'onglet Crédit Client.
+  // ont leur propre historique dans l'onglet Crédit Client. Les ventes
+  // glacées (isGlace:true) sont EXCLUES d'ici et de ses totaux (demande du 17
+  // juillet 2026) — elles ont leur propre tableau séparé, voir
+  // renderGlaceSales() appelé à la fin de cette fonction.
   const allRows = [...STATE.transactions, ...STATE.pendingQueue]
-    .filter(t => t.type === 'vente')
+    .filter(t => t.type === 'vente' && !t.isGlace)
     .sort((a,b) => {
       const da = getIsoFromTx(a), db = getIsoFromTx(b);
       if (db !== da) return db.localeCompare(da); // plus récent en haut
@@ -3216,6 +3229,7 @@ function renderMySales() {
 
   if (!allRows.length) {
     body.innerHTML='<tr><td colspan="17" style="text-align:center;color:var(--text3);padding:1.5rem;">Aucune vente.</td></tr>';
+    renderGlaceSales();
     return;
   }
 
@@ -3333,6 +3347,111 @@ function renderMySales() {
       <td>${fmtHTG(totCredit)}</td>
       <td>${fmtHTG(totBalance)}</td>
       <td colspan="5">${ventes.length} vente(s)</td>
+    </tr>`;
+  });
+
+  body.innerHTML = html;
+  renderGlaceSales();
+}
+
+// Ventes glacées : tableau séparé de "Vente du jour (tous vendeurs)", non
+// comptabilisé dans ses totaux (demande du 17 juillet 2026 : "Enlève vente
+// glacée dans le total des ventes du jour, affiche vente glacée dans un
+// tableau séparé avec date et montant"). Colonnes réduites à l'essentiel
+// demandé — Date et Montant — plus Statut et Actions (impression/suppression)
+// pour garder les mêmes capacités qu'ailleurs dans l'app. Même principe
+// d'affichage que renderMySales() (groupé par mois puis par jour, plus
+// récent en haut, avec un sous-total par jour et par mois), mais ce total
+// est entièrement séparé de celui de "Vente du jour". Toujours appelée à la
+// fin de renderMySales() pour rester synchronisée avec elle et pour partager
+// le même registre d'impression de facture (_printableSalesRegistry,
+// réinitialisé une seule fois au début de renderMySales()).
+function renderGlaceSales() {
+  if (!STATE.currentUser) return;
+  const body = document.getElementById('glace-sales-body');
+  if (!body) return;
+
+  const currentMonth = localMonthStr();
+  const isAdminOrGest = STATE.currentUser.role === 'admin' || STATE.currentUser.role === 'gestionnaire';
+
+  const allRows = [...STATE.transactions, ...STATE.pendingQueue]
+    .filter(t => t.type === 'vente' && t.isGlace)
+    .sort((a,b) => {
+      const da = getIsoFromTx(a), db = getIsoFromTx(b);
+      if (db !== da) return db.localeCompare(da);
+      return (b.time||'').localeCompare(a.time||'');
+    });
+
+  if (!allRows.length) {
+    body.innerHTML = '<tr><td colspan="4" style="text-align:center;color:var(--text3);padding:1.5rem;">Aucune vente glacée.</td></tr>';
+    return;
+  }
+
+  const groups = {};
+  allRows.forEach(t => {
+    const month = getIsoFromTx(t).slice(0,7);
+    if (!groups[month]) groups[month] = [];
+    groups[month].push(t);
+  });
+  const sortedMonths = Object.keys(groups).sort((a,b) => b.localeCompare(a));
+
+  let html = '';
+  sortedMonths.forEach(month => {
+    const ventes = groups[month];
+    const totMontant = ventes.reduce((a,t) => a+(t.amount||0), 0);
+    const isCurrentMonth = month === currentMonth;
+    const label = isCurrentMonth ? `📅 CE MOIS-CI — ${formatMonthLabel(month)}` : formatMonthLabel(month);
+
+    html += `<tr style="background:${isCurrentMonth?'#1a56db':'#5a6282'};color:#fff;font-weight:700;">
+      <td colspan="4" style="padding:8px 10px;font-size:.9rem;">${label} &nbsp;|&nbsp; ${ventes.length} vente(s) glacée(s)</td>
+    </tr>`;
+
+    const dayGroups = {};
+    ventes.forEach(t => {
+      const day = getIsoFromTx(t);
+      if (!dayGroups[day]) dayGroups[day] = [];
+      dayGroups[day].push(t);
+    });
+    const sortedDays = Object.keys(dayGroups).sort((a,b) => b.localeCompare(a));
+
+    sortedDays.forEach(day => {
+      const dayVentes = dayGroups[day];
+      const dayTotMontant = dayVentes.reduce((a,t) => a+(t.amount||0), 0);
+
+      html += `<tr style="background:#eef1f8;font-weight:600;">
+        <td colspan="4" style="padding:6px 10px;font-size:.82rem;color:#3a4260;">${formatGroupLabel(day)} &nbsp;|&nbsp; ${dayVentes.length} vente(s) glacée(s)</td>
+      </tr>`;
+
+      dayVentes.forEach(t => {
+        const reallySent = !!t.id;
+        const badge = `<span class="badge ${reallySent?'badge-sent':'badge-pending'}">${reallySent?'✓ Envoyé':'⏳ En attente'}</span>`;
+        // Même registre/bouton d'impression que "Vente du jour" (voir
+        // registerPrintableSale()/printInvoiceForSale()), accessible à tous
+        // les rôles.
+        const printIdx = registerPrintableSale(t);
+        const printBtn = `<button class="btn" style="font-size:.75rem;padding:3px 10px;" onclick="printInvoiceForSale(${printIdx})" title="Imprimer la facture de cette vente">🖨️</button>`;
+        const deleteBtn = (isAdminOrGest && t.id)
+          ? `<button class="btn" style="font-size:.75rem;padding:3px 10px;background:var(--danger-bg);color:var(--danger);border:1px solid #f5b7b1;" onclick="deleteTransaction('${t.id}')">🗑</button>`
+          : '';
+        html += `<tr>
+          <td>${t.date}</td>
+          <td>${fmtHTG(t.amount)}</td>
+          <td>${badge}</td>
+          <td><div style="display:flex;gap:4px;flex-wrap:wrap;">${printBtn}${deleteBtn}</div></td>
+        </tr>`;
+      });
+
+      html += `<tr style="background:#f6f7fb;font-weight:600;border-top:1px solid var(--border);">
+        <td style="font-size:.82rem;">📊 Total jour glace — ${formatGroupLabel(day)}</td>
+        <td>${fmtHTG(dayTotMontant)}</td>
+        <td colspan="2" style="font-size:.8rem;">${dayVentes.length} vente(s)</td>
+      </tr>`;
+    });
+
+    html += `<tr style="background:var(--surface2);font-weight:700;border-top:2px solid var(--border);">
+      <td>📊 Totaux glace — ${formatMonthLabel(month)}</td>
+      <td>${fmtHTG(totMontant)}</td>
+      <td colspan="2">${ventes.length} vente(s)</td>
     </tr>`;
   });
 
