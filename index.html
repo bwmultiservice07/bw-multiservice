@@ -425,6 +425,9 @@ tr:hover td{background:#f7f9ff;}
 
       <div class="card">
         <div class="card-title">🧊 Vente produits glacés</div>
+        <div id="glace-correction-banner" style="display:none;background:#fef3e2;color:#8a5a00;border:1px solid #f5d59a;border-radius:8px;padding:8px 12px;margin-bottom:12px;font-size:.85rem;font-weight:600;">
+          ✏️ Modification en cours — <span id="glace-correction-banner-text"></span>.
+        </div>
         <div class="form-row">
           <div class="form-group">
             <label>Montant en gourdes (HTG)</label>
@@ -432,6 +435,7 @@ tr:hover td{background:#f7f9ff;}
           </div>
         </div>
         <button class="send-btn" onclick="submitSaleGlace()">Envoyer ➤</button>
+        <button id="btn-annuler-glace" class="btn btn-outline" style="margin-top:8px;font-size:.85rem;display:none;" onclick="unlockGlaceSaleForm()">✖ Annuler la correction</button>
       </div>
 
       <div class="card">
@@ -739,6 +743,9 @@ tr:hover td{background:#f7f9ff;}
     <div class="tab-content" id="tab-apport">
       <div class="card">
         <div class="card-title">🪙 Enregistrer un apport</div>
+        <div id="apport-correction-banner" style="display:none;background:#fef3e2;color:#8a5a00;border:1px solid #f5d59a;border-radius:8px;padding:8px 12px;margin-bottom:12px;font-size:.85rem;font-weight:600;">
+          ✏️ Modification en cours — <span id="apport-correction-banner-text"></span>.
+        </div>
         <div class="form-row">
           <div class="form-group">
             <label>Date</label>
@@ -766,6 +773,7 @@ tr:hover td{background:#f7f9ff;}
           </div>
         </div>
         <button class="send-btn" onclick="submitApport()">Enregistrer ➤</button>
+        <button id="btn-annuler-apport" class="btn btn-outline" style="margin-top:8px;font-size:.85rem;display:none;" onclick="unlockApportForm()">✖ Annuler la correction</button>
         <div class="table-wrap" style="margin-top:1rem;">
           <table>
             <thead><tr><th>Date</th><th>Montant (HTG)</th><th>Source</th><th>Note</th><th>Actions</th></tr></thead>
@@ -823,6 +831,9 @@ tr:hover td{background:#f7f9ff;}
     <div class="tab-content" id="tab-depenses-dom">
       <div class="card">
         <div class="card-title">🏠 Enregistrer une dépense domestique</div>
+        <div id="depense-dom-correction-banner" style="display:none;background:#fef3e2;color:#8a5a00;border:1px solid #f5d59a;border-radius:8px;padding:8px 12px;margin-bottom:12px;font-size:.85rem;font-weight:600;">
+          ✏️ Modification en cours — <span id="depense-dom-correction-banner-text"></span>.
+        </div>
         <div class="form-row">
           <div class="form-group">
             <label>Date</label>
@@ -842,6 +853,7 @@ tr:hover td{background:#f7f9ff;}
           </div>
         </div>
         <button class="send-btn" onclick="submitDepenseDom()">Enregistrer ➤</button>
+        <button id="btn-annuler-depense-dom" class="btn btn-outline" style="margin-top:8px;font-size:.85rem;display:none;" onclick="unlockDepenseDomForm()">✖ Annuler la correction</button>
         <div class="table-wrap" style="margin-top:1rem;">
           <table>
             <thead><tr><th>Date</th><th>Montant (HTG)</th><th>Description</th><th>Note</th><th>Actions</th></tr></thead>
@@ -1393,6 +1405,14 @@ let _pendingStockEditId = null;
 // "Feuille de transactions cumulatives" (Comptabilité > Transactions).
 let _pendingChargeEditId = null;
 let _pendingRetraitEditId = null;
+// Idem pour un apport (collection Firestore 'apports'), une dépense
+// domestique (collection Firestore 'depenses_domestiques') et une vente
+// glacée (collection Firestore 'transactions', type:'vente', isGlace:true) —
+// admin/gestionnaire uniquement, ajoutés le 17 juillet 2026 pour permettre la
+// correction/modification dans TOUS les tableaux de saisie de l'application.
+let _pendingApportEditId = null;
+let _pendingDepenseDomEditId = null;
+let _pendingGlaceEditId = null;
 
 function loadLocal() {
   try {
@@ -3031,6 +3051,36 @@ async function submitSaleGlace() {
   if (isNaN(amount)||amount<=0) {
     showToast('⚠ Veuillez indiquer le montant en gourdes.','warn'); return;
   }
+
+  // Mode modification (clic sur une ligne de "Ventes glacées") : on met à
+  // jour l'enregistrement existant (collection 'transactions') au lieu d'en
+  // créer un nouveau.
+  if (_pendingGlaceEditId) {
+    if (!requireAdminOrGest()) return;
+    const id = _pendingGlaceEditId;
+    if (!STATE.isOnline || !STATE.fbReady) {
+      showToast('⚠ Hors ligne — impossible de modifier cette vente glacée maintenant.','warn'); return;
+    }
+    try {
+      const {doc, updateDoc} = window._fbFns;
+      const oldTx = STATE.transactions.find(t=>t.id===id);
+      await updateDoc(doc(window._db,'transactions',id), {
+        amount:amount, unitPrice:amount, cash:amount,
+        editedBy: STATE.currentUser.username, editedAt: new Date().toISOString()
+      });
+      await logNotification('✏️ Modification vente glacée', `Ancien montant: ${fmtHTG(oldTx?.amount||0)} | Nouveau: ${fmtHTG(amount)}`);
+      showToast('✅ Vente glacée modifiée.');
+      markUnsaved();
+      const idx = STATE.transactions.findIndex(t=>t.id===id);
+      if (idx>=0) STATE.transactions[idx] = {...STATE.transactions[idx], amount, unitPrice:amount, cash:amount};
+      unlockGlaceSaleForm();
+      renderMySales();
+      renderDashboard();
+    } catch(e) { showToast('⚠ Erreur: '+e.message,'warn'); }
+    document.getElementById('vg-amount').value='';
+    return;
+  }
+
   const saleDate = todayStr(), saleIsoDate = isoDate(), saleTime = nowStr();
   // Caractéristiques de l'appareil du vendeur, capturées automatiquement (voir
   // finishLogin()/initDeviceTracking()).
@@ -3316,24 +3366,30 @@ function renderMySales() {
         // seulement local (STATE.pendingQueue) = vraiment en attente.
         const reallySent = !!t.id;
         const badge = `<span class="badge ${reallySent?'badge-sent':'badge-pending'}">${reallySent?'✓ Envoyé':'⏳ En attente'}</span>`;
-        const statutCell = clickable
-          ? `<td style="cursor:pointer;text-decoration:underline;" onclick="loadSaleForCorrection('${t.id}')" title="Cliquer pour corriger cette vente">${badge}</td>`
-          : `<td>${badge}</td>`;
+        const statutCell = `<td>${badge}</td>`;
         // Bouton d'impression de facture : accessible à TOUS les rôles (pas
         // seulement admin/gestionnaire) — imprime via l'imprimante choisie
         // dans la boîte de dialogue native du navigateur (voir
         // printInvoiceForSale()). Fonctionne même pour une vente encore en
         // file d'attente hors ligne (sans id Firestore), grâce au registre.
+        // event.stopPropagation() : la ligne entière est cliquable pour la
+        // correction (voir rowClickAttr plus bas), donc les boutons doivent
+        // empêcher la propagation pour ne pas déclencher la correction en
+        // plus de leur propre action.
         const printIdx = registerPrintableSale(t);
-        const printBtn = `<button class="btn" style="font-size:.75rem;padding:3px 10px;" onclick="printInvoiceForSale(${printIdx})" title="Imprimer la facture de cette vente">🖨️</button>`;
+        const printBtn = `<button class="btn" style="font-size:.75rem;padding:3px 10px;" onclick="event.stopPropagation();printInvoiceForSale(${printIdx})" title="Imprimer la facture de cette vente">🖨️</button>`;
         // Admin/gestionnaire : suppression individuelle de cette vente (en plus
-        // de la correction via le badge de statut ci-dessus), et du bouton
-        // "Effacer les ventes du jour" pour une suppression groupée.
+        // de la correction en cliquant sur la ligne), et du bouton "Effacer les
+        // ventes du jour" pour une suppression groupée.
         const deleteBtn = (isAdminOrGest && t.id)
-          ? `<button class="btn" style="font-size:.75rem;padding:3px 10px;background:var(--danger-bg);color:var(--danger);border:1px solid #f5b7b1;" onclick="deleteTransaction('${t.id}')">🗑</button>`
+          ? `<button class="btn" style="font-size:.75rem;padding:3px 10px;background:var(--danger-bg);color:var(--danger);border:1px solid #f5b7b1;" onclick="event.stopPropagation();deleteTransaction('${t.id}')">🗑</button>`
           : '';
         const actionsCell = `<td><div style="display:flex;gap:4px;flex-wrap:wrap;">${printBtn}${deleteBtn}</div></td>`;
-        html += `<tr>
+        // Toute la ligne est cliquable pour admin/gestionnaire — les infos se
+        // rechargent directement dans la carte "Enregistrer une vente" (voir
+        // loadSaleForCorrection()), demande du 17 juillet 2026.
+        const rowClickAttr = clickable ? ` style="cursor:pointer;" onclick="loadSaleForCorrection('${t.id}')" title="Cliquer pour corriger cette vente"` : '';
+        html += `<tr${rowClickAttr}>
           <td>${t.date}</td><td>${t.time}</td><td>${esc(t.seller||'')}</td><td>${esc(t.description)}${t.isGlace?' <span title="Vente glacée" style="color:#1a73e8;">🧊</span>':''}</td><td>${t.quantity}</td>
           <td>${esc(formatUnitLabel(t.unit))}</td><td>${t.nombreUnite||0}</td><td>${fmtHTG(t.prixCaisse||0)}</td><td>${fmtHTG(t.unitPrice||0)}</td>
           <td>${fmtHTG(t.amount)}</td><td>${fmtHTG(t.cash||0)}</td>
@@ -3446,11 +3502,14 @@ function renderGlaceSales() {
         // registerPrintableSale()/printInvoiceForSale()), accessible à tous
         // les rôles.
         const printIdx = registerPrintableSale(t);
-        const printBtn = `<button class="btn" style="font-size:.75rem;padding:3px 10px;" onclick="printInvoiceForSale(${printIdx})" title="Imprimer la facture de cette vente">🖨️</button>`;
+        const printBtn = `<button class="btn" style="font-size:.75rem;padding:3px 10px;" onclick="event.stopPropagation();printInvoiceForSale(${printIdx})" title="Imprimer la facture de cette vente">🖨️</button>`;
         const deleteBtn = (isAdminOrGest && t.id)
-          ? `<button class="btn" style="font-size:.75rem;padding:3px 10px;background:var(--danger-bg);color:var(--danger);border:1px solid #f5b7b1;" onclick="deleteTransaction('${t.id}')">🗑</button>`
+          ? `<button class="btn" style="font-size:.75rem;padding:3px 10px;background:var(--danger-bg);color:var(--danger);border:1px solid #f5b7b1;" onclick="event.stopPropagation();deleteTransaction('${t.id}')">🗑</button>`
           : '';
-        html += `<tr>
+        // Admin/gestionnaire : toute la ligne charge la vente glacée dans la
+        // carte "Vente produits glacés" pour la corriger.
+        const rowClickAttr = (isAdminOrGest && t.id) ? ` style="cursor:pointer;" onclick="loadGlaceSaleForCorrection('${t.id}')" title="Cliquer pour corriger cette vente glacée"` : '';
+        html += `<tr${rowClickAttr}>
           <td>${t.date}</td>
           <td>${fmtHTG(t.amount)}</td>
           <td>${badge}</td>
@@ -3473,6 +3532,36 @@ function renderGlaceSales() {
   });
 
   body.innerHTML = html;
+}
+
+// Admin/gestionnaire : clic sur une ligne de "Ventes glacées" pour la charger
+// dans la carte "Vente produits glacés" et la corriger — soumettre à nouveau
+// MET À JOUR l'enregistrement existant (voir submitSaleGlace()).
+function loadGlaceSaleForCorrection(id) {
+  if (!requireAdminOrGest()) return;
+  const t = STATE.transactions.find(x => x.id === id && x.type==='vente' && x.isGlace);
+  if (!t) { showToast('⚠ Vente glacée introuvable.','warn'); return; }
+  document.getElementById('vg-amount').value = t.amount || '';
+  _pendingGlaceEditId = id;
+  const banner = document.getElementById('glace-correction-banner');
+  const bannerText = document.getElementById('glace-correction-banner-text');
+  if (banner && bannerText) {
+    bannerText.textContent = `vente glacée du ${t.date||''} de ${fmtHTG(t.amount||0)}`;
+    banner.style.display = 'block';
+  }
+  const btnAnnuler = document.getElementById('btn-annuler-glace');
+  if (btnAnnuler) btnAnnuler.style.display = 'inline-flex';
+  document.getElementById('vg-amount').scrollIntoView({behavior:'smooth', block:'center'});
+  showToast('✏️ Vente glacée chargée dans le formulaire — corrigez puis cliquez sur Envoyer.');
+}
+
+function unlockGlaceSaleForm() {
+  _pendingGlaceEditId = null;
+  const banner = document.getElementById('glace-correction-banner');
+  if (banner) banner.style.display = 'none';
+  const btnAnnuler = document.getElementById('btn-annuler-glace');
+  if (btnAnnuler) btnAnnuler.style.display = 'none';
+  document.getElementById('vg-amount').value='';
 }
 
 // Admin/gestionnaire : effacer en un clic TOUTES les ventes du jour même
@@ -5503,6 +5592,7 @@ async function deleteTransaction(id) {
         `Vendeur: ${oldTx?.seller||'?'} | Produit: ${oldTx?.description||'?'} | Montant: ${fmtHTG(oldTx?.amount||0)} | Date: ${oldTx?.date||'?'}`);
       showToast('🗑 Transaction supprimée de Firebase.','warn');
       markUnsaved();
+      if (_pendingGlaceEditId === id) unlockGlaceSaleForm();
     } catch(e) { showToast('⚠ Erreur: '+e.message,'warn'); }
   }
 }
@@ -5741,15 +5831,20 @@ function renderChargesHistory() {
     const isDom = c._source === 'depense-dom';
     const desc = isDom ? `🏠 Dépense domestique — ${esc(c.description||'')}` : esc(c.description||'');
     const delFn = isDom ? 'deleteDepenseDom' : 'deleteCharge';
-    // La correction n'est proposée que pour les charges hors marchandises
-    // (les dépenses domestiques ont leur propre onglet dédié, non couvert ici).
-    const editBtn = (!isDom && canEdit) ? `<button class="btn btn-outline" style="font-size:.75rem;padding:3px 10px;margin-right:4px;" onclick="openEditCharge('${c.id||''}')">✏️</button>` : '';
-    return `<tr>
+    // Les charges hors marchandises ET les dépenses domestiques ont désormais
+    // toutes les deux une correction possible — la ligne cliquée charge la
+    // donnée dans sa carte d'origine (celle de "Autres charges" pour l'une,
+    // celle de "Dépenses domestiques" pour l'autre, avec bascule d'onglet
+    // automatique dans ce second cas, voir openEditDepenseDom()).
+    const editFn = isDom ? 'openEditDepenseDom' : 'openEditCharge';
+    const editBtn = canEdit ? `<button class="btn btn-outline" style="font-size:.75rem;padding:3px 10px;margin-right:4px;" onclick="event.stopPropagation();${editFn}('${c.id||''}')">✏️</button>` : '';
+    const rowClickAttr = (canEdit && c.id) ? ` style="cursor:pointer;" onclick="${editFn}('${c.id}')" title="Cliquer pour corriger"` : '';
+    return `<tr${rowClickAttr}>
     <td>${c.date}</td>
     <td>${fmtHTG(c.montant||0)}</td>
     <td>${desc}</td>
     <td>${esc(c.note||'')}</td>
-    <td>${canEdit ? `${editBtn}<button class="btn" style="font-size:.75rem;padding:3px 10px;background:var(--danger-bg);color:var(--danger);border:1px solid #f5b7b1;" onclick="${delFn}('${c.id||''}')">🗑</button>` : '—'}</td>
+    <td>${canEdit ? `${editBtn}<button class="btn" style="font-size:.75rem;padding:3px 10px;background:var(--danger-bg);color:var(--danger);border:1px solid #f5b7b1;" onclick="event.stopPropagation();${delFn}('${c.id||''}')">🗑</button>` : '—'}</td>
   </tr>`;
   }).join('');
 }
@@ -5766,6 +5861,37 @@ async function submitApport() {
   if (isNaN(montant) || montant <= 0) {
     showToast('⚠ Veuillez indiquer un montant valide.','warn'); return;
   }
+
+  // Mode modification (clic sur une ligne de l'historique des apports) : on
+  // met à jour l'enregistrement existant au lieu d'en créer un nouveau.
+  if (_pendingApportEditId) {
+    const id = _pendingApportEditId;
+    if (!STATE.isOnline || !STATE.fbReady) {
+      showToast('⚠ Hors ligne — impossible de modifier cet apport maintenant.','warn'); return;
+    }
+    try {
+      const {doc, updateDoc} = window._fbFns;
+      const oldApport = (STATE.apports||[]).find(a=>a.id===id);
+      await updateDoc(doc(window._db,'apports',id), {
+        date:date, isoDate:date, montant:montant, source:source, note:note,
+        editedBy: STATE.currentUser.username, editedAt: new Date().toISOString()
+      });
+      await logNotification('✏️ Modification apport', `Source: ${source||'?'} | Ancien montant: ${fmtHTG(oldApport?.montant||0)} | Nouveau: ${fmtHTG(montant)} | Date: ${date}`);
+      showToast('✅ Apport modifié.');
+      markUnsaved();
+      const idx = (STATE.apports||[]).findIndex(a=>a.id===id);
+      if (idx>=0) STATE.apports[idx] = {...STATE.apports[idx], date, isoDate:date, montant, source, note};
+      unlockApportForm();
+      renderApports();
+      if (currentTab === 'compta') refreshAccounting();
+    } catch(e) { showToast('⚠ Erreur: '+e.message,'warn'); }
+    document.getElementById('ap-date').value='';
+    document.getElementById('ap-montant').value='';
+    document.getElementById('ap-source').value='';
+    document.getElementById('ap-note').value='';
+    return;
+  }
+
   const entry = { date:date, isoDate:date, montant:montant, source:source, note:note,
     seller:STATE.currentUser.username, createdAt:new Date().toISOString() };
   if (!STATE.isOnline || !STATE.fbReady) {
@@ -5810,10 +5936,47 @@ async function deleteApport(id) {
       STATE.apports = (STATE.apports||[]).filter(a=>a.id!==id);
       showToast('🗑 Apport supprimé.','warn');
       markUnsaved();
+      if (_pendingApportEditId === id) unlockApportForm();
     } catch(e) { showToast('⚠ Erreur: '+e.message,'warn'); }
   }
   renderApports();
   if (currentTab === 'compta') refreshAccounting();
+}
+
+// Admin/gestionnaire : clic sur une ligne de l'historique des apports pour la
+// charger dans le formulaire "Enregistrer un apport" et la corriger —
+// soumettre à nouveau MET À JOUR l'enregistrement existant (voir submitApport()).
+function openEditApport(id) {
+  if (!requireAdminOrGest()) return;
+  const a = (STATE.apports||[]).find(x => x.id === id);
+  if (!a) { showToast('⚠ Apport introuvable.','warn'); return; }
+  document.getElementById('ap-date').value = a.isoDate || a.date || '';
+  document.getElementById('ap-montant').value = a.montant || '';
+  document.getElementById('ap-source').value = a.source || '';
+  document.getElementById('ap-note').value = a.note || '';
+  _pendingApportEditId = id;
+  const banner = document.getElementById('apport-correction-banner');
+  const bannerText = document.getElementById('apport-correction-banner-text');
+  if (banner && bannerText) {
+    bannerText.textContent = `apport de ${fmtHTG(a.montant||0)} du ${a.date||''}`;
+    banner.style.display = 'block';
+  }
+  const btnAnnuler = document.getElementById('btn-annuler-apport');
+  if (btnAnnuler) btnAnnuler.style.display = 'inline-flex';
+  document.getElementById('ap-date').scrollIntoView({behavior:'smooth', block:'center'});
+  showToast('✏️ Apport chargé dans le formulaire — corrigez puis cliquez sur Enregistrer.');
+}
+
+function unlockApportForm() {
+  _pendingApportEditId = null;
+  const banner = document.getElementById('apport-correction-banner');
+  if (banner) banner.style.display = 'none';
+  const btnAnnuler = document.getElementById('btn-annuler-apport');
+  if (btnAnnuler) btnAnnuler.style.display = 'none';
+  document.getElementById('ap-date').value='';
+  document.getElementById('ap-montant').value='';
+  document.getElementById('ap-source').value='';
+  document.getElementById('ap-note').value='';
 }
 
 function renderApports() {
@@ -5825,12 +5988,12 @@ function renderApports() {
     return;
   }
   const canEdit = STATE.currentUser && (STATE.currentUser.role==='admin' || STATE.currentUser.role==='gestionnaire');
-  body.innerHTML = items.map(a=>`<tr>
+  body.innerHTML = items.map(a=>`<tr${(canEdit && a.id) ? ` style="cursor:pointer;" onclick="openEditApport('${a.id}')" title="Cliquer pour corriger cet apport"` : ''}>
     <td>${a.date}</td>
     <td>${fmtHTG(a.montant||0)}</td>
     <td>${esc(a.source||'')}</td>
     <td>${esc(a.note||'')}</td>
-    <td>${canEdit ? `<button class="btn" style="font-size:.75rem;padding:3px 10px;background:var(--danger-bg);color:var(--danger);border:1px solid #f5b7b1;" onclick="deleteApport('${a.id||''}')">🗑</button>` : '—'}</td>
+    <td>${canEdit ? `<button class="btn" style="font-size:.75rem;padding:3px 10px;background:var(--danger-bg);color:var(--danger);border:1px solid #f5b7b1;" onclick="event.stopPropagation();deleteApport('${a.id||''}')">🗑</button>` : '—'}</td>
   </tr>`).join('');
 }
 
@@ -5846,6 +6009,39 @@ async function submitDepenseDom() {
   if (isNaN(montant) || montant <= 0) {
     showToast('⚠ Veuillez indiquer un montant valide.','warn'); return;
   }
+
+  // Mode modification (clic sur une ligne de l'historique des dépenses
+  // domestiques) : on met à jour l'enregistrement existant au lieu d'en créer
+  // un nouveau.
+  if (_pendingDepenseDomEditId) {
+    const id = _pendingDepenseDomEditId;
+    if (!STATE.isOnline || !STATE.fbReady) {
+      showToast('⚠ Hors ligne — impossible de modifier cette dépense maintenant.','warn'); return;
+    }
+    try {
+      const {doc, updateDoc} = window._fbFns;
+      const oldDepense = (STATE.depensesDomestiques||[]).find(d=>d.id===id);
+      await updateDoc(doc(window._db,'depenses_domestiques',id), {
+        date:date, isoDate:date, montant:montant, description:description, note:note,
+        editedBy: STATE.currentUser.username, editedAt: new Date().toISOString()
+      });
+      await logNotification('✏️ Modification dépense domestique', `Description: ${description||'?'} | Ancien montant: ${fmtHTG(oldDepense?.montant||0)} | Nouveau: ${fmtHTG(montant)} | Date: ${date}`);
+      showToast('✅ Dépense domestique modifiée.');
+      markUnsaved();
+      const idx = (STATE.depensesDomestiques||[]).findIndex(d=>d.id===id);
+      if (idx>=0) STATE.depensesDomestiques[idx] = {...STATE.depensesDomestiques[idx], date, isoDate:date, montant, description, note};
+      unlockDepenseDomForm();
+      renderDepensesDom();
+      renderChargesHistory();
+      if (currentTab === 'compta') refreshAccounting();
+    } catch(e) { showToast('⚠ Erreur: '+e.message,'warn'); }
+    document.getElementById('dd-date').value='';
+    document.getElementById('dd-montant').value='';
+    document.getElementById('dd-desc').value='';
+    document.getElementById('dd-note').value='';
+    return;
+  }
+
   const entry = { date:date, isoDate:date, montant:montant, description:description, note:note,
     seller:STATE.currentUser.username, createdAt:new Date().toISOString() };
   if (!STATE.isOnline || !STATE.fbReady) {
@@ -5891,11 +6087,53 @@ async function deleteDepenseDom(id) {
       STATE.depensesDomestiques = (STATE.depensesDomestiques||[]).filter(d=>d.id!==id);
       showToast('🗑 Dépense domestique supprimée.','warn');
       markUnsaved();
+      if (_pendingDepenseDomEditId === id) unlockDepenseDomForm();
     } catch(e) { showToast('⚠ Erreur: '+e.message,'warn'); }
   }
   renderDepensesDom();
   renderChargesHistory();
   if (currentTab === 'compta') refreshAccounting();
+}
+
+// Admin/gestionnaire : clic sur une ligne de l'historique des dépenses
+// domestiques pour la charger dans le formulaire "Enregistrer une dépense
+// domestique" et la corriger — soumettre à nouveau MET À JOUR l'enregistrement
+// existant (voir submitDepenseDom()).
+function openEditDepenseDom(id) {
+  if (!requireAdminOrGest()) return;
+  const d = (STATE.depensesDomestiques||[]).find(x => x.id === id);
+  if (!d) { showToast('⚠ Dépense introuvable.','warn'); return; }
+  // Peut être déclenché depuis la vue fusionnée "Autres charges" (charges-body)
+  // en plus de son propre onglet dédié : on bascule toujours vers l'onglet
+  // "Dépenses domestiques" pour que la carte où corriger soit bien visible.
+  switchTab('depenses-dom');
+  document.getElementById('dd-date').value = d.isoDate || d.date || '';
+  document.getElementById('dd-montant').value = d.montant || '';
+  document.getElementById('dd-desc').value = d.description || '';
+  document.getElementById('dd-note').value = d.note || '';
+  _pendingDepenseDomEditId = id;
+  const banner = document.getElementById('depense-dom-correction-banner');
+  const bannerText = document.getElementById('depense-dom-correction-banner-text');
+  if (banner && bannerText) {
+    bannerText.textContent = `dépense ${d.description||''} du ${d.date||''}`;
+    banner.style.display = 'block';
+  }
+  const btnAnnuler = document.getElementById('btn-annuler-depense-dom');
+  if (btnAnnuler) btnAnnuler.style.display = 'inline-flex';
+  document.getElementById('dd-date').scrollIntoView({behavior:'smooth', block:'center'});
+  showToast('✏️ Dépense chargée dans le formulaire — corrigez puis cliquez sur Enregistrer.');
+}
+
+function unlockDepenseDomForm() {
+  _pendingDepenseDomEditId = null;
+  const banner = document.getElementById('depense-dom-correction-banner');
+  if (banner) banner.style.display = 'none';
+  const btnAnnuler = document.getElementById('btn-annuler-depense-dom');
+  if (btnAnnuler) btnAnnuler.style.display = 'none';
+  document.getElementById('dd-date').value='';
+  document.getElementById('dd-montant').value='';
+  document.getElementById('dd-desc').value='';
+  document.getElementById('dd-note').value='';
 }
 
 function renderDepensesDom() {
@@ -5907,12 +6145,12 @@ function renderDepensesDom() {
     return;
   }
   const canEdit = STATE.currentUser && (STATE.currentUser.role==='admin' || STATE.currentUser.role==='gestionnaire');
-  body.innerHTML = items.map(d=>`<tr>
+  body.innerHTML = items.map(d=>`<tr${(canEdit && d.id) ? ` style="cursor:pointer;" onclick="openEditDepenseDom('${d.id}')" title="Cliquer pour corriger cette dépense"` : ''}>
     <td>${d.date}</td>
     <td>${fmtHTG(d.montant||0)}</td>
     <td>${esc(d.description||'')}</td>
     <td>${esc(d.note||'')}</td>
-    <td>${canEdit ? `<button class="btn" style="font-size:.75rem;padding:3px 10px;background:var(--danger-bg);color:var(--danger);border:1px solid #f5b7b1;" onclick="deleteDepenseDom('${d.id||''}')">🗑</button>` : '—'}</td>
+    <td>${canEdit ? `<button class="btn" style="font-size:.75rem;padding:3px 10px;background:var(--danger-bg);color:var(--danger);border:1px solid #f5b7b1;" onclick="event.stopPropagation();deleteDepenseDom('${d.id||''}')">🗑</button>` : '—'}</td>
   </tr>`).join('');
 }
 
@@ -7163,13 +7401,16 @@ function renderCredits() {
         const currentDebt = getClientDebt(c.client);
         const hasDebt = currentDebt > 0;
         const clientColor = hasDebt ? 'color:#c0392b;font-weight:700;' : 'color:#0f7b4f;font-weight:700;';
-        rows.push(`<tr>
+        const canEditCredit = STATE.currentUser&&(STATE.currentUser.role==='admin'||STATE.currentUser.role==='gestionnaire');
+        const editCreditCall = `openEditCredit('${c.id||''}','${esc(c.client)}',${c.due||0},${c.paid||0},${c.finalBalance||0},'${esc(c.date||'')}','${esc(c.time||'')}')`;
+        const rowClickAttr = (canEditCredit && c.id) ? ` style="cursor:pointer;" onclick="${editCreditCall}" title="Cliquer pour corriger ce paiement"` : '';
+        rows.push(`<tr${rowClickAttr}>
           <td>${c.date}</td><td>${c.time}</td>
           <td style="${clientColor}">${esc(c.client)}</td>
           <td>${fmtHTG(c.due)}</td><td>${fmtHTG(c.paid||0)}</td>
           <td style="${clientColor}">${fmtHTG(c.finalBalance||0)}</td>
           <td><span class="badge ${hasDebt?'badge-pending':'badge-sent'}">${hasDebt?'⏳ Partiel':'✅ Soldé'}</span></td>
-          <td style="white-space:nowrap;">${STATE.currentUser&&(STATE.currentUser.role==='admin'||STATE.currentUser.role==='gestionnaire')?`<button class="btn btn-outline" style="font-size:.75rem;padding:3px 10px;" onclick="openEditCredit('${c.id||''}','${esc(c.client)}',${c.due||0},${c.paid||0},${c.finalBalance||0},'${esc(c.date||'')}','${esc(c.time||'')}')">✏</button><button class="btn" style="font-size:.75rem;padding:3px 10px;background:var(--danger-bg);color:var(--danger);border:1px solid #f5b7b1;margin-left:4px;" onclick="deleteCredit('${c.id||''}')">🗑</button>`:'—'}</td>
+          <td style="white-space:nowrap;">${canEditCredit?`<button class="btn btn-outline" style="font-size:.75rem;padding:3px 10px;" onclick="event.stopPropagation();${editCreditCall}">✏</button><button class="btn" style="font-size:.75rem;padding:3px 10px;background:var(--danger-bg);color:var(--danger);border:1px solid #f5b7b1;margin-left:4px;" onclick="event.stopPropagation();deleteCredit('${c.id||''}')">🗑</button>`:'—'}</td>
         </tr>`);
         if (hasDebt) {
           rows.push(`<tr style="background:#fef3e2;">
@@ -7520,10 +7761,12 @@ function renderManualClientDebtsList() {
     const due = m.due||0, paid = m.paid||0;
     const balance = Math.max(0, due-paid);
     const statut = balance<=0 ? 'Soldé' : (paid>0 ? 'Partiel' : 'Non soldé');
+    const editCall = `openEditManualClientDebt('${m.id}','${esc(m.client)}',${due},${paid},'${esc(m.note||'')}','${esc(m.date||'')}')`;
     const actions = m.id
-      ? `<button class="btn btn-outline" style="font-size:.75rem;padding:3px 8px;" onclick="openEditManualClientDebt('${m.id}','${esc(m.client)}',${due},${paid},'${esc(m.note||'')}','${esc(m.date||'')}')">✏</button><button class="del-btn" onclick="deleteManualClientDebt('${m.id}')">×</button>`
+      ? `<button class="btn btn-outline" style="font-size:.75rem;padding:3px 8px;" onclick="event.stopPropagation();${editCall}">✏</button><button class="del-btn" onclick="event.stopPropagation();deleteManualClientDebt('${m.id}')">×</button>`
       : '<span style="color:var(--text3);font-size:.75rem;">en attente</span>';
-    return `<tr>
+    const rowClickAttr = m.id ? ` style="cursor:pointer;" onclick="${editCall}" title="Cliquer pour corriger cette créance"` : '';
+    return `<tr${rowClickAttr}>
     <td>${m.date||''}</td>
     <td>${esc(m.client)}</td>
     <td>${fmtHTG(due)}</td>
@@ -7703,10 +7946,12 @@ function renderManualSupplierDebtsList() {
     const due = m.due||0, paid = m.paid||0;
     const balance = Math.max(0, due-paid);
     const statut = balance<=0 ? 'Soldé' : (paid>0 ? 'Partiel' : 'Non soldé');
+    const editCall = `openEditManualSupplierDebt('${m.id}','${esc(m.supplier)}',${due},${paid},'${esc(m.note||'')}','${esc(m.date||'')}')`;
     const actions = m.id
-      ? `<button class="btn btn-outline" style="font-size:.75rem;padding:3px 8px;" onclick="openEditManualSupplierDebt('${m.id}','${esc(m.supplier)}',${due},${paid},'${esc(m.note||'')}','${esc(m.date||'')}')">✏</button><button class="del-btn" onclick="deleteManualSupplierDebt('${m.id}')">×</button>`
+      ? `<button class="btn btn-outline" style="font-size:.75rem;padding:3px 8px;" onclick="event.stopPropagation();${editCall}">✏</button><button class="del-btn" onclick="event.stopPropagation();deleteManualSupplierDebt('${m.id}')">×</button>`
       : '<span style="color:var(--text3);font-size:.75rem;">en attente</span>';
-    return `<tr>
+    const rowClickAttr = m.id ? ` style="cursor:pointer;" onclick="${editCall}" title="Cliquer pour corriger cette dette"` : '';
+    return `<tr${rowClickAttr}>
     <td>${m.date||''}</td>
     <td>${esc(m.supplier)}</td>
     <td>${fmtHTG(due)}</td>
@@ -7920,13 +8165,16 @@ function renderFournisseurPayments() {
         const currentDebt = getSupplierDebt(p.supplier);
         const hasDebt = currentDebt > 0;
         const supplierColor = hasDebt ? 'color:#c0392b;font-weight:700;' : 'color:#0f7b4f;font-weight:700;';
-        rows.push(`<tr>
+        const canEditFp = STATE.currentUser&&(STATE.currentUser.role==='admin'||STATE.currentUser.role==='gestionnaire');
+        const editFpCall = `openEditFournisseurPayment('${p.id||''}','${esc(p.supplier)}',${p.due||0},${p.paid||0},${p.finalBalance||0},'${esc(p.date||'')}','${esc(p.time||'')}')`;
+        const rowClickAttr = (canEditFp && p.id) ? ` style="cursor:pointer;" onclick="${editFpCall}" title="Cliquer pour corriger ce paiement"` : '';
+        rows.push(`<tr${rowClickAttr}>
           <td>${p.date}</td><td>${p.time}</td>
           <td style="${supplierColor}">${esc(p.supplier)}</td>
           <td>${fmtHTG(p.due)}</td><td>${fmtHTG(p.paid||0)}</td>
           <td style="${supplierColor}">${fmtHTG(p.finalBalance||0)}</td>
           <td><span class="badge ${hasDebt?'badge-pending':'badge-sent'}">${hasDebt?'⏳ Partiel':'✅ Soldé'}</span></td>
-          <td style="white-space:nowrap;">${STATE.currentUser&&(STATE.currentUser.role==='admin'||STATE.currentUser.role==='gestionnaire')?`<button class="btn btn-outline" style="font-size:.75rem;padding:3px 10px;" onclick="openEditFournisseurPayment('${p.id||''}','${esc(p.supplier)}',${p.due||0},${p.paid||0},${p.finalBalance||0},'${esc(p.date||'')}','${esc(p.time||'')}')">✏</button><button class="btn" style="font-size:.75rem;padding:3px 10px;background:var(--danger-bg);color:var(--danger);border:1px solid #f5b7b1;margin-left:4px;" onclick="deleteFournisseurPayment('${p.id||''}')">🗑</button>`:'—'}</td>
+          <td style="white-space:nowrap;">${canEditFp?`<button class="btn btn-outline" style="font-size:.75rem;padding:3px 10px;" onclick="event.stopPropagation();${editFpCall}">✏</button><button class="btn" style="font-size:.75rem;padding:3px 10px;background:var(--danger-bg);color:var(--danger);border:1px solid #f5b7b1;margin-left:4px;" onclick="event.stopPropagation();deleteFournisseurPayment('${p.id||''}')">🗑</button>`:'—'}</td>
         </tr>`);
       });
 
@@ -8517,12 +8765,12 @@ function renderCaisseRetraits() {
     return;
   }
   const canEdit = STATE.currentUser && (STATE.currentUser.role==='admin' || STATE.currentUser.role==='gestionnaire');
-  body.innerHTML = items.map(c=>`<tr>
+  body.innerHTML = items.map(c=>`<tr${(canEdit && c.id) ? ` style="cursor:pointer;" onclick="openEditRetrait('${c.id}')" title="Cliquer pour corriger ce retrait"` : ''}>
     <td>${c.date}</td>
     <td style="color:#c0392b;font-weight:600;">-${fmtHTG(c.montant||0)}</td>
     <td>${esc(c.personne||'')}</td>
     <td>${esc(c.objet||'')}</td>
-    <td>${canEdit ? `<button class="btn btn-outline" style="font-size:.75rem;padding:3px 10px;margin-right:4px;" onclick="openEditRetrait('${c.id||''}')">✏️</button><button class="btn" style="font-size:.75rem;padding:3px 10px;background:var(--danger-bg);color:var(--danger);border:1px solid #f5b7b1;" onclick="deleteCaisseRetrait('${c.id||''}')">🗑</button>` : '—'}</td>
+    <td>${canEdit ? `<button class="btn btn-outline" style="font-size:.75rem;padding:3px 10px;margin-right:4px;" onclick="event.stopPropagation();openEditRetrait('${c.id||''}')">✏️</button><button class="btn" style="font-size:.75rem;padding:3px 10px;background:var(--danger-bg);color:var(--danger);border:1px solid #f5b7b1;" onclick="event.stopPropagation();deleteCaisseRetrait('${c.id||''}')">🗑</button>` : '—'}</td>
   </tr>`).join('');
 }
 
