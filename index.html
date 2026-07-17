@@ -8783,9 +8783,21 @@ function renderCaisse() {
   const ouvertureMap = {};
   (STATE.caisse||[]).forEach(c => { ouvertureMap[c.isoDate] = c.montantOuverture||0; });
 
-  // Ventes encaissées en cash, par jour.
+  // Ventes encaissées en cash, par jour. Doit correspondre exactement à la
+  // somme de "Vente du jour (tous vendeurs)" + "Ventes glacées" pour ce même
+  // jour — sinon le total "Ventes cash" ici ne colle pas à celui affiché
+  // dans l'onglet Ventes (bug signalé le 17 juillet 2026). Deux pièges déjà
+  // rencontrés :
+  // 1) Ne compter QUE STATE.transactions ignorait les ventes encore en file
+  //    d'attente hors ligne (STATE.pendingQueue) — alors que "Vente du jour"
+  //    ET "Ventes glacées" les incluent toutes les deux dans leurs totaux.
+  // 2) Les ventes glacées (isGlace:true) font bien partie de type:'vente' et
+  //    doivent rester comptées ici (leur cash arrive réellement en caisse),
+  //    même si elles sont exclues du total affiché DANS le tableau "Vente du
+  //    jour" seul (elles ont leur propre tableau/total séparé) — c'est la
+  //    somme des DEUX qui doit être utilisée, pas "Vente du jour" isolément.
   const cashMap = {};
-  (STATE.transactions||[]).filter(t=>t.type==='vente').forEach(t => {
+  [...STATE.transactions, ...STATE.pendingQueue].filter(t=>t.type==='vente').forEach(t => {
     const day = getIsoFromTx(t);
     cashMap[day] = (cashMap[day]||0) + (t.cash||0);
   });
