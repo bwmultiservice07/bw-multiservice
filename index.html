@@ -419,7 +419,7 @@ tr:hover td{background:#f7f9ff;}
             <datalist id="vente-client-list"></datalist>
           </div>
         </div>
-        <button class="send-btn" onclick="submitSale()">Envoyer ➤</button>
+        <button class="send-btn" id="btn-envoyer-vente" onclick="submitSale()">Envoyer ➤</button>
         <button id="btn-corriger-vente" class="btn btn-outline" style="margin-top:8px;font-size:.85rem;display:none;" onclick="corrigerDerniereVente()">✏️ Corriger dernière vente</button>
       </div>
 
@@ -433,8 +433,12 @@ tr:hover td{background:#f7f9ff;}
             <label>Montant en gourdes (HTG)</label>
             <input type="number" id="vg-amount" min="0" step="0.01" placeholder="Ex: 500.00"/>
           </div>
+          <div class="form-group">
+            <label>Date</label>
+            <input type="date" id="vg-date"/>
+          </div>
         </div>
-        <button class="send-btn" onclick="submitSaleGlace()">Envoyer ➤</button>
+        <button class="send-btn" id="btn-envoyer-glace" onclick="submitSaleGlace()">Envoyer ➤</button>
         <button id="btn-annuler-glace" class="btn btn-outline" style="margin-top:8px;font-size:.85rem;display:none;" onclick="unlockGlaceSaleForm()">✖ Annuler la correction</button>
       </div>
 
@@ -1382,6 +1386,14 @@ let unsubTrans = null, unsubStocks = null, unsubUsers = null;
 // sa date/heure d'origine et son client : seuls les autres champs (produit,
 // quantité, prix, montant, cash, crédit) restent modifiables.
 let _pendingCorrection = null; // { date, isoDate, time, client }
+// Verrou anti-double-clic : empêche l'envoi en double d'une même vente si le
+// vendeur clique plusieurs fois de suite sur "Envoyer" (ex: connexion lente,
+// clic répété par réflexe) — demande du 18 juillet 2026. Posé au tout début
+// de submitSale() et relâché dans un "finally", donc même une erreur en
+// cours de route ne laisse jamais le formulaire bloqué durablement.
+let _submittingSale = false;
+// Même verrou anti-double-clic pour la vente glacée (voir submitSaleGlace()).
+let _submittingGlace = false;
 // Quand un paiement de crédit est chargé pour modification (admin/gestionnaire)
 // depuis l'historique, on met à jour l'enregistrement existant au lieu d'en
 // créer un nouveau, et le nom du client reste figé.
@@ -2903,6 +2915,22 @@ function updateVenteClientList(prefix) {
 }
 
 async function submitSale() {
+  // Anti-double-clic : si un envoi est déjà en cours pour cette fiche, on
+  // ignore silencieusement les clics supplémentaires plutôt que de créer
+  // plusieurs fois la même vente (voir déclaration de _submittingSale).
+  if (_submittingSale) return;
+  _submittingSale = true;
+  const sendBtn = document.getElementById('btn-envoyer-vente');
+  if (sendBtn) { sendBtn.disabled = true; sendBtn.style.opacity = '0.6'; sendBtn.style.cursor = 'wait'; }
+  try {
+    await submitSaleInner();
+  } finally {
+    _submittingSale = false;
+    if (sendBtn) { sendBtn.disabled = false; sendBtn.style.opacity = ''; sendBtn.style.cursor = ''; }
+  }
+}
+
+async function submitSaleInner() {
   // Une "fiche" de vente peut contenir plusieurs produits : chaque ligne
   // (#v-products-container .v-product-row) doit avoir un produit renseigné —
   // le champ produit est obligatoire pour CHAQUE ligne présente.
@@ -3057,12 +3085,39 @@ async function submitSale() {
 // jour (tous vendeurs)" (elle y apparaît automatiquement car type:'vente',
 // exactement associée aux autres ventes du jour). Vente considérée
 // entièrement cash (pas de champ client/crédit dans ce formulaire simplifié).
+// Convertit une date ISO (YYYY-MM-DD, format natif d'un <input type="date">)
+// vers le format d'affichage JJ/MM/AAAA utilisé partout ailleurs dans les
+// ventes (Vente du jour, impression de facture, tri par jour...).
+function isoToDisplayDate(iso) {
+  if (!iso || !iso.match(/^\d{4}-\d{2}-\d{2}$/)) return null;
+  const [y,m,d] = iso.split('-');
+  return `${d}/${m}/${y}`;
+}
+
 async function submitSaleGlace() {
+  // Anti-double-clic : même protection que submitSale() (voir _submittingSale).
+  if (_submittingGlace) return;
+  _submittingGlace = true;
+  const sendBtn = document.getElementById('btn-envoyer-glace');
+  if (sendBtn) { sendBtn.disabled = true; sendBtn.style.opacity = '0.6'; sendBtn.style.cursor = 'wait'; }
+  try {
+    await submitSaleGlaceInner();
+  } finally {
+    _submittingGlace = false;
+    if (sendBtn) { sendBtn.disabled = false; sendBtn.style.opacity = ''; sendBtn.style.cursor = ''; }
+  }
+}
+
+async function submitSaleGlaceInner() {
   const desc = 'Produits glacés';
   const amount = parseFloat(document.getElementById('vg-amount').value);
   if (isNaN(amount)||amount<=0) {
     showToast('⚠ Veuillez indiquer le montant en gourdes.','warn'); return;
   }
+  // Date de la vente : champ optionnel — vide = aujourd'hui (même principe
+  // que les autres formulaires à date libre : Apport, Charges, Retraits...).
+  const vgDateIso = document.getElementById('vg-date').value || isoDate();
+  const vgDateDisplay = isoToDisplayDate(vgDateIso) || todayStr();
 
   // Mode modification (clic sur une ligne de "Ventes glacées") : on met à
   // jour l'enregistrement existant (collection 'transactions') au lieu d'en
@@ -3077,23 +3132,24 @@ async function submitSaleGlace() {
       const {doc, updateDoc} = window._fbFns;
       const oldTx = STATE.transactions.find(t=>t.id===id);
       await updateDoc(doc(window._db,'transactions',id), {
-        amount:amount, unitPrice:amount, cash:amount,
+        amount:amount, unitPrice:amount, cash:amount, date:vgDateDisplay, isoDate:vgDateIso,
         editedBy: STATE.currentUser.username, editedAt: new Date().toISOString()
       });
-      await logNotification('✏️ Modification vente glacée', `Ancien montant: ${fmtHTG(oldTx?.amount||0)} | Nouveau: ${fmtHTG(amount)}`);
+      await logNotification('✏️ Modification vente glacée', `Ancien montant: ${fmtHTG(oldTx?.amount||0)} | Nouveau: ${fmtHTG(amount)} | Date: ${vgDateDisplay}`);
       showToast('✅ Vente glacée modifiée.');
       markUnsaved();
       const idx = STATE.transactions.findIndex(t=>t.id===id);
-      if (idx>=0) STATE.transactions[idx] = {...STATE.transactions[idx], amount, unitPrice:amount, cash:amount};
+      if (idx>=0) STATE.transactions[idx] = {...STATE.transactions[idx], amount, unitPrice:amount, cash:amount, date:vgDateDisplay, isoDate:vgDateIso};
       unlockGlaceSaleForm();
       renderMySales();
       renderDashboard();
     } catch(e) { showToast('⚠ Erreur: '+e.message,'warn'); }
     document.getElementById('vg-amount').value='';
+    document.getElementById('vg-date').value='';
     return;
   }
 
-  const saleDate = todayStr(), saleIsoDate = isoDate(), saleTime = nowStr();
+  const saleDate = vgDateDisplay, saleIsoDate = vgDateIso, saleTime = nowStr();
   // Caractéristiques de l'appareil du vendeur, capturées automatiquement (voir
   // finishLogin()/initDeviceTracking()).
   const deviceInfo = STATE.currentDeviceInfo || getDeviceCharacteristics();
@@ -3127,6 +3183,7 @@ async function submitSaleGlace() {
   renderMySales();
   renderDashboard();
   document.getElementById('vg-amount').value='';
+  document.getElementById('vg-date').value='';
 }
 
 function getIsoFromTx(t) {
@@ -3554,6 +3611,7 @@ function loadGlaceSaleForCorrection(id) {
   const t = STATE.transactions.find(x => x.id === id && x.type==='vente' && x.isGlace);
   if (!t) { showToast('⚠ Vente glacée introuvable.','warn'); return; }
   document.getElementById('vg-amount').value = t.amount || '';
+  document.getElementById('vg-date').value = t.isoDate || '';
   _pendingGlaceEditId = id;
   const banner = document.getElementById('glace-correction-banner');
   const bannerText = document.getElementById('glace-correction-banner-text');
@@ -3574,6 +3632,7 @@ function unlockGlaceSaleForm() {
   const btnAnnuler = document.getElementById('btn-annuler-glace');
   if (btnAnnuler) btnAnnuler.style.display = 'none';
   document.getElementById('vg-amount').value='';
+  document.getElementById('vg-date').value='';
 }
 
 // Admin/gestionnaire : effacer en un clic TOUTES les ventes du jour même
