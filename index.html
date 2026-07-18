@@ -400,8 +400,8 @@ tr:hover td{background:#f7f9ff;}
         </div>
         <div class="form-row">
           <div class="form-group">
-            <label>Paiement cash (Gourdes HTG)</label>
-            <input type="number" id="v-cash" min="0" step="0.01" placeholder="Ex: 300.00" oninput="calcBalance('v')"/>
+            <label>Paiement cash (Gourdes HTG) <span style="color:#c0392b;">*</span></label>
+            <input type="number" id="v-cash" min="0" step="0.01" placeholder="Ex: 300.00 (0 si entièrement à crédit)" required oninput="calcBalance('v')"/>
           </div>
           <div class="form-group">
             <label>Crédit par client (Gourdes HTG)</label>
@@ -2825,7 +2825,10 @@ async function corrigerDerniereVente() {
   document.getElementById('v-nb-unite').value = last.nombreUnite || '';
   document.getElementById('v-row-amount').value = last.amount || '';
   document.getElementById('v-amount').value = last.amount || '';
-  document.getElementById('v-cash').value = last.cash || '';
+  // Ne pas utiliser "last.cash || ''" : un cash légitimement à 0 (vente
+  // entièrement à crédit) afficherait alors un champ vide, ce qui bloquerait
+  // ensuite le renvoi puisque le paiement cash est désormais obligatoire.
+  document.getElementById('v-cash').value = (last.cash != null) ? last.cash : '';
   document.getElementById('v-credit').value = last.credit || '';
   document.getElementById('v-balance').value = last.balance || '';
   document.getElementById('v-client').value = last.client || '';
@@ -2855,7 +2858,9 @@ async function loadSaleForCorrection(id) {
   document.getElementById('v-nb-unite').value = tx.nombreUnite || '';
   document.getElementById('v-row-amount').value = tx.amount || '';
   document.getElementById('v-amount').value = tx.amount || '';
-  document.getElementById('v-cash').value = tx.cash || '';
+  // Idem : préserver un cash légitimement à 0 plutôt que d'afficher un champ
+  // vide (voir le même commentaire dans corrigerDerniereVente()).
+  document.getElementById('v-cash').value = (tx.cash != null) ? tx.cash : '';
   document.getElementById('v-credit').value = tx.credit || '';
   document.getElementById('v-balance').value = tx.balance || '';
   document.getElementById('v-client').value = tx.client || '';
@@ -2934,11 +2939,18 @@ async function submitSale() {
     rows.push({ desc, qty, unit, prix, prixCaisse, nbUnite, amount: rowAmount });
   }
   const amount = parseFloat(document.getElementById('v-amount').value);
-  const cash = parseFloat(document.getElementById('v-cash').value) || 0;
+  const cashRaw = document.getElementById('v-cash').value;
+  const cash = parseFloat(cashRaw) || 0;
   const balance = parseFloat(document.getElementById('v-balance').value) || 0;
   const client = document.getElementById('v-client').value.trim();
   if (isNaN(amount)||amount<=0) {
     showToast('⚠ Veuillez remplir tous les champs obligatoires (quantité, montant vente).','warn'); return;
+  }
+  // Le paiement cash est désormais obligatoire (demande du 18 juillet 2026) :
+  // le champ doit être explicitement rempli, même avec 0 pour une vente
+  // entièrement à crédit — pas de valeur implicite en le laissant vide.
+  if (cashRaw === '' || cashRaw === null || isNaN(parseFloat(cashRaw)) || parseFloat(cashRaw) < 0) {
+    showToast('⚠ Le paiement cash est obligatoire (indiquez 0 si la vente est entièrement à crédit).','warn'); return;
   }
   if (balance > 0 && !client) {
     showToast('⚠ Le nom du client est obligatoire pour une vente à crédit.','warn'); return;
