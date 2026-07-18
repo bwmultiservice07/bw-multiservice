@@ -187,27 +187,31 @@ tr:hover td{background:#f7f9ff;}
    Largeurs fixes obligatoires pour que les décalages "left" cumulés restent
    corrects (position:sticky). :not([colspan]) exclut les lignes de
    séparation (mois/jour) et la ligne "Total du jour", qui utilisent des
-   cellules avec colspan et ne doivent pas être rétrécies/figées. */
-#my-sales-wrap th:not([colspan]):nth-child(1),
-#my-sales-wrap td:not([colspan]):nth-child(1),
-#my-sales-wrap th:not([colspan]):nth-child(2),
-#my-sales-wrap td:not([colspan]):nth-child(2),
-#my-sales-wrap th:not([colspan]):nth-child(3),
-#my-sales-wrap td:not([colspan]):nth-child(3),
-#my-sales-wrap th:not([colspan]):nth-child(4),
-#my-sales-wrap td:not([colspan]):nth-child(4){
+   cellules avec colspan et ne doivent pas être rétrécies/figées.
+   Le figeage n'est actif que si #my-sales-wrap porte la classe
+   "freeze-cols" — retirée pour le rôle vendeur (demande du 18 juillet 2026 :
+   meilleure lisibilité sur petit écran, colonnes non figées pour ce rôle),
+   ajoutée pour admin/gestionnaire. Voir le toggle dans renderMySales(). */
+#my-sales-wrap.freeze-cols th:not([colspan]):nth-child(1),
+#my-sales-wrap.freeze-cols td:not([colspan]):nth-child(1),
+#my-sales-wrap.freeze-cols th:not([colspan]):nth-child(2),
+#my-sales-wrap.freeze-cols td:not([colspan]):nth-child(2),
+#my-sales-wrap.freeze-cols th:not([colspan]):nth-child(3),
+#my-sales-wrap.freeze-cols td:not([colspan]):nth-child(3),
+#my-sales-wrap.freeze-cols th:not([colspan]):nth-child(4),
+#my-sales-wrap.freeze-cols td:not([colspan]):nth-child(4){
   position:sticky; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
 }
-#my-sales-wrap th:not([colspan]):nth-child(1), #my-sales-wrap td:not([colspan]):nth-child(1){ left:0; width:95px; min-width:95px; max-width:95px; }
-#my-sales-wrap th:not([colspan]):nth-child(2), #my-sales-wrap td:not([colspan]):nth-child(2){ left:95px; width:65px; min-width:65px; max-width:65px; }
-#my-sales-wrap th:not([colspan]):nth-child(3), #my-sales-wrap td:not([colspan]):nth-child(3){ left:160px; width:90px; min-width:90px; max-width:90px; }
-#my-sales-wrap th:not([colspan]):nth-child(4), #my-sales-wrap td:not([colspan]):nth-child(4){ left:250px; width:150px; min-width:150px; max-width:150px; box-shadow:2px 0 4px -2px rgba(0,0,0,.18); }
-#my-sales-wrap td:not([colspan]):nth-child(1), #my-sales-wrap td:not([colspan]):nth-child(2),
-#my-sales-wrap td:not([colspan]):nth-child(3), #my-sales-wrap td:not([colspan]):nth-child(4){ background:var(--surface); z-index:2; }
-#my-sales-wrap th:not([colspan]):nth-child(1), #my-sales-wrap th:not([colspan]):nth-child(2),
-#my-sales-wrap th:not([colspan]):nth-child(3), #my-sales-wrap th:not([colspan]):nth-child(4){ background:var(--surface2); z-index:3; }
-#my-sales-wrap tr:hover td:not([colspan]):nth-child(1), #my-sales-wrap tr:hover td:not([colspan]):nth-child(2),
-#my-sales-wrap tr:hover td:not([colspan]):nth-child(3), #my-sales-wrap tr:hover td:not([colspan]):nth-child(4){ background:#f7f9ff; }
+#my-sales-wrap.freeze-cols th:not([colspan]):nth-child(1), #my-sales-wrap.freeze-cols td:not([colspan]):nth-child(1){ left:0; width:95px; min-width:95px; max-width:95px; }
+#my-sales-wrap.freeze-cols th:not([colspan]):nth-child(2), #my-sales-wrap.freeze-cols td:not([colspan]):nth-child(2){ left:95px; width:65px; min-width:65px; max-width:65px; }
+#my-sales-wrap.freeze-cols th:not([colspan]):nth-child(3), #my-sales-wrap.freeze-cols td:not([colspan]):nth-child(3){ left:160px; width:90px; min-width:90px; max-width:90px; }
+#my-sales-wrap.freeze-cols th:not([colspan]):nth-child(4), #my-sales-wrap.freeze-cols td:not([colspan]):nth-child(4){ left:250px; width:150px; min-width:150px; max-width:150px; box-shadow:2px 0 4px -2px rgba(0,0,0,.18); }
+#my-sales-wrap.freeze-cols td:not([colspan]):nth-child(1), #my-sales-wrap.freeze-cols td:not([colspan]):nth-child(2),
+#my-sales-wrap.freeze-cols td:not([colspan]):nth-child(3), #my-sales-wrap.freeze-cols td:not([colspan]):nth-child(4){ background:var(--surface); z-index:2; }
+#my-sales-wrap.freeze-cols th:not([colspan]):nth-child(1), #my-sales-wrap.freeze-cols th:not([colspan]):nth-child(2),
+#my-sales-wrap.freeze-cols th:not([colspan]):nth-child(3), #my-sales-wrap.freeze-cols th:not([colspan]):nth-child(4){ background:var(--surface2); z-index:3; }
+#my-sales-wrap.freeze-cols tr:hover td:not([colspan]):nth-child(1), #my-sales-wrap.freeze-cols tr:hover td:not([colspan]):nth-child(2),
+#my-sales-wrap.freeze-cols tr:hover td:not([colspan]):nth-child(3), #my-sales-wrap.freeze-cols tr:hover td:not([colspan]):nth-child(4){ background:#f7f9ff; }
 .badge{display:inline-block;padding:2px 9px;border-radius:20px;font-size:.73rem;font-weight:600;}
 .badge-pending{background:#fef3e2;color:#b45309;}
 .badge-sent{background:var(--success-bg);color:var(--success);}
@@ -3347,6 +3351,12 @@ function renderMySales() {
   // clic (visible uniquement pour ces deux rôles).
   const adminActionsEl = document.getElementById('ventes-jour-admin-actions');
   if (adminActionsEl) adminActionsEl.style.display = isAdminOrGest ? '' : 'none';
+
+  // Colonnes figées (Date/Heure/Vendeur/Description) : retirées pour le
+  // rôle vendeur (demande du 18 juillet 2026), conservées pour
+  // admin/gestionnaire. Voir la règle CSS ".freeze-cols" plus haut.
+  const mySalesWrapEl = document.getElementById('my-sales-wrap');
+  if (mySalesWrapEl) mySalesWrapEl.classList.toggle('freeze-cols', isAdminOrGest);
 
   // Toutes les ventes de tous les vendeurs — cet onglet est désormais
   // identique pour vendeur, gestionnaire et admin (plus de filtrage par
