@@ -3931,6 +3931,18 @@ async function deleteStock(id) {
 function renderStocks() {
   const body = document.getElementById('stock-table-body');
 
+  // Les mouvements de stock (entrées/sorties) dépendent du Stock de départ
+  // (demande du 18 juillet 2026) : tant qu'aucun produit n'a été enregistré
+  // dans le Stock de départ, cet onglet doit rester vide, même si des achats
+  // ou des ventes existent déjà en base — pour éviter des calculs de stock
+  // incohérents (mouvements sans point de départ connu).
+  if (!(STATE.stockDepart||[]).length) {
+    body.innerHTML = '<tr><td colspan="9" style="text-align:center;color:var(--text3);padding:1.5rem;">⚠ Le Stock de départ doit être rempli avant que les mouvements de stock ne s\'affichent.</td></tr>';
+    document.getElementById('stock-value').textContent = fmtHTG(0);
+    document.getElementById('stock-items').textContent = '0';
+    return;
+  }
+
   // Entrées de stock
   const entrees = STATE.stocks.map(s => ({
     ...s, _type:'entree',
@@ -9019,7 +9031,18 @@ function getQtyCaisses(t) {
 function renderStockActuel() {
   const body = document.getElementById('stock-actuel-body');
   if (!body) return;
-  
+
+  // Le Stock actuel dépend du Stock de départ comme point de référence
+  // (demande du 18 juillet 2026) : tant qu'aucun produit n'a été enregistré
+  // dans le Stock de départ, cet onglet doit rester vide, même si des achats
+  // ou des ventes historiques existent déjà — sinon des produits sans
+  // référence de départ connue s'afficheraient avec un stock de départ à 0,
+  // ce qui fausserait le calcul du Stock actuel.
+  if (!(STATE.stockDepart||[]).length) {
+    body.innerHTML = '<tr><td colspan="8" style="text-align:center;color:var(--text3);padding:1.5rem;">⚠ Le Stock de départ doit être rempli avant que le Stock actuel ne s\'affiche.</td></tr>';
+    return;
+  }
+
   // 1. Stock de départ par produit (en équivalent-caisses)
   // Regroupement par clé NORMALISÉE (normProduit) — pas par la chaîne brute —
   // pour que d'anciens mouvements enregistrés avec une casse différente (ex:
