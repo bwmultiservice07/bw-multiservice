@@ -2463,19 +2463,6 @@ function normProduit(name) {
   return (name||'').trim().toLowerCase();
 }
 
-// Vérifie qu'un produit a déjà été enregistré au moins une fois dans le
-// Stock de départ (demande du 18 juillet 2026 : "le mouvement de stock de
-// chaque produit doit succéder l'enregistrement de ce produit dans le stock
-// de départ" — un achat ou une vente ne peuvent porter que sur un produit
-// déjà présent dans le Stock de départ). Comparaison via normProduit() pour
-// rester insensible à la casse/aux espaces, comme partout ailleurs dans
-// l'application où les produits sont regroupés/comparés.
-function hasStockDepartEntry(desc) {
-  const key = normProduit(desc);
-  if (!key) return false;
-  return (STATE.stockDepart||[]).some(s => normProduit(s.description) === key);
-}
-
 // Remplit la <datalist> partagée "produit-list" avec le catalogue complet
 // (appelé au chargement/connexion et à chaque mise à jour des produits
 // personnalisés), pour qu'elle apparaisse dès qu'on clique sur un champ vide.
@@ -2957,14 +2944,6 @@ async function submitSaleInner() {
     const desc = descEl ? descEl.value.trim() : '';
     if (!desc) {
       showToast('⚠ Le produit est obligatoire pour chaque ligne ajoutée.','warn');
-      return;
-    }
-    // Le stock de départ doit être enregistré AVANT toute vente de ce
-    // produit (demande du 18 juillet 2026) — sauf en mode correction d'une
-    // vente déjà existante (le produit est nécessairement déjà "dans le
-    // système" puisqu'il a déjà été vendu au moins une fois).
-    if (!_pendingCorrection && !hasStockDepartEntry(desc)) {
-      showToast(`⚠ Enregistrez d'abord "${desc}" dans le Stock de départ avant d'enregistrer une vente pour ce produit.`,'warn');
       return;
     }
     const qty = parseFloat(document.getElementById(prefix+'-qty').value);
@@ -3759,13 +3738,6 @@ async function submitStock() {
   }
   if (paymentMode === 'credit' && !supplier) {
     showToast('⚠ Le nom du fournisseur est obligatoire pour un achat à crédit.','warn'); return;
-  }
-  // Le stock de départ doit être enregistré AVANT tout achat/entrée de ce
-  // produit (demande du 18 juillet 2026) — sauf en mode correction d'un
-  // achat déjà existant (le produit est nécessairement déjà "dans le système").
-  if (!_pendingStockEditId && !hasStockDepartEntry(desc)) {
-    showToast(`⚠ Enregistrez d'abord "${desc}" dans le Stock de départ avant d'enregistrer un achat pour ce produit.`,'warn');
-    return;
   }
   const amount = qtyCaisses*price;
   const entry = {
