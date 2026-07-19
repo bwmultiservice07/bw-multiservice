@@ -1300,8 +1300,11 @@ tr:hover td{background:#f7f9ff;}
 <div class="edit-modal-bg" id="cash-credit-modal-bg">
   <div class="edit-modal" style="max-width:760px;max-height:85vh;overflow-y:auto;">
     <h3>🛒 Quantité vendue par produit — Cash / Crédit</h3>
-    <p style="margin:.2rem 0 .8rem;color:var(--text2);font-size:.85rem;">Pour chaque produit : la quantité vendue (en équivalent caisses) réglée cash et celle vendue à crédit. Une fiche de vente entière est comptée « à crédit » dès qu'il reste un solde à payer (comme pour la fiche crédit créée automatiquement) ; sinon elle est comptée « cash ». Détail pour un jour précis, puis automatiquement pour CHAQUE jour et CHAQUE mois de l'historique.</p>
-    <div class="form-group"><label>Date spécifique</label><input type="date" id="ccq-date" onchange="renderCashCreditModal()"/></div>
+    <p style="margin:.2rem 0 .8rem;color:var(--text2);font-size:.85rem;">Pour chaque produit : la quantité vendue (en équivalent caisses) réglée cash et celle vendue à crédit. Une fiche de vente entière est comptée « à crédit » dès qu'il reste un solde à payer (comme pour la fiche crédit créée automatiquement) ; sinon elle est comptée « cash ». Choisissez un jour et/ou un mois précis à analyser ci-dessous, ou consultez plus bas le détail automatique de CHAQUE jour et CHAQUE mois de l'historique.</p>
+    <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:.4rem;">
+      <div class="form-group" style="flex:1;min-width:180px;"><label>📅 Jour à analyser</label><input type="date" id="ccq-date" onchange="renderCashCreditModal()"/></div>
+      <div class="form-group" style="flex:1;min-width:180px;"><label>📆 Mois à analyser</label><input type="month" id="ccq-month" onchange="renderCashCreditModal()"/></div>
+    </div>
     <div id="ccq-content"></div>
     <div style="display:flex;gap:8px;margin-top:.8rem;">
       <button class="btn btn-outline" onclick="closeCashCreditModal()" style="flex:1;">Fermer</button>
@@ -4886,6 +4889,14 @@ function computeCashCreditForDate(isoDateStr) {
   return { label: formatGroupLabel(isoDateStr), rows: computeCashCreditRowsForVentes(ventes) };
 }
 
+// Détail pour UN mois précis choisi (input type="month", ex: "2026-07"),
+// pour l'analyse ciblée demandée en plus du détail automatique de chaque
+// mois de l'année (voir computeAllMonthsCashCreditForYear()).
+function computeCashCreditForMonth(isoMonthStr) {
+  const ventes = (STATE.transactions||[]).filter(t=>t.type==='vente' && getIsoFromTx(t).slice(0,7)===isoMonthStr);
+  return { label: formatMonthLabel(isoMonthStr), rows: computeCashCreditRowsForVentes(ventes) };
+}
+
 // Automatique et exhaustif : CHAQUE jour ayant au moins une vente, du plus
 // récent au plus ancien (même principe que computeAllWeeksMarginRates()).
 function computeAllDaysCashCredit() {
@@ -4938,13 +4949,18 @@ function renderCashCreditModal() {
   if (!cont) return;
   const dateField = document.getElementById('ccq-date');
   const dateVal = (dateField && dateField.value) || isoDate();
+  const monthField = document.getElementById('ccq-month');
+  const monthVal = (monthField && monthField.value) || localMonthStr();
   const year = dateVal.slice(0,4);
   const jour = computeCashCreditForDate(dateVal);
+  const moisChoisi = computeCashCreditForMonth(monthVal);
   const allDays = computeAllDaysCashCredit();
   const allMonths = computeAllMonthsCashCreditForYear(year);
   let html = '';
   html += `<div style="font-weight:700;font-size:.92rem;margin-bottom:.5rem;">📅 Jour choisi</div>`;
   html += renderCashCreditPeriodTable(jour);
+  html += `<div style="font-weight:700;font-size:.92rem;margin:1.2rem 0 .5rem;border-top:1px solid var(--border);padding-top:.8rem;">📆 Mois choisi</div>`;
+  html += renderCashCreditPeriodTable(moisChoisi);
   html += `<div style="font-weight:700;font-size:.92rem;margin:1.2rem 0 .5rem;border-top:1px solid var(--border);padding-top:.8rem;">🗓️ Chaque jour (automatique, tout l'historique)</div>`;
   html += allDays.length ? allDays.map(renderCashCreditPeriodTable).join('') : `<div style="color:var(--text3);padding:.4rem 0;font-size:.85rem;">Aucune vente enregistrée.</div>`;
   html += `<div style="font-weight:700;font-size:.92rem;margin:1.2rem 0 .5rem;border-top:1px solid var(--border);padding-top:.8rem;">📆 Chaque mois — année ${year} (automatique, les 12 mois)</div>`;
@@ -4955,6 +4971,8 @@ function renderCashCreditModal() {
 function openCashCreditModal() {
   const dateField = document.getElementById('ccq-date');
   if (dateField && !dateField.value) dateField.value = isoDate();
+  const monthField = document.getElementById('ccq-month');
+  if (monthField && !monthField.value) monthField.value = localMonthStr();
   renderCashCreditModal();
   document.getElementById('cash-credit-modal-bg').classList.add('show');
 }
