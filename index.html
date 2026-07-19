@@ -2811,7 +2811,14 @@ function lockSaleForCorrection(tx) {
   _pendingCorrection = {
     date: tx.date || todayStr(),
     isoDate: tx.isoDate || isoDate(),
-    time: tx.time || nowStr()
+    time: tx.time || nowStr(),
+    // Identifiant Firestore de la vente d'origine — conservé pour ne la
+    // supprimer qu'au moment de l'ENVOI de la correction (voir
+    // submitSaleInner()), plus au moment où on clique sur la ligne. Ainsi,
+    // cliquer sur "✖ Annuler la correction" avant d'envoyer ne perd plus la
+    // vente d'origine : elle n'a jamais été touchée en base tant que rien
+    // n'a été enregistré (bug remonté le 19 juillet 2026).
+    id: tx.id || null
   };
   const clientInput = document.getElementById('v-client');
   clientInput.readOnly = true;
@@ -2872,14 +2879,11 @@ async function corrigerDerniereVente() {
   document.getElementById('v-client').value = last.client || '';
   updateRowPriceIndicator('v');
   lockSaleForCorrection(last);
-  // Supprimer la dernière vente pour la remplacer
-  if (STATE.isOnline && STATE.fbReady && last.id) {
-    try {
-      const {doc, deleteDoc} = window._fbFns;
-      await deleteDoc(doc(window._db,'transactions',last.id));
-      showToast('✏️ Dernière vente chargée — corrigez et renvoyez.');
-    } catch(e) { showToast('⚠ Erreur: '+e.message,'warn'); }
-  }
+  // La vente d'origine n'est plus supprimée ici : elle ne l'est qu'au
+  // moment de l'ENVOI de la correction (voir submitSaleInner()), pour que
+  // "✖ Annuler la correction" puisse revenir en arrière sans rien perdre.
+  document.getElementById('v-desc').scrollIntoView({behavior:'smooth', block:'center'});
+  showToast('✏️ Dernière vente chargée dans le formulaire — corrigez puis cliquez sur Envoyer.');
 }
 
 // Admin/gestionnaire : clic sur le statut d'une ligne dans "Toutes les transactions"
@@ -2905,16 +2909,13 @@ async function loadSaleForCorrection(id) {
   updateRowPriceIndicator('v');
   lockSaleForCorrection(tx);
   document.getElementById('v-desc').scrollIntoView({behavior:'smooth', block:'center'});
-  if (STATE.isOnline && STATE.fbReady) {
-    try {
-      const {doc, deleteDoc} = window._fbFns;
-      await deleteDoc(doc(window._db,'transactions',id));
-      await logNotification('✏️ Correction vente', `Vendeur: ${tx.seller||'?'} | Produit: ${tx.description} | Montant: ${fmtHTG(tx.amount||0)} | Date: ${tx.date||'?'}`);
-      showToast('✏️ Vente chargée dans le formulaire — corrigez puis cliquez sur Envoyer.');
-    } catch(e) { showToast('⚠ Erreur: '+e.message,'warn'); }
-  } else {
-    showToast('⚠ Hors ligne — impossible de charger cette vente pour correction.','warn');
-  }
+  // La vente d'origine n'est plus supprimée ici : elle ne l'est qu'au moment
+  // de l'ENVOI de la correction (voir submitSaleInner()) — sinon cliquer sur
+  // "✖ Annuler la correction" avant d'envoyer faisait disparaître la ligne
+  // pour de bon, sans possibilité de revenir en arrière (bug remonté le 19
+  // juillet 2026). La correction reste donc possible même hors ligne : elle
+  // rejoindra simplement la file d'attente comme n'importe quel envoi.
+  showToast('✏️ Vente chargée dans le formulaire — corrigez puis cliquez sur Envoyer.');
 }
 
 function calcBalance(prefix) {
@@ -3075,6 +3076,24 @@ async function submitSaleInner() {
       STATE.pendingQueue.push(tx);
       saveLocal();
       queued++;
+    }
+  }
+  // Correction d'une vente déjà enregistrée : on ne supprime la fiche
+  // d'ORIGINE qu'ICI, une fois sa remplaçante confirmée en base — jamais au
+  // moment où on clique juste sur la ligne pour l'ouvrir (voir
+  // lockSaleForCorrection()/loadSaleForCorrection()). Ainsi, si la nouvelle
+  // fiche n'a pas pu être écrite tout de suite (hors ligne, erreur réseau —
+  // onlineOk===0, elle repart en file d'attente), l'originale reste intacte
+  // en base au lieu d'être perdue.
+  if (_pendingCorrection && _pendingCorrection.id && onlineOk > 0) {
+    try {
+      const {doc, deleteDoc} = window._fbFns;
+      await deleteDoc(doc(window._db,'transactions',_pendingCorrection.id));
+      STATE.transactions = STATE.transactions.filter(t => t.id !== _pendingCorrection.id);
+      await logNotification('✏️ Correction vente', `Vendeur: ${STATE.currentUser.username} | Produit: ${rows[0]?.desc||''} | Montant: ${fmtHTG(rows.reduce((a,r)=>a+(r.amount||0),0))} | Date: ${_pendingCorrection.date||'?'}`);
+    } catch(e) {
+      console.error('Suppression ancienne vente (correction):', e);
+      showToast('⚠ La correction a été enregistrée, mais l\'ancienne fiche n\'a pas pu être supprimée — contactez l\'admin.','warn');
     }
   }
   if (queued === 0) {
