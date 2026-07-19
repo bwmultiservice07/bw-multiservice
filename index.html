@@ -1320,6 +1320,29 @@ tr:hover td{background:#f7f9ff;}
   </div>
 </div>
 
+<div class="edit-modal-bg" id="contribution-modal-bg">
+  <div class="edit-modal" style="max-width:760px;max-height:85vh;overflow-y:auto;">
+    <h3>📊 Contribution de chaque produit au total des ventes</h3>
+    <p style="margin:.2rem 0 .8rem;color:var(--text2);font-size:.85rem;">Pour chaque produit : le montant total vendu (cash + crédit confondus) et sa part (%) dans le total des ventes de la période. Choisissez un jour et/ou un mois précis à analyser, ou une période (de telle date à telle date, ou de tel mois à tel mois) ci-dessous — ou consultez plus bas le détail automatique de CHAQUE jour et CHAQUE mois de l'historique.</p>
+    <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:.4rem;">
+      <div class="form-group" style="flex:1;min-width:180px;"><label>📅 Jour à analyser</label><input type="date" id="contrib-date" onchange="renderContributionModal()"/></div>
+      <div class="form-group" style="flex:1;min-width:180px;"><label>📆 Mois à analyser</label><input type="month" id="contrib-month" onchange="renderContributionModal()"/></div>
+    </div>
+    <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:.4rem;align-items:flex-end;">
+      <div class="form-group" style="flex:1;min-width:140px;"><label>📅 Période — du jour</label><input type="date" id="contrib-date-from" onchange="renderContributionModal()"/></div>
+      <div class="form-group" style="flex:1;min-width:140px;"><label>au jour</label><input type="date" id="contrib-date-to" onchange="renderContributionModal()"/></div>
+    </div>
+    <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:.4rem;align-items:flex-end;">
+      <div class="form-group" style="flex:1;min-width:140px;"><label>📆 Période — du mois</label><input type="month" id="contrib-month-from" onchange="renderContributionModal()"/></div>
+      <div class="form-group" style="flex:1;min-width:140px;"><label>au mois</label><input type="month" id="contrib-month-to" onchange="renderContributionModal()"/></div>
+    </div>
+    <div id="contrib-content"></div>
+    <div style="display:flex;gap:8px;margin-top:.8rem;">
+      <button class="btn btn-outline" onclick="closeContributionModal()" style="flex:1;">Fermer</button>
+    </div>
+  </div>
+</div>
+
 <div class="edit-modal-bg" id="logout-modal-bg">
   <div class="edit-modal">
     <h3>⚠ Modifications non sauvegardées</h3>
@@ -5020,6 +5043,171 @@ function closeCashCreditModal() {
 }
 
 // ============================================================
+// CONTRIBUTION DE CHAQUE PRODUIT AU TOTAL DES VENTES (fenêtre dans Data
+// Analyse). Le montant d'une ligne de vente (t.amount) est déjà le montant
+// total de ce produit pour cette fiche, cash + crédit confondus (le
+// paiement cash/crédit ne fait que répartir CE montant entre les deux modes
+// de règlement — voir submitSaleInner()) : pas besoin de regrouper par
+// fiche ici, contrairement à la quantité sortie cash/crédit calculée plus
+// haut. On additionne simplement les montants par produit, puis on calcule
+// la part (%) de chacun dans le total de la période.
+// ============================================================
+function computeContributionRowsForVentes(ventes) {
+  const map = {};
+  let total = 0;
+  ventes.forEach(t => {
+    const key = normProduit(t.description) || '(sans nom)';
+    const montant = t.amount || 0;
+    if (!map[key]) map[key] = { produit:key, montant:0 };
+    map[key].montant += montant;
+    total += montant;
+  });
+  return Object.values(map)
+    .map(r => ({...r, pct: total > 0 ? (r.montant/total*100) : 0}))
+    .filter(r => r.montant > 0)
+    .sort((a,b) => b.montant - a.montant);
+}
+
+function computeContributionForDate(isoDateStr) {
+  const ventes = (STATE.transactions||[]).filter(t=>t.type==='vente' && getIsoFromTx(t)===isoDateStr);
+  return { label: formatGroupLabel(isoDateStr), rows: computeContributionRowsForVentes(ventes) };
+}
+
+function computeContributionForMonth(isoMonthStr) {
+  const ventes = (STATE.transactions||[]).filter(t=>t.type==='vente' && getIsoFromTx(t).slice(0,7)===isoMonthStr);
+  return { label: formatMonthLabel(isoMonthStr), rows: computeContributionRowsForVentes(ventes) };
+}
+
+function computeContributionForDateRange(fromIso, toIso) {
+  const ventes = (STATE.transactions||[]).filter(t => {
+    const day = getIsoFromTx(t);
+    return t.type==='vente' && day && day >= fromIso && day <= toIso;
+  });
+  const label = `Du ${fromIso.split('-').reverse().join('/')} au ${toIso.split('-').reverse().join('/')}`;
+  return { label, rows: computeContributionRowsForVentes(ventes) };
+}
+
+function computeContributionForMonthRange(fromMonth, toMonth) {
+  const ventes = (STATE.transactions||[]).filter(t => {
+    const month = getIsoFromTx(t).slice(0,7);
+    return t.type==='vente' && month && month >= fromMonth && month <= toMonth;
+  });
+  const label = `De ${formatMonthLabel(fromMonth).replace('📅 ','')} à ${formatMonthLabel(toMonth).replace('📅 ','')}`;
+  return { label, rows: computeContributionRowsForVentes(ventes) };
+}
+
+// Automatique et exhaustif : CHAQUE jour ayant au moins une vente, du plus
+// récent au plus ancien.
+function computeAllDaysContribution() {
+  const ventes = (STATE.transactions||[]).filter(t=>t.type==='vente');
+  const dayBuckets = {};
+  ventes.forEach(t => {
+    const day = getIsoFromTx(t); if (!day) return;
+    if (!dayBuckets[day]) dayBuckets[day] = [];
+    dayBuckets[day].push(t);
+  });
+  return Object.keys(dayBuckets)
+    .sort((a,b) => b.localeCompare(a))
+    .map(day => ({ isoDate: day, label: formatGroupLabel(day), rows: computeContributionRowsForVentes(dayBuckets[day]) }));
+}
+
+// Automatique et exhaustif : CHACUN des 12 mois de l'année donnée (y compris
+// les mois sans vente, affichés à part).
+function computeAllMonthsContributionForYear(year) {
+  const ventes = (STATE.transactions||[]).filter(t=>t.type==='vente');
+  const monthNames = ['Janvier','Février','Mars','Avril','Mai','Juin','Juillet','Août','Septembre','Octobre','Novembre','Décembre'];
+  const rows = [];
+  for (let m = 1; m <= 12; m++) {
+    const monthKey = `${year}-${String(m).padStart(2,'0')}`;
+    const ventesMois = ventes.filter(t => getIsoFromTx(t).slice(0,7) === monthKey);
+    rows.push({ month: monthKey, label: `${monthNames[m-1]} ${year}`, rows: computeContributionRowsForVentes(ventesMois) });
+  }
+  return rows;
+}
+
+function renderContributionPeriodTable(period) {
+  let html = `<div style="margin-bottom:1rem;">
+    <div style="font-weight:600;font-size:.85rem;color:var(--text2);margin-bottom:.3rem;">${esc(period.label)}</div>`;
+  if (!period.rows || !period.rows.length) {
+    html += `<div style="color:var(--text3);padding:.3rem 0;font-size:.82rem;">Aucune vente.</div></div>`;
+    return html;
+  }
+  html += `<div class="table-wrap"><table><thead><tr><th>Produit</th><th>Montant vendu (HTG)</th><th>Contribution au total</th></tr></thead><tbody>` +
+    period.rows.map(r=>`<tr>
+      <td>${esc(r.produit)}</td>
+      <td>${fmtHTG(r.montant)}</td>
+      <td style="font-weight:600;">${r.pct.toFixed(1)}%</td>
+    </tr>`).join('') + `</tbody></table></div></div>`;
+  return html;
+}
+
+function renderContributionModal() {
+  const cont = document.getElementById('contrib-content');
+  if (!cont) return;
+  const dateField = document.getElementById('contrib-date');
+  const dateVal = (dateField && dateField.value) || isoDate();
+  const monthField = document.getElementById('contrib-month');
+  const monthVal = (monthField && monthField.value) || localMonthStr();
+  const year = dateVal.slice(0,4);
+  const jour = computeContributionForDate(dateVal);
+  const moisChoisi = computeContributionForMonth(monthVal);
+  const allDays = computeAllDaysContribution();
+  const allMonths = computeAllMonthsContributionForYear(year);
+
+  const dateFromField = document.getElementById('contrib-date-from');
+  const dateToField = document.getElementById('contrib-date-to');
+  let dateFrom = dateFromField && dateFromField.value;
+  let dateTo = dateToField && dateToField.value;
+  let periodeJours = null;
+  if (dateFrom && dateTo) {
+    if (dateFrom > dateTo) { const tmp = dateFrom; dateFrom = dateTo; dateTo = tmp; }
+    periodeJours = computeContributionForDateRange(dateFrom, dateTo);
+  }
+
+  const monthFromField = document.getElementById('contrib-month-from');
+  const monthToField = document.getElementById('contrib-month-to');
+  let monthFrom = monthFromField && monthFromField.value;
+  let monthTo = monthToField && monthToField.value;
+  let periodeMois = null;
+  if (monthFrom && monthTo) {
+    if (monthFrom > monthTo) { const tmp = monthFrom; monthFrom = monthTo; monthTo = tmp; }
+    periodeMois = computeContributionForMonthRange(monthFrom, monthTo);
+  }
+
+  let html = '';
+  html += `<div style="font-weight:700;font-size:.92rem;margin-bottom:.5rem;">📅 Jour choisi</div>`;
+  html += renderContributionPeriodTable(jour);
+  html += `<div style="font-weight:700;font-size:.92rem;margin:1.2rem 0 .5rem;border-top:1px solid var(--border);padding-top:.8rem;">📆 Mois choisi</div>`;
+  html += renderContributionPeriodTable(moisChoisi);
+  if (periodeJours) {
+    html += `<div style="font-weight:700;font-size:.92rem;margin:1.2rem 0 .5rem;border-top:1px solid var(--border);padding-top:.8rem;">📅 Période choisie (par jour)</div>`;
+    html += renderContributionPeriodTable(periodeJours);
+  }
+  if (periodeMois) {
+    html += `<div style="font-weight:700;font-size:.92rem;margin:1.2rem 0 .5rem;border-top:1px solid var(--border);padding-top:.8rem;">📆 Période choisie (par mois)</div>`;
+    html += renderContributionPeriodTable(periodeMois);
+  }
+  html += `<div style="font-weight:700;font-size:.92rem;margin:1.2rem 0 .5rem;border-top:1px solid var(--border);padding-top:.8rem;">🗓️ Chaque jour (automatique, tout l'historique)</div>`;
+  html += allDays.length ? allDays.map(renderContributionPeriodTable).join('') : `<div style="color:var(--text3);padding:.4rem 0;font-size:.85rem;">Aucune vente enregistrée.</div>`;
+  html += `<div style="font-weight:700;font-size:.92rem;margin:1.2rem 0 .5rem;border-top:1px solid var(--border);padding-top:.8rem;">📆 Chaque mois — année ${year} (automatique, les 12 mois)</div>`;
+  html += allMonths.map(renderContributionPeriodTable).join('');
+  cont.innerHTML = html;
+}
+
+function openContributionModal() {
+  const dateField = document.getElementById('contrib-date');
+  if (dateField && !dateField.value) dateField.value = isoDate();
+  const monthField = document.getElementById('contrib-month');
+  if (monthField && !monthField.value) monthField.value = localMonthStr();
+  renderContributionModal();
+  document.getElementById('contribution-modal-bg').classList.add('show');
+}
+
+function closeContributionModal() {
+  document.getElementById('contribution-modal-bg').classList.remove('show');
+}
+
+// ============================================================
 // DATA ANALYSE — vue panoramique jour/mois : produits les plus/moins vendus
 // et décisions à prendre (comparaison du mois en cours vs le mois précédent).
 // ============================================================
@@ -5460,6 +5648,15 @@ function renderDataAnalyse() {
       <button class="btn btn-primary" style="font-size:.78rem;padding:5px 12px;width:auto;" onclick="openCashCreditModal()">📦 Voir le détail (jour / mois)</button>
     </div>
     <div style="color:var(--text3);font-size:.85rem;padding:.3rem 0;">Cliquez pour voir, produit par produit, la quantité totale sortie (vendue), cash et crédit confondus — pour un jour précis ou un mois précis au choix, ou automatiquement pour chaque jour et chaque mois de l'historique.</div>
+  </div>`;
+
+  // --- Carte Contribution de chaque produit au total des ventes (montant
+  // HTG, cash + crédit confondus), fenêtre détaillée par jour/mois/période ---
+  html += `<div class="card"><div class="card-title" style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;">
+      <span>📊 Contribution de chaque produit au total des ventes</span>
+      <button class="btn btn-primary" style="font-size:.78rem;padding:5px 12px;width:auto;" onclick="openContributionModal()">📈 Voir le détail (jour / mois / période)</button>
+    </div>
+    <div style="color:var(--text3);font-size:.85rem;padding:.3rem 0;">Cliquez pour voir, produit par produit, le montant vendu (cash + crédit confondus) et sa part (%) dans le total des ventes — pour un jour précis, un mois précis, ou une période (de telle date à telle date, de tel mois à tel mois), ou automatiquement pour chaque jour et chaque mois de l'historique.</div>
   </div>`;
 
   // --- Carte Contribution au profit par produit (HTG, pas seulement %) ---
