@@ -2135,6 +2135,18 @@ async function doLogin() {
 
 function finishLogin(user) {
   STATE.currentUser = user;
+  // Gèle l'objet utilisateur pour empêcher la modification directe la plus
+  // évidente depuis la console du navigateur (ex: STATE.currentUser.role =
+  // "admin") — ce genre d'affectation échoue désormais silencieusement au
+  // lieu de changer réellement le rôle affiché (faille remontée le 19
+  // juillet 2026). ATTENTION : ceci ralentit une tentative "au clavier"
+  // mais n'est PAS une vraie barrière de sécurité — quelqu'un de plus
+  // déterminé peut toujours remplacer STATE.currentUser par un nouvel objet
+  // en entier. La seule vraie protection est côté serveur : voir
+  // firestore.rules, qui vérifie le rôle RÉEL stocké dans Firestore avant
+  // d'autoriser chaque écriture, indépendamment de ce que le navigateur
+  // prétend localement.
+  Object.freeze(STATE.currentUser);
   // Capture les caractéristiques de l'appareil dès l'ouverture de la session
   // (voir le commentaire au-dessus de la fonction) — rattachées ensuite à
   // chaque vente transmise.
@@ -3744,6 +3756,7 @@ function queueStockPurchase(entry, desc, supplier, amount, paymentMode) {
 }
 
 async function submitStock() {
+  if (!requireAdminOrGest()) return;
   const desc = document.getElementById('s-desc').value;
   const qty = parseFloat(document.getElementById('s-qty').value) || 0;
   const unit = document.getElementById('s-unit').value;
@@ -8151,6 +8164,13 @@ function calcFournisseurBalance(prefix) {
 }
 
 async function submitFournisseurPayment(prefix) {
+  // Le remboursement d'une dette fournisseur (formulaire dédié ou raccourci
+  // "fpq") est une action réservée à admin/gestionnaire — les cartes
+  // correspondantes sont déjà cachées pour le vendeur (voir finishLogin()),
+  // mais ce contrôle manquait ici même, ce qui laissait la porte ouverte à
+  // un appel direct de cette fonction (ex: depuis la console du navigateur)
+  // par un compte vendeur (faille corrigée le 19 juillet 2026).
+  if (!requireAdminOrGest()) return;
   prefix = prefix || 'fp';
   const supplier = document.getElementById(prefix+'-supplier').value.trim();
   const due = parseFloat(document.getElementById(prefix+'-balance-due').value) || 0;
@@ -8462,6 +8482,7 @@ function calcStockDepartValeur() {
 }
 
 async function submitStockDepart() {
+  if (!requireAdminOrGest()) return;
   const desc = document.getElementById('sd-desc').value;
   const qty = parseFloat(document.getElementById('sd-qty').value) || 0;
   const unit = document.getElementById('sd-unit').value;
