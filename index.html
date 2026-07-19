@@ -1299,8 +1299,8 @@ tr:hover td{background:#f7f9ff;}
 
 <div class="edit-modal-bg" id="cash-credit-modal-bg">
   <div class="edit-modal" style="max-width:760px;max-height:85vh;overflow-y:auto;">
-    <h3>🛒 Quantité vendue par produit — Cash / Crédit</h3>
-    <p style="margin:.2rem 0 .8rem;color:var(--text2);font-size:.85rem;">Pour chaque produit : la quantité vendue (en équivalent caisses) réglée cash et celle vendue à crédit. Une fiche de vente entière est comptée « à crédit » dès qu'il reste un solde à payer (comme pour la fiche crédit créée automatiquement) ; sinon elle est comptée « cash ». Choisissez un jour et/ou un mois précis à analyser ci-dessous, ou consultez plus bas le détail automatique de CHAQUE jour et CHAQUE mois de l'historique.</p>
+    <h3>🛒 Quantité de produits sortis (vendus) — Cash / Crédit</h3>
+    <p style="margin:.2rem 0 .8rem;color:var(--text2);font-size:.85rem;">Pour chaque produit : la quantité sortie (vendue), en équivalent caisses, réglée cash et celle réglée à crédit. Une fiche de vente entière est comptée « à crédit » dès qu'il reste un solde à payer (comme pour la fiche crédit créée automatiquement) ; sinon elle est comptée « cash ». Choisissez un jour et/ou un mois précis à analyser ci-dessous, ou consultez plus bas le détail automatique de CHAQUE jour et CHAQUE mois de l'historique.</p>
     <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:.4rem;">
       <div class="form-group" style="flex:1;min-width:180px;"><label>📅 Jour à analyser</label><input type="date" id="ccq-date" onchange="renderCashCreditModal()"/></div>
       <div class="form-group" style="flex:1;min-width:180px;"><label>📆 Mois à analyser</label><input type="month" id="ccq-month" onchange="renderCashCreditModal()"/></div>
@@ -4934,7 +4934,7 @@ function renderCashCreditPeriodTable(period) {
     html += `<div style="color:var(--text3);padding:.3rem 0;font-size:.82rem;">Aucune vente.</div></div>`;
     return html;
   }
-  html += `<div class="table-wrap"><table><thead><tr><th>Produit</th><th>Qté vendue cash (éq. caisses)</th><th>Qté vendue à crédit (éq. caisses)</th><th>Total</th></tr></thead><tbody>` +
+  html += `<div class="table-wrap"><table><thead><tr><th>Produit</th><th>Qté sortie cash (éq. caisses)</th><th>Qté sortie à crédit (éq. caisses)</th><th>Total</th></tr></thead><tbody>` +
     period.rows.map(r=>`<tr>
       <td>${esc(r.produit)}</td>
       <td>${r.cashQty.toFixed(2)}</td>
@@ -5415,13 +5415,13 @@ function renderDataAnalyse() {
     <div style="background:var(--surface2);border-radius:8px;padding:10px 12px;font-size:.85rem;line-height:1.5;">💡 <strong>Recommandation</strong> : ${pctCredit==null?"pas assez de ventes ce mois-ci pour évaluer la répartition.":(pctCredit>40?"la part du crédit dépasse 40% des ventes du mois — envisager de resserrer la politique de crédit ou d'accélérer le recouvrement auprès des clients.":"la part du crédit reste maîtrisée (moins de 40% des ventes du mois).")}</div>
   </div>`;
 
-  // --- Carte Quantité vendue par produit — Cash / Crédit (fenêtre détaillée
-  // par jour/mois, sur simple clic) ---
+  // --- Carte Quantité de produits sortis (vendus) par produit — Cash / Crédit
+  // (fenêtre détaillée par jour/mois, sur simple clic) ---
   html += `<div class="card"><div class="card-title" style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;">
-      <span>🛒 Quantité vendue par produit — Cash / Crédit</span>
+      <span>🛒 Quantité de produits sortis (vendus) — Cash / Crédit</span>
       <button class="btn btn-primary" style="font-size:.78rem;padding:5px 12px;width:auto;" onclick="openCashCreditModal()">📦 Voir le détail (jour / mois)</button>
     </div>
-    <div style="color:var(--text3);font-size:.85rem;padding:.3rem 0;">Cliquez pour voir, produit par produit, la quantité vendue cash et la quantité vendue à crédit — pour un jour précis, puis automatiquement pour chaque jour et chaque mois de l'historique.</div>
+    <div style="color:var(--text3);font-size:.85rem;padding:.3rem 0;">Cliquez pour voir, produit par produit, la quantité sortie (vendue) réglée cash et celle sortie (vendue) à crédit — pour un jour précis ou un mois précis au choix, ou automatiquement pour chaque jour et chaque mois de l'historique.</div>
   </div>`;
 
   // --- Carte Contribution au profit par produit (HTG, pas seulement %) ---
