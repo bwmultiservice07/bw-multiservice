@@ -2227,6 +2227,36 @@ function finishLogin(user) {
   // en plus de Firebase) — délai pour laisser le temps aux données de se
   // charger depuis Firestore avant de générer le fichier de sauvegarde.
   setTimeout(() => { maybeAutoBackup(); }, 8000);
+  // Re-vérifie le rôle RÉEL juste après (voir verifyRealRoleOrLogout()) —
+  // annule automatiquement toute tentative de faire croire à l'app qu'on
+  // est admin/gestionnaire en rappelant finishLogin() à la main depuis la
+  // console avec un rôle inventé (faille remontée le 19 juillet 2026, ex:
+  // STATE.currentUser = {..., role:'admin'}; finishLogin(STATE.currentUser)).
+  verifyRealRoleOrLogout();
+}
+
+// Recontrôle le rôle affiché localement (STATE.currentUser.role) par rapport
+// au rôle RÉELLEMENT enregistré dans Firestore (users/{uid}) pour le compte
+// VRAIMENT authentifié auprès de Firebase (window._auth.currentUser — géré
+// par le SDK Firebase, impossible à falsifier par une simple affectation
+// JavaScript, contrairement à STATE.currentUser). Si les deux ne
+// correspondent pas — ex: quelqu'un a rappelé finishLogin() depuis la
+// console avec un rôle inventé — le vrai rôle est immédiatement rétabli.
+// Appelée juste après chaque connexion, puis toutes les 20 secondes tant
+// qu'une session est ouverte (voir le setInterval plus bas dans le fichier)
+// pour fermer la fenêtre de temps pendant laquelle une manipulation locale
+// pourrait sembler fonctionner à l'écran.
+async function verifyRealRoleOrLogout() {
+  if (!STATE.isOnline || !window._auth || !window._auth.currentUser || !STATE.currentUser) return;
+  try {
+    const profile = await fetchUserProfile(window._auth.currentUser.uid);
+    if (!profile || !profile.role) return; // pas de profil Firestore à comparer (ex: compte encore hors-ligne/legacy) — on ne touche à rien
+    if (profile.role !== STATE.currentUser.role) {
+      console.warn('Rôle local incohérent avec le rôle réel enregistré dans Firestore — resynchronisation automatique.');
+      finishLogin({ uid: window._auth.currentUser.uid, username: profile.username || STATE.currentUser.username, role: profile.role });
+      showToast('⚠ Votre session a été resynchronisée avec votre rôle réel.', 'warn');
+    }
+  } catch(e) { console.error('verifyRealRoleOrLogout:', e); }
 }
 
 // Reconnexion automatique d'une session déjà active (voir le commentaire sur
@@ -9304,6 +9334,15 @@ function renderAll() {
 setInterval(() => {
   if (STATE.currentUser && currentTab === 'ventes') renderMySales();
 }, 30000);
+
+// Recontrôle périodique du rôle réel (voir verifyRealRoleOrLogout()) tant
+// qu'une session reste ouverte — pas seulement juste après la connexion —
+// pour fermer la fenêtre de temps pendant laquelle une manipulation locale
+// de STATE.currentUser pourrait sembler fonctionner à l'écran (faille
+// remontée le 19 juillet 2026).
+setInterval(() => {
+  if (STATE.currentUser) verifyRealRoleOrLogout();
+}, 20000);
 
 // Enregistrement du Service Worker : permet d'ouvrir l'application même sans
 // AUCUNE connexion internet dès le départ (pas seulement après l'ouverture).
