@@ -1297,6 +1297,18 @@ tr:hover td{background:#f7f9ff;}
   </div>
 </div>
 
+<div class="edit-modal-bg" id="cash-credit-modal-bg">
+  <div class="edit-modal" style="max-width:760px;max-height:85vh;overflow-y:auto;">
+    <h3>🛒 Quantité vendue par produit — Cash / Crédit</h3>
+    <p style="margin:.2rem 0 .8rem;color:var(--text2);font-size:.85rem;">Pour chaque produit : la quantité vendue (en équivalent caisses) réglée cash et celle vendue à crédit. Une fiche de vente entière est comptée « à crédit » dès qu'il reste un solde à payer (comme pour la fiche crédit créée automatiquement) ; sinon elle est comptée « cash ». Détail pour un jour précis, puis automatiquement pour CHAQUE jour et CHAQUE mois de l'historique.</p>
+    <div class="form-group"><label>Date spécifique</label><input type="date" id="ccq-date" onchange="renderCashCreditModal()"/></div>
+    <div id="ccq-content"></div>
+    <div style="display:flex;gap:8px;margin-top:.8rem;">
+      <button class="btn btn-outline" onclick="closeCashCreditModal()" style="flex:1;">Fermer</button>
+    </div>
+  </div>
+</div>
+
 <div class="edit-modal-bg" id="logout-modal-bg">
   <div class="edit-modal">
     <h3>⚠ Modifications non sauvegardées</h3>
@@ -2133,39 +2145,27 @@ async function doLogin() {
   migrateLegacyUserSilently(legacyUser.username, p, legacyUser.role);
 }
 
-function finishLogin(user) {
-  STATE.currentUser = user;
-  // Gèle l'objet utilisateur pour empêcher la modification directe la plus
-  // évidente depuis la console du navigateur (ex: STATE.currentUser.role =
-  // "admin") — ce genre d'affectation échoue désormais silencieusement au
-  // lieu de changer réellement le rôle affiché (faille remontée le 19
-  // juillet 2026). ATTENTION : ceci ralentit une tentative "au clavier"
-  // mais n'est PAS une vraie barrière de sécurité — quelqu'un de plus
-  // déterminé peut toujours remplacer STATE.currentUser par un nouvel objet
-  // en entier. La seule vraie protection est côté serveur : voir
-  // firestore.rules, qui vérifie le rôle RÉEL stocké dans Firestore avant
-  // d'autoriser chaque écriture, indépendamment de ce que le navigateur
-  // prétend localement.
-  Object.freeze(STATE.currentUser);
-  // Capture les caractéristiques de l'appareil dès l'ouverture de la session
-  // (voir le commentaire au-dessus de la fonction) — rattachées ensuite à
-  // chaque vente transmise.
-  initDeviceTracking();
-  // Filet de sécurité local pour la reconnexion automatique hors ligne (voir
-  // le commentaire près de loadLocal()) — indépendant de la restauration de
-  // session de Firebase Auth, qui s'est montrée peu fiable hors ligne.
-  STATE.lastSession = { uid: user.uid || null, username: user.username, role: user.role };
-  saveLocal();
-  document.getElementById('auth-screen').style.display = 'none';
-  document.getElementById('app').style.display = 'flex';
-  document.getElementById('app').style.flexDirection = 'column';
-  document.getElementById('top-username').textContent = user.username;
-  document.getElementById('top-avatar').textContent = user.username[0].toUpperCase();
-  if (user.role === 'admin' || user.role === 'gestionnaire') {
+// Liste des onglets réservés — utilisée à la fois par applyRoleUI() (montre/
+// cache les boutons) et par switchTab() (bloque l'ouverture même directe,
+// ex: switchTab('stocks') tapé dans la console, faille remontée le 19
+// juillet 2026). Garder ces deux listes synchronisées avec les onglets
+// réellement définis dans le HTML (voir les id="tab-...-btn").
+const ADMIN_ONLY_TABS = ['admin', 'notif'];
+const ADMIN_OR_GEST_TABS = ['compta','stock-depart','stocks','stock-actuel','tableau','data-analyse','caisse','apport','autres-charges','depenses-dom'];
+
+// Affiche/masque les onglets et boutons réservés selon le rôle donné.
+// Appelée à la connexion (avec le rôle tout juste vérifié) ET à chaque
+// re-vérification périodique (voir verifyRealRoleOrLogout()) — dans ce
+// second cas avec le rôle RÉEL confirmé par Firestore, pour annuler
+// automatiquement toute modification directe du DOM faite depuis la
+// console (ex: afficher "à la main" un bouton normalement caché avec
+// document.getElementById(...).style.display='block').
+function applyRoleUI(role) {
+  if (role === 'admin' || role === 'gestionnaire') {
     // Admin voit tout + Notifications
-    document.getElementById('tab-admin-btn').style.display = user.role === 'admin' ? 'block' : 'none';
-    document.getElementById('tab-notif-btn').style.display = user.role === 'admin' ? 'block' : 'none';
-    document.getElementById('btn-export-drive').style.display = user.role === 'admin' ? 'block' : 'none';
+    document.getElementById('tab-admin-btn').style.display = role === 'admin' ? 'block' : 'none';
+    document.getElementById('tab-notif-btn').style.display = role === 'admin' ? 'block' : 'none';
+    document.getElementById('btn-export-drive').style.display = role === 'admin' ? 'block' : 'none';
     document.getElementById('tab-compta-btn').style.display = 'block';
     document.getElementById('tab-stock-depart-btn').style.display = 'block';
     document.getElementById('tab-stocks-btn').style.display = 'block';
@@ -2214,7 +2214,44 @@ function finishLogin(user) {
     // précédente sur cet appareil), revenir sur "Paiement Clients" pour ne
     // jamais laisser un vendeur bloqué sur un sous-onglet désormais masqué.
     switchCreditSubTab('clients', null);
+    // Si l'onglet actuellement affiché est un onglet réservé (ex: quelqu'un
+    // vient d'y forcer l'accès depuis la console), on le fait sortir vers
+    // "Ventes" au lieu de le laisser dessus avec le bouton simplement caché.
+    if (typeof currentTab !== 'undefined' && (ADMIN_ONLY_TABS.includes(currentTab) || ADMIN_OR_GEST_TABS.includes(currentTab))) {
+      switchTab('ventes');
+    }
   }
+}
+
+function finishLogin(user) {
+  STATE.currentUser = user;
+  // Gèle l'objet utilisateur pour empêcher la modification directe la plus
+  // évidente depuis la console du navigateur (ex: STATE.currentUser.role =
+  // "admin") — ce genre d'affectation échoue désormais silencieusement au
+  // lieu de changer réellement le rôle affiché (faille remontée le 19
+  // juillet 2026). ATTENTION : ceci ralentit une tentative "au clavier"
+  // mais n'est PAS une vraie barrière de sécurité — quelqu'un de plus
+  // déterminé peut toujours remplacer STATE.currentUser par un nouvel objet
+  // en entier. La seule vraie protection est côté serveur : voir
+  // firestore.rules, qui vérifie le rôle RÉEL stocké dans Firestore avant
+  // d'autoriser chaque écriture, indépendamment de ce que le navigateur
+  // prétend localement.
+  Object.freeze(STATE.currentUser);
+  // Capture les caractéristiques de l'appareil dès l'ouverture de la session
+  // (voir le commentaire au-dessus de la fonction) — rattachées ensuite à
+  // chaque vente transmise.
+  initDeviceTracking();
+  // Filet de sécurité local pour la reconnexion automatique hors ligne (voir
+  // le commentaire près de loadLocal()) — indépendant de la restauration de
+  // session de Firebase Auth, qui s'est montrée peu fiable hors ligne.
+  STATE.lastSession = { uid: user.uid || null, username: user.username, role: user.role };
+  saveLocal();
+  document.getElementById('auth-screen').style.display = 'none';
+  document.getElementById('app').style.display = 'flex';
+  document.getElementById('app').style.flexDirection = 'column';
+  document.getElementById('top-username').textContent = user.username;
+  document.getElementById('top-avatar').textContent = user.username[0].toUpperCase();
+  applyRoleUI(user.role);
   updateConnStatus();
   renderAll();
   renderUsers();
@@ -2251,6 +2288,13 @@ async function verifyRealRoleOrLogout() {
   try {
     const profile = await fetchUserProfile(window._auth.currentUser.uid);
     if (!profile || !profile.role) return; // pas de profil Firestore à comparer (ex: compte encore hors-ligne/legacy) — on ne touche à rien
+    // Réapplique TOUJOURS l'affichage réservé selon le rôle RÉEL confirmé
+    // par Firestore, même si STATE.currentUser.role n'a jamais été touché —
+    // ferme la faille où un bouton/onglet réservé était simplement montré à
+    // la main depuis la console (ex: document.getElementById('tab-stocks-
+    // btn').style.display='block') sans passer par finishLogin() du tout
+    // (faille remontée le 19 juillet 2026).
+    applyRoleUI(profile.role);
     if (profile.role !== STATE.currentUser.role) {
       console.warn('Rôle local incohérent avec le rôle réel enregistré dans Firestore — resynchronisation automatique.');
       finishLogin({ uid: window._auth.currentUser.uid, username: profile.username || STATE.currentUser.username, role: profile.role });
@@ -2383,6 +2427,20 @@ document.getElementById('login-pass').addEventListener('keydown', e => { if (e.k
 // TABS
 // ============================================================
 function switchTab(tab) {
+  // Bloque l'ouverture d'un onglet réservé même par un appel DIRECT
+  // (ex: switchTab('stocks') tapé dans la console du navigateur) — avant,
+  // seul le BOUTON de l'onglet était caché pour un vendeur, mais la
+  // fonction elle-même ne vérifiait rien et acceptait n'importe quel appel
+  // (faille remontée le 19 juillet 2026).
+  const role = STATE.currentUser && STATE.currentUser.role;
+  if (ADMIN_ONLY_TABS.includes(tab) && role !== 'admin') {
+    showToast('⛔ Cette section est réservée à l\'administrateur.', 'warn');
+    return;
+  }
+  if (ADMIN_OR_GEST_TABS.includes(tab) && role !== 'admin' && role !== 'gestionnaire') {
+    showToast('⛔ Cette section est réservée à l\'admin et au gestionnaire.', 'warn');
+    return;
+  }
   currentTab = tab;
   document.querySelectorAll('.tab-content').forEach(el => el.classList.remove('active'));
   document.querySelectorAll('.tabs button').forEach(el => el.classList.remove('active'));
@@ -4780,6 +4838,132 @@ function renderAssociationModal() {
 }
 
 // ============================================================
+// QUANTITÉ VENDUE PAR PRODUIT — CASH vs CRÉDIT (fenêtre dans Data Analyse).
+// Le paiement (cash/crédit/balance) d'une vente porte sur la FICHE ENTIÈRE,
+// pas produit par produit (voir submitSaleInner() : cash/credit/balance ne
+// sont enregistrés que sur la première ligne d'une fiche à plusieurs
+// produits, saleGroupId reliant toutes les lignes d'une même fiche). On
+// classe donc chaque FICHE comme « cash » ou « à crédit » (dès qu'un solde
+// balance > 0 existe, toute la fiche est comptée à crédit — exactement
+// comme pour la création de l'entrée crédit automatique), puis on attribue
+// la quantité de CHAQUE produit de la fiche à ce classement. Les anciennes
+// ventes sans saleGroupId (une seule ligne) sont traitées comme leur propre
+// fiche à part entière.
+// ============================================================
+function classifyVenteGroupsCashCredit(ventes) {
+  const groups = {};
+  ventes.forEach(t => {
+    const gid = t.saleGroupId || ('_'+t.id);
+    if (!groups[gid]) groups[gid] = { rows: [], balance: 0 };
+    groups[gid].rows.push(t);
+    groups[gid].balance += (t.balance||0);
+  });
+  return Object.values(groups).map(g => ({ isCredit: g.balance > 0, rows: g.rows }));
+}
+
+// Pour un sous-ensemble de ventes donné (un jour ou un mois), calcule pour
+// chaque produit la quantité vendue cash et la quantité vendue à crédit (en
+// équivalent caisses, même méthode que getQtyCaisses()).
+function computeCashCreditRowsForVentes(ventes) {
+  const groups = classifyVenteGroupsCashCredit(ventes);
+  const map = {};
+  groups.forEach(g => {
+    g.rows.forEach(t => {
+      const key = normProduit(t.description) || '(sans nom)';
+      const q = getQtyCaisses(t);
+      if (!map[key]) map[key] = { produit:key, cashQty:0, creditQty:0 };
+      if (g.isCredit) map[key].creditQty += q; else map[key].cashQty += q;
+    });
+  });
+  return Object.values(map)
+    .map(r => ({...r, totalQty: r.cashQty + r.creditQty}))
+    .filter(r => r.totalQty > 0)
+    .sort((a,b) => b.totalQty - a.totalQty);
+}
+
+function computeCashCreditForDate(isoDateStr) {
+  const ventes = (STATE.transactions||[]).filter(t=>t.type==='vente' && getIsoFromTx(t)===isoDateStr);
+  return { label: formatGroupLabel(isoDateStr), rows: computeCashCreditRowsForVentes(ventes) };
+}
+
+// Automatique et exhaustif : CHAQUE jour ayant au moins une vente, du plus
+// récent au plus ancien (même principe que computeAllWeeksMarginRates()).
+function computeAllDaysCashCredit() {
+  const ventes = (STATE.transactions||[]).filter(t=>t.type==='vente');
+  const dayBuckets = {};
+  ventes.forEach(t => {
+    const day = getIsoFromTx(t); if (!day) return;
+    if (!dayBuckets[day]) dayBuckets[day] = [];
+    dayBuckets[day].push(t);
+  });
+  return Object.keys(dayBuckets)
+    .sort((a,b) => b.localeCompare(a))
+    .map(day => ({ isoDate: day, label: formatGroupLabel(day), rows: computeCashCreditRowsForVentes(dayBuckets[day]) }));
+}
+
+// Automatique et exhaustif : CHACUN des 12 mois de l'année donnée (y compris
+// les mois sans vente, affichés à part) — même principe que
+// computeAllMonthsMarginRatesForYear().
+function computeAllMonthsCashCreditForYear(year) {
+  const ventes = (STATE.transactions||[]).filter(t=>t.type==='vente');
+  const monthNames = ['Janvier','Février','Mars','Avril','Mai','Juin','Juillet','Août','Septembre','Octobre','Novembre','Décembre'];
+  const rows = [];
+  for (let m = 1; m <= 12; m++) {
+    const monthKey = `${year}-${String(m).padStart(2,'0')}`;
+    const ventesMois = ventes.filter(t => getIsoFromTx(t).slice(0,7) === monthKey);
+    rows.push({ month: monthKey, label: `${monthNames[m-1]} ${year}`, rows: computeCashCreditRowsForVentes(ventesMois) });
+  }
+  return rows;
+}
+
+function renderCashCreditPeriodTable(period) {
+  let html = `<div style="margin-bottom:1rem;">
+    <div style="font-weight:600;font-size:.85rem;color:var(--text2);margin-bottom:.3rem;">${esc(period.label)}</div>`;
+  if (!period.rows || !period.rows.length) {
+    html += `<div style="color:var(--text3);padding:.3rem 0;font-size:.82rem;">Aucune vente.</div></div>`;
+    return html;
+  }
+  html += `<div class="table-wrap"><table><thead><tr><th>Produit</th><th>Qté vendue cash (éq. caisses)</th><th>Qté vendue à crédit (éq. caisses)</th><th>Total</th></tr></thead><tbody>` +
+    period.rows.map(r=>`<tr>
+      <td>${esc(r.produit)}</td>
+      <td>${r.cashQty.toFixed(2)}</td>
+      <td style="color:${r.creditQty>0?'#c0392b':'inherit'};">${r.creditQty.toFixed(2)}</td>
+      <td style="font-weight:600;">${r.totalQty.toFixed(2)}</td>
+    </tr>`).join('') + `</tbody></table></div></div>`;
+  return html;
+}
+
+function renderCashCreditModal() {
+  const cont = document.getElementById('ccq-content');
+  if (!cont) return;
+  const dateField = document.getElementById('ccq-date');
+  const dateVal = (dateField && dateField.value) || isoDate();
+  const year = dateVal.slice(0,4);
+  const jour = computeCashCreditForDate(dateVal);
+  const allDays = computeAllDaysCashCredit();
+  const allMonths = computeAllMonthsCashCreditForYear(year);
+  let html = '';
+  html += `<div style="font-weight:700;font-size:.92rem;margin-bottom:.5rem;">📅 Jour choisi</div>`;
+  html += renderCashCreditPeriodTable(jour);
+  html += `<div style="font-weight:700;font-size:.92rem;margin:1.2rem 0 .5rem;border-top:1px solid var(--border);padding-top:.8rem;">🗓️ Chaque jour (automatique, tout l'historique)</div>`;
+  html += allDays.length ? allDays.map(renderCashCreditPeriodTable).join('') : `<div style="color:var(--text3);padding:.4rem 0;font-size:.85rem;">Aucune vente enregistrée.</div>`;
+  html += `<div style="font-weight:700;font-size:.92rem;margin:1.2rem 0 .5rem;border-top:1px solid var(--border);padding-top:.8rem;">📆 Chaque mois — année ${year} (automatique, les 12 mois)</div>`;
+  html += allMonths.map(renderCashCreditPeriodTable).join('');
+  cont.innerHTML = html;
+}
+
+function openCashCreditModal() {
+  const dateField = document.getElementById('ccq-date');
+  if (dateField && !dateField.value) dateField.value = isoDate();
+  renderCashCreditModal();
+  document.getElementById('cash-credit-modal-bg').classList.add('show');
+}
+
+function closeCashCreditModal() {
+  document.getElementById('cash-credit-modal-bg').classList.remove('show');
+}
+
+// ============================================================
 // DATA ANALYSE — vue panoramique jour/mois : produits les plus/moins vendus
 // et décisions à prendre (comparaison du mois en cours vs le mois précédent).
 // ============================================================
@@ -5211,6 +5395,15 @@ function renderDataAnalyse() {
       <div class="metric-card ${pctCredit!=null && pctCredit>40?'':'success'}"><div class="label">Part du crédit</div><div class="value">${pctCredit!=null?pctCredit.toFixed(1)+'%':'—'}</div></div>
     </div>
     <div style="background:var(--surface2);border-radius:8px;padding:10px 12px;font-size:.85rem;line-height:1.5;">💡 <strong>Recommandation</strong> : ${pctCredit==null?"pas assez de ventes ce mois-ci pour évaluer la répartition.":(pctCredit>40?"la part du crédit dépasse 40% des ventes du mois — envisager de resserrer la politique de crédit ou d'accélérer le recouvrement auprès des clients.":"la part du crédit reste maîtrisée (moins de 40% des ventes du mois).")}</div>
+  </div>`;
+
+  // --- Carte Quantité vendue par produit — Cash / Crédit (fenêtre détaillée
+  // par jour/mois, sur simple clic) ---
+  html += `<div class="card"><div class="card-title" style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;">
+      <span>🛒 Quantité vendue par produit — Cash / Crédit</span>
+      <button class="btn btn-primary" style="font-size:.78rem;padding:5px 12px;width:auto;" onclick="openCashCreditModal()">📦 Voir le détail (jour / mois)</button>
+    </div>
+    <div style="color:var(--text3);font-size:.85rem;padding:.3rem 0;">Cliquez pour voir, produit par produit, la quantité vendue cash et la quantité vendue à crédit — pour un jour précis, puis automatiquement pour chaque jour et chaque mois de l'historique.</div>
   </div>`;
 
   // --- Carte Contribution au profit par produit (HTG, pas seulement %) ---
@@ -9342,7 +9535,7 @@ setInterval(() => {
 // remontée le 19 juillet 2026).
 setInterval(() => {
   if (STATE.currentUser) verifyRealRoleOrLogout();
-}, 20000);
+}, 8000);
 
 // Enregistrement du Service Worker : permet d'ouvrir l'application même sans
 // AUCUNE connexion internet dès le départ (pas seulement après l'ouverture).
