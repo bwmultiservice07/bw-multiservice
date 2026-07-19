@@ -353,6 +353,7 @@ tr:hover td{background:#f7f9ff;}
         <div id="correction-banner" style="display:none;background:#fef3e2;color:#8a5a00;border:1px solid #f5d59a;border-radius:8px;padding:8px 12px;margin-bottom:12px;font-size:.85rem;font-weight:600;">
           ✏️ Correction en cours — <span id="correction-banner-text"></span>. La date et le client sont figés ; les autres champs peuvent être modifiés.
         </div>
+        <button id="btn-annuler-vente" class="btn btn-outline" style="margin-bottom:12px;font-size:.85rem;display:none;" onclick="unlockSaleForm()">✖ Annuler la correction</button>
         <div id="v-products-container">
           <div class="v-product-row" data-row-index="0" style="border:1px solid var(--border);border-radius:10px;padding:10px 10px 2px;margin-bottom:10px;">
             <div class="form-row">
@@ -487,6 +488,7 @@ tr:hover td{background:#f7f9ff;}
           <div id="credit-correction-banner" style="display:none;background:#fef3e2;color:#8a5a00;border:1px solid #f5d59a;border-radius:8px;padding:8px 12px;margin-bottom:12px;font-size:.85rem;font-weight:600;">
             ✏️ Modification en cours — <span id="credit-correction-banner-text"></span>. Le nom du client est figé ; le montant remboursé peut être corrigé.
           </div>
+          <button id="btn-annuler-credit" class="btn btn-outline" style="margin-bottom:12px;font-size:.85rem;display:none;" onclick="unlockCreditForm()">✖ Annuler la correction</button>
           <div class="form-row">
             <div class="form-group" style="flex:2;min-width:200px;">
               <label>Nom du client</label>
@@ -552,6 +554,7 @@ tr:hover td{background:#f7f9ff;}
           <div id="fp-correction-banner" style="display:none;background:#fef3e2;color:#8a5a00;border:1px solid #f5d59a;border-radius:8px;padding:8px 12px;margin-bottom:12px;font-size:.85rem;font-weight:600;">
             ✏️ Modification en cours — <span id="fp-correction-banner-text"></span>. Le nom du fournisseur est figé ; le montant remboursé peut être corrigé.
           </div>
+          <button id="btn-annuler-fp" class="btn btn-outline" style="margin-bottom:12px;font-size:.85rem;display:none;" onclick="unlockFournisseurPaymentForm()">✖ Annuler la correction</button>
           <div class="form-row">
             <div class="form-group" style="flex:2;min-width:200px;">
               <label>Nom du fournisseur</label>
@@ -2807,18 +2810,25 @@ function lockSaleForCorrection(tx) {
     bannerText.textContent = `vente du ${_pendingCorrection.date} à ${_pendingCorrection.time}`;
     banner.style.display = 'block';
   }
+  const btnAnnuler = document.getElementById('btn-annuler-vente');
+  if (btnAnnuler) btnAnnuler.style.display = 'inline-flex';
   // Une correction ne porte que sur UNE seule transaction déjà enregistrée :
   // on masque l'ajout de produits supplémentaires tant qu'on est en mode correction.
   const addBtn = document.getElementById('btn-add-vente-product');
   if (addBtn) addBtn.style.display = 'none';
 }
 
+// Permet à admin/gestionnaire d'annuler ("undo") une correction/modification
+// en cours AVANT de l'enregistrer — rétablit le formulaire à son état vierge
+// sans toucher à la transaction d'origine (demande du 19 juillet 2026).
 function unlockSaleForm() {
   _pendingCorrection = null;
   const clientInput = document.getElementById('v-client');
   if (clientInput) { clientInput.readOnly = false; clientInput.style.background = ''; }
   const banner = document.getElementById('correction-banner');
   if (banner) banner.style.display = 'none';
+  const btnAnnuler = document.getElementById('btn-annuler-vente');
+  if (btnAnnuler) btnAnnuler.style.display = 'none';
   const addBtn = document.getElementById('btn-add-vente-product');
   if (addBtn) addBtn.style.display = '';
   // Repart d'un formulaire à une seule ligne produit propre.
@@ -7558,16 +7568,26 @@ function openEditCredit(id, client, due, paid, finalBalance, date, time) {
     bannerText.textContent = `paiement de ${client} du ${date||''} à ${time||''}`;
     banner.style.display = 'block';
   }
+  const btnAnnuler = document.getElementById('btn-annuler-credit');
+  if (btnAnnuler) btnAnnuler.style.display = 'inline-flex';
   clientInput.scrollIntoView({behavior:'smooth', block:'center'});
   showToast('✏️ Paiement chargé dans le formulaire — corrigez le montant puis cliquez sur Enregistrer.');
 }
 
+// Permet à admin/gestionnaire d'annuler ("undo") une correction en cours
+// AVANT de l'enregistrer (demande du 19 juillet 2026).
 function unlockCreditForm() {
   _pendingCreditEditId = null;
   const clientInput = document.getElementById('cr-client');
   if (clientInput) { clientInput.readOnly = false; clientInput.style.background = ''; }
   const banner = document.getElementById('credit-correction-banner');
   if (banner) banner.style.display = 'none';
+  const btnAnnuler = document.getElementById('btn-annuler-credit');
+  if (btnAnnuler) btnAnnuler.style.display = 'none';
+  document.getElementById('cr-client').value = '';
+  document.getElementById('cr-balance-due').value = '';
+  document.getElementById('cr-paid').value = '';
+  document.getElementById('cr-final').value = '';
 }
 
 async function deleteCredit(id) {
@@ -8306,16 +8326,26 @@ function openEditFournisseurPayment(id, supplier, due, paid, finalBalance, date,
     bannerText.textContent = `paiement de ${supplier} du ${date||''} à ${time||''}`;
     banner.style.display = 'block';
   }
+  const btnAnnuler = document.getElementById('btn-annuler-fp');
+  if (btnAnnuler) btnAnnuler.style.display = 'inline-flex';
   supplierInput.scrollIntoView({behavior:'smooth', block:'center'});
   showToast('✏️ Paiement chargé dans le formulaire — corrigez le montant puis cliquez sur Enregistrer.');
 }
 
+// Permet à admin/gestionnaire d'annuler ("undo") une correction en cours
+// AVANT de l'enregistrer (demande du 19 juillet 2026).
 function unlockFournisseurPaymentForm() {
   _pendingFournisseurPaymentEditId = null;
   const supplierInput = document.getElementById('fp-supplier');
   if (supplierInput) { supplierInput.readOnly = false; supplierInput.style.background = ''; }
   const banner = document.getElementById('fp-correction-banner');
   if (banner) banner.style.display = 'none';
+  const btnAnnuler = document.getElementById('btn-annuler-fp');
+  if (btnAnnuler) btnAnnuler.style.display = 'none';
+  document.getElementById('fp-supplier').value = '';
+  document.getElementById('fp-balance-due').value = '';
+  document.getElementById('fp-paid').value = '';
+  document.getElementById('fp-final').value = '';
 }
 
 async function deleteFournisseurPayment(id) {
