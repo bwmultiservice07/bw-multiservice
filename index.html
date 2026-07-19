@@ -1299,11 +1299,19 @@ tr:hover td{background:#f7f9ff;}
 
 <div class="edit-modal-bg" id="cash-credit-modal-bg">
   <div class="edit-modal" style="max-width:760px;max-height:85vh;overflow-y:auto;">
-    <h3>🛒 Quantité de produits sortis (vendus) — Cash / Crédit</h3>
-    <p style="margin:.2rem 0 .8rem;color:var(--text2);font-size:.85rem;">Pour chaque produit : la quantité sortie (vendue), en équivalent caisses, réglée cash et celle réglée à crédit. Une fiche de vente entière est comptée « à crédit » dès qu'il reste un solde à payer (comme pour la fiche crédit créée automatiquement) ; sinon elle est comptée « cash ». Choisissez un jour et/ou un mois précis à analyser ci-dessous, ou consultez plus bas le détail automatique de CHAQUE jour et CHAQUE mois de l'historique.</p>
+    <h3>🛒 Quantité de produits sortis (vendus)</h3>
+    <p style="margin:.2rem 0 .8rem;color:var(--text2);font-size:.85rem;">Pour chaque produit : la quantité totale sortie (vendue), en équivalent caisses, que ce soit payé cash ou à crédit. Choisissez un jour et/ou un mois précis à analyser, ou une période (de telle date à telle date, ou de tel mois à tel mois) ci-dessous — ou consultez plus bas le détail automatique de CHAQUE jour et CHAQUE mois de l'historique.</p>
     <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:.4rem;">
       <div class="form-group" style="flex:1;min-width:180px;"><label>📅 Jour à analyser</label><input type="date" id="ccq-date" onchange="renderCashCreditModal()"/></div>
       <div class="form-group" style="flex:1;min-width:180px;"><label>📆 Mois à analyser</label><input type="month" id="ccq-month" onchange="renderCashCreditModal()"/></div>
+    </div>
+    <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:.4rem;align-items:flex-end;">
+      <div class="form-group" style="flex:1;min-width:140px;"><label>📅 Période — du jour</label><input type="date" id="ccq-date-from" onchange="renderCashCreditModal()"/></div>
+      <div class="form-group" style="flex:1;min-width:140px;"><label>au jour</label><input type="date" id="ccq-date-to" onchange="renderCashCreditModal()"/></div>
+    </div>
+    <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:.4rem;align-items:flex-end;">
+      <div class="form-group" style="flex:1;min-width:140px;"><label>📆 Période — du mois</label><input type="month" id="ccq-month-from" onchange="renderCashCreditModal()"/></div>
+      <div class="form-group" style="flex:1;min-width:140px;"><label>au mois</label><input type="month" id="ccq-month-to" onchange="renderCashCreditModal()"/></div>
     </div>
     <div id="ccq-content"></div>
     <div style="display:flex;gap:8px;margin-top:.8rem;">
@@ -4841,45 +4849,24 @@ function renderAssociationModal() {
 }
 
 // ============================================================
-// QUANTITÉ VENDUE PAR PRODUIT — CASH vs CRÉDIT (fenêtre dans Data Analyse).
-// Le paiement (cash/crédit/balance) d'une vente porte sur la FICHE ENTIÈRE,
-// pas produit par produit (voir submitSaleInner() : cash/credit/balance ne
-// sont enregistrés que sur la première ligne d'une fiche à plusieurs
-// produits, saleGroupId reliant toutes les lignes d'une même fiche). On
-// classe donc chaque FICHE comme « cash » ou « à crédit » (dès qu'un solde
-// balance > 0 existe, toute la fiche est comptée à crédit — exactement
-// comme pour la création de l'entrée crédit automatique), puis on attribue
-// la quantité de CHAQUE produit de la fiche à ce classement. Les anciennes
-// ventes sans saleGroupId (une seule ligne) sont traitées comme leur propre
-// fiche à part entière.
+// QUANTITÉ SORTIE (VENDUE) PAR PRODUIT — total, cash + crédit confondus
+// (fenêtre dans Data Analyse). Peu importe que la fiche ait été payée cash,
+// à crédit, ou un mélange des deux : on additionne simplement la quantité
+// (en équivalent caisses, même méthode que getQtyCaisses()) de chaque
+// produit vendu.
 // ============================================================
-function classifyVenteGroupsCashCredit(ventes) {
-  const groups = {};
-  ventes.forEach(t => {
-    const gid = t.saleGroupId || ('_'+t.id);
-    if (!groups[gid]) groups[gid] = { rows: [], balance: 0 };
-    groups[gid].rows.push(t);
-    groups[gid].balance += (t.balance||0);
-  });
-  return Object.values(groups).map(g => ({ isCredit: g.balance > 0, rows: g.rows }));
-}
 
 // Pour un sous-ensemble de ventes donné (un jour ou un mois), calcule pour
-// chaque produit la quantité vendue cash et la quantité vendue à crédit (en
-// équivalent caisses, même méthode que getQtyCaisses()).
+// chaque produit la quantité totale sortie (vendue).
 function computeCashCreditRowsForVentes(ventes) {
-  const groups = classifyVenteGroupsCashCredit(ventes);
   const map = {};
-  groups.forEach(g => {
-    g.rows.forEach(t => {
-      const key = normProduit(t.description) || '(sans nom)';
-      const q = getQtyCaisses(t);
-      if (!map[key]) map[key] = { produit:key, cashQty:0, creditQty:0 };
-      if (g.isCredit) map[key].creditQty += q; else map[key].cashQty += q;
-    });
+  ventes.forEach(t => {
+    const key = normProduit(t.description) || '(sans nom)';
+    const q = getQtyCaisses(t);
+    if (!map[key]) map[key] = { produit:key, totalQty:0 };
+    map[key].totalQty += q;
   });
   return Object.values(map)
-    .map(r => ({...r, totalQty: r.cashQty + r.creditQty}))
     .filter(r => r.totalQty > 0)
     .sort((a,b) => b.totalQty - a.totalQty);
 }
@@ -4895,6 +4882,27 @@ function computeCashCreditForDate(isoDateStr) {
 function computeCashCreditForMonth(isoMonthStr) {
   const ventes = (STATE.transactions||[]).filter(t=>t.type==='vente' && getIsoFromTx(t).slice(0,7)===isoMonthStr);
   return { label: formatMonthLabel(isoMonthStr), rows: computeCashCreditRowsForVentes(ventes) };
+}
+
+// Détail pour une PÉRIODE de jours (de telle date à telle date, bornes
+// incluses) — permet d'analyser une plage arbitraire plutôt qu'un seul jour.
+function computeCashCreditForDateRange(fromIso, toIso) {
+  const ventes = (STATE.transactions||[]).filter(t => {
+    const day = getIsoFromTx(t);
+    return t.type==='vente' && day && day >= fromIso && day <= toIso;
+  });
+  const label = `Du ${fromIso.split('-').reverse().join('/')} au ${toIso.split('-').reverse().join('/')}`;
+  return { label, rows: computeCashCreditRowsForVentes(ventes) };
+}
+
+// Détail pour une PÉRIODE de mois (de tel mois à tel mois, bornes incluses).
+function computeCashCreditForMonthRange(fromMonth, toMonth) {
+  const ventes = (STATE.transactions||[]).filter(t => {
+    const month = getIsoFromTx(t).slice(0,7);
+    return t.type==='vente' && month && month >= fromMonth && month <= toMonth;
+  });
+  const label = `De ${formatMonthLabel(fromMonth).replace('📅 ','')} à ${formatMonthLabel(toMonth).replace('📅 ','')}`;
+  return { label, rows: computeCashCreditRowsForVentes(ventes) };
 }
 
 // Automatique et exhaustif : CHAQUE jour ayant au moins une vente, du plus
@@ -4934,11 +4942,9 @@ function renderCashCreditPeriodTable(period) {
     html += `<div style="color:var(--text3);padding:.3rem 0;font-size:.82rem;">Aucune vente.</div></div>`;
     return html;
   }
-  html += `<div class="table-wrap"><table><thead><tr><th>Produit</th><th>Qté sortie cash (éq. caisses)</th><th>Qté sortie à crédit (éq. caisses)</th><th>Total</th></tr></thead><tbody>` +
+  html += `<div class="table-wrap"><table><thead><tr><th>Produit</th><th>Quantité sortie (éq. caisses)</th></tr></thead><tbody>` +
     period.rows.map(r=>`<tr>
       <td>${esc(r.produit)}</td>
-      <td>${r.cashQty.toFixed(2)}</td>
-      <td style="color:${r.creditQty>0?'#c0392b':'inherit'};">${r.creditQty.toFixed(2)}</td>
       <td style="font-weight:600;">${r.totalQty.toFixed(2)}</td>
     </tr>`).join('') + `</tbody></table></div></div>`;
   return html;
@@ -4956,11 +4962,43 @@ function renderCashCreditModal() {
   const moisChoisi = computeCashCreditForMonth(monthVal);
   const allDays = computeAllDaysCashCredit();
   const allMonths = computeAllMonthsCashCreditForYear(year);
+
+  // Période (de telle date à telle date / de tel mois à tel mois) : si les
+  // deux bornes sont renseignées, on les remet dans l'ordre chronologique
+  // au cas où l'utilisateur les aurait inversées.
+  const dateFromField = document.getElementById('ccq-date-from');
+  const dateToField = document.getElementById('ccq-date-to');
+  let dateFrom = dateFromField && dateFromField.value;
+  let dateTo = dateToField && dateToField.value;
+  let periodeJours = null;
+  if (dateFrom && dateTo) {
+    if (dateFrom > dateTo) { const tmp = dateFrom; dateFrom = dateTo; dateTo = tmp; }
+    periodeJours = computeCashCreditForDateRange(dateFrom, dateTo);
+  }
+
+  const monthFromField = document.getElementById('ccq-month-from');
+  const monthToField = document.getElementById('ccq-month-to');
+  let monthFrom = monthFromField && monthFromField.value;
+  let monthTo = monthToField && monthToField.value;
+  let periodeMois = null;
+  if (monthFrom && monthTo) {
+    if (monthFrom > monthTo) { const tmp = monthFrom; monthFrom = monthTo; monthTo = tmp; }
+    periodeMois = computeCashCreditForMonthRange(monthFrom, monthTo);
+  }
+
   let html = '';
   html += `<div style="font-weight:700;font-size:.92rem;margin-bottom:.5rem;">📅 Jour choisi</div>`;
   html += renderCashCreditPeriodTable(jour);
   html += `<div style="font-weight:700;font-size:.92rem;margin:1.2rem 0 .5rem;border-top:1px solid var(--border);padding-top:.8rem;">📆 Mois choisi</div>`;
   html += renderCashCreditPeriodTable(moisChoisi);
+  if (periodeJours) {
+    html += `<div style="font-weight:700;font-size:.92rem;margin:1.2rem 0 .5rem;border-top:1px solid var(--border);padding-top:.8rem;">📅 Période choisie (par jour)</div>`;
+    html += renderCashCreditPeriodTable(periodeJours);
+  }
+  if (periodeMois) {
+    html += `<div style="font-weight:700;font-size:.92rem;margin:1.2rem 0 .5rem;border-top:1px solid var(--border);padding-top:.8rem;">📆 Période choisie (par mois)</div>`;
+    html += renderCashCreditPeriodTable(periodeMois);
+  }
   html += `<div style="font-weight:700;font-size:.92rem;margin:1.2rem 0 .5rem;border-top:1px solid var(--border);padding-top:.8rem;">🗓️ Chaque jour (automatique, tout l'historique)</div>`;
   html += allDays.length ? allDays.map(renderCashCreditPeriodTable).join('') : `<div style="color:var(--text3);padding:.4rem 0;font-size:.85rem;">Aucune vente enregistrée.</div>`;
   html += `<div style="font-weight:700;font-size:.92rem;margin:1.2rem 0 .5rem;border-top:1px solid var(--border);padding-top:.8rem;">📆 Chaque mois — année ${year} (automatique, les 12 mois)</div>`;
@@ -5415,13 +5453,13 @@ function renderDataAnalyse() {
     <div style="background:var(--surface2);border-radius:8px;padding:10px 12px;font-size:.85rem;line-height:1.5;">💡 <strong>Recommandation</strong> : ${pctCredit==null?"pas assez de ventes ce mois-ci pour évaluer la répartition.":(pctCredit>40?"la part du crédit dépasse 40% des ventes du mois — envisager de resserrer la politique de crédit ou d'accélérer le recouvrement auprès des clients.":"la part du crédit reste maîtrisée (moins de 40% des ventes du mois).")}</div>
   </div>`;
 
-  // --- Carte Quantité de produits sortis (vendus) par produit — Cash / Crédit
-  // (fenêtre détaillée par jour/mois, sur simple clic) ---
+  // --- Carte Quantité de produits sortis (vendus) par produit (fenêtre
+  // détaillée par jour/mois, sur simple clic) ---
   html += `<div class="card"><div class="card-title" style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;">
-      <span>🛒 Quantité de produits sortis (vendus) — Cash / Crédit</span>
+      <span>🛒 Quantité de produits sortis (vendus)</span>
       <button class="btn btn-primary" style="font-size:.78rem;padding:5px 12px;width:auto;" onclick="openCashCreditModal()">📦 Voir le détail (jour / mois)</button>
     </div>
-    <div style="color:var(--text3);font-size:.85rem;padding:.3rem 0;">Cliquez pour voir, produit par produit, la quantité sortie (vendue) réglée cash et celle sortie (vendue) à crédit — pour un jour précis ou un mois précis au choix, ou automatiquement pour chaque jour et chaque mois de l'historique.</div>
+    <div style="color:var(--text3);font-size:.85rem;padding:.3rem 0;">Cliquez pour voir, produit par produit, la quantité totale sortie (vendue), cash et crédit confondus — pour un jour précis ou un mois précis au choix, ou automatiquement pour chaque jour et chaque mois de l'historique.</div>
   </div>`;
 
   // --- Carte Contribution au profit par produit (HTG, pas seulement %) ---
