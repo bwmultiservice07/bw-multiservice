@@ -351,7 +351,7 @@ tr:hover td{background:#f7f9ff;}
       <div class="card">
         <div class="card-title">🧾 Enregistrer une vente</div>
         <div id="correction-banner" style="display:none;background:#fef3e2;color:#8a5a00;border:1px solid #f5d59a;border-radius:8px;padding:8px 12px;margin-bottom:12px;font-size:.85rem;font-weight:600;">
-          ✏️ Correction en cours — <span id="correction-banner-text"></span>. La date et le client sont figés ; les autres champs peuvent être modifiés.
+          ✏️ Correction en cours — <span id="correction-banner-text"></span>. Le client est figé ; la date, la remarque et les autres champs peuvent être modifiés.
         </div>
         <button id="btn-annuler-vente" class="btn btn-outline" style="margin-bottom:12px;font-size:.85rem;display:none;" onclick="unlockSaleForm()">✖ Annuler la correction</button>
         <div id="v-products-container">
@@ -424,6 +424,23 @@ tr:hover td{background:#f7f9ff;}
             <datalist id="vente-client-list"></datalist>
           </div>
         </div>
+        <!-- Réservé à admin/gestionnaire (voir applyRoleUI()) : permet de
+             corriger la date d'une vente déjà enregistrée (ex: vente saisie
+             en retard, ou le mauvais jour par erreur) et d'ajouter une
+             remarque libre sur la vente (ex: raison d'une correction, prix
+             spécial accordé...). Laissé vide, la date reste celle du jour
+             pour une nouvelle vente, ou la date d'origine pour une
+             correction (voir submitSaleInner()). -->
+        <div class="form-row" id="v-admin-fields-wrap" style="display:none;">
+          <div class="form-group">
+            <label>Date de la vente (optionnel)</label>
+            <input type="date" id="v-date" title="Laissez vide pour garder la date par défaut (aujourd'hui, ou la date d'origine en cas de correction)."/>
+          </div>
+          <div class="form-group" style="flex:2;min-width:220px;">
+            <label>Remarque / Autres informations (optionnel)</label>
+            <input type="text" id="v-note" placeholder="Ex: vente corrigée suite à erreur de saisie, prix spécial accordé..." maxlength="300"/>
+          </div>
+        </div>
         <button class="send-btn" id="btn-envoyer-vente" onclick="submitSale()">Envoyer ➤</button>
         <button id="btn-corriger-vente" class="btn btn-outline" style="margin-top:8px;font-size:.85rem;display:none;" onclick="corrigerDerniereVente()">✏️ Corriger dernière vente</button>
       </div>
@@ -457,9 +474,9 @@ tr:hover td{background:#f7f9ff;}
         <div style="font-size:.78rem;color:var(--text2);background:var(--accent-bg);border-radius:6px;padding:6px 10px;margin-bottom:8px;">↔️ Ce tableau est large : utilisez le curseur ci-dessous (ou glissez dans le tableau) pour voir toutes les colonnes, y compris Cash, Crédit, Balance, Client, Appareil, Statut et Actions tout à droite.</div>
         <input type="range" id="my-sales-scrollbar" min="0" max="100" value="0" step="1" oninput="scrollMySalesTable(this.value)" style="width:100%;margin-bottom:8px;cursor:pointer;">
         <div class="table-wrap" id="my-sales-wrap" onscroll="syncMySalesScrollbar()">
-          <table style="min-width:1850px;">
-            <thead><tr><th>Date</th><th>Heure</th><th>Vendeur</th><th>Description</th><th>Qté</th><th>Unité</th><th>Nb. unité</th><th>Prix Caisse/Bout</th><th>Prix unit.</th><th>Montant (HTG)</th><th>Cash (HTG)</th><th>Crédit (HTG)</th><th>Balance (HTG)</th><th>Client</th><th>Appareil</th><th>Statut</th><th>Actions</th></tr></thead>
-            <tbody id="my-sales-body"><tr><td colspan="17" style="text-align:center;color:var(--text3);padding:1.5rem;">Aucune vente aujourd'hui.</td></tr></tbody>
+          <table style="min-width:2050px;">
+            <thead><tr><th>Date</th><th>Heure</th><th>Vendeur</th><th>Description</th><th>Qté</th><th>Unité</th><th>Nb. unité</th><th>Prix Caisse/Bout</th><th>Prix unit.</th><th>Montant (HTG)</th><th>Cash (HTG)</th><th>Crédit (HTG)</th><th>Balance (HTG)</th><th>Client</th><th>Remarque</th><th>Appareil</th><th>Statut</th><th>Actions</th></tr></thead>
+            <tbody id="my-sales-body"><tr><td colspan="18" style="text-align:center;color:var(--text3);padding:1.5rem;">Aucune vente aujourd'hui.</td></tr></tbody>
           </table>
         </div>
       </div>
@@ -2214,6 +2231,10 @@ function applyRoleUI(role) {
     document.getElementById('tab-depenses-dom-btn').style.display = 'block';
     // Seuls admin et gestionnaire peuvent corriger une vente déjà envoyée
     document.getElementById('btn-corriger-vente').style.display = 'inline-flex';
+    // Seuls admin et gestionnaire peuvent fixer la date d'une vente et
+    // ajouter une remarque libre (voir submitSaleInner()) — masqué pour le
+    // vendeur, qui garde le comportement habituel (date = aujourd'hui).
+    document.getElementById('v-admin-fields-wrap').style.display = '';
     // Seuls admin et gestionnaire voient la carte "Rembourser une dette
     // fournisseur" (raccourci sous Paiement Client) et le sous-onglet dédié
     // "Paiement Dettes envers Fournisseurs" — le vendeur garde "Paiement
@@ -2239,6 +2260,7 @@ function applyRoleUI(role) {
     // Le vendeur ne peut plus corriger/supprimer lui-même ses ventes :
     // seuls admin et gestionnaire en ont le droit désormais.
     document.getElementById('btn-corriger-vente').style.display = 'none';
+    document.getElementById('v-admin-fields-wrap').style.display = 'none';
     // Le vendeur n'a pas accès à "Rembourser une dette fournisseur" : ni le
     // raccourci sous Paiement Client, ni le sous-onglet dédié. "Paiement
     // Client" (crédit client) reste intact et pleinement fonctionnel.
@@ -2972,6 +2994,10 @@ function unlockSaleForm() {
   if (btnAnnuler) btnAnnuler.style.display = 'none';
   const addBtn = document.getElementById('btn-add-vente-product');
   if (addBtn) addBtn.style.display = '';
+  const vDateEl3 = document.getElementById('v-date');
+  if (vDateEl3) vDateEl3.value = '';
+  const vNoteEl3 = document.getElementById('v-note');
+  if (vNoteEl3) vNoteEl3.value = '';
   // Repart d'un formulaire à une seule ligne produit propre.
   resetVenteProductRows();
 }
@@ -2999,6 +3025,10 @@ async function corrigerDerniereVente() {
   document.getElementById('v-credit').value = last.credit || '';
   document.getElementById('v-balance').value = last.balance || '';
   document.getElementById('v-client').value = last.client || '';
+  const vDateEl2 = document.getElementById('v-date');
+  if (vDateEl2) vDateEl2.value = last.isoDate || '';
+  const vNoteEl2 = document.getElementById('v-note');
+  if (vNoteEl2) vNoteEl2.value = last.note || '';
   updateRowPriceIndicator('v');
   lockSaleForCorrection(last);
   // La vente d'origine n'est plus supprimée ici : elle ne l'est qu'au
@@ -3028,6 +3058,12 @@ async function loadSaleForCorrection(id) {
   document.getElementById('v-credit').value = tx.credit || '';
   document.getElementById('v-balance').value = tx.balance || '';
   document.getElementById('v-client').value = tx.client || '';
+  // Pré-remplit la date d'origine (modifiable — voir submitSaleInner()) et
+  // la remarque déjà présente sur cette vente, s'il y en a une.
+  const vDateEl = document.getElementById('v-date');
+  if (vDateEl) vDateEl.value = tx.isoDate || '';
+  const vNoteEl = document.getElementById('v-note');
+  if (vNoteEl) vNoteEl.value = tx.note || '';
   updateRowPriceIndicator('v');
   lockSaleForCorrection(tx);
   document.getElementById('v-desc').scrollIntoView({behavior:'smooth', block:'center'});
@@ -3132,11 +3168,34 @@ async function submitSaleInner() {
   if (balance > 0 && !client) {
     showToast('⚠ Le nom du client est obligatoire pour une vente à crédit.','warn'); return;
   }
-  // En correction (admin/gestionnaire), la date/heure d'origine est figée
-  // et ne doit pas être remplacée par la date du jour.
-  const saleDate = _pendingCorrection ? _pendingCorrection.date : todayStr();
-  const saleIsoDate = _pendingCorrection ? _pendingCorrection.isoDate : isoDate();
-  const saleTime = _pendingCorrection ? _pendingCorrection.time : nowStr();
+  // Date de la vente : admin/gestionnaire peut la fixer explicitement via
+  // le champ #v-date (réservé à ces deux rôles — voir applyRoleUI() et le
+  // champ #v-admin-fields-wrap), aussi bien pour une nouvelle vente (ex:
+  // saisie en retard le lendemain) que pour une correction (ex: la vente
+  // avait été enregistrée au mauvais jour). Laissé vide : on retombe sur le
+  // comportement d'avant — la date d'origine en correction, sinon
+  // aujourd'hui (demande du 20 juillet 2026, avant cette date/heure
+  // d'origine était totalement figée en correction).
+  const vDateInputEl = document.getElementById('v-date');
+  const vDateInputVal = vDateInputEl ? vDateInputEl.value : '';
+  let saleDate, saleIsoDate, saleTime;
+  if (vDateInputVal) {
+    saleIsoDate = vDateInputVal;
+    saleDate = isoToDisplayDate(vDateInputVal) || (_pendingCorrection ? _pendingCorrection.date : todayStr());
+    saleTime = _pendingCorrection ? _pendingCorrection.time : nowStr();
+  } else if (_pendingCorrection) {
+    saleDate = _pendingCorrection.date;
+    saleIsoDate = _pendingCorrection.isoDate;
+    saleTime = _pendingCorrection.time;
+  } else {
+    saleDate = todayStr();
+    saleIsoDate = isoDate();
+    saleTime = nowStr();
+  }
+  // Remarque libre optionnelle (admin/gestionnaire uniquement, champ
+  // #v-note) — ex: raison d'une correction, prix spécial accordé...
+  const vNoteInputEl = document.getElementById('v-note');
+  const note = vNoteInputEl ? vNoteInputEl.value.trim() : '';
   // Toutes les lignes d'une même fiche partagent un identifiant commun, pour
   // pouvoir les regrouper/tracer même si elles restent des documents séparés.
   const saleGroupId = Date.now()+'-'+Math.random().toString(36).slice(2,8);
@@ -3152,7 +3211,7 @@ async function submitSaleInner() {
     seller:STATE.currentUser.username, description:r.desc, unit:r.unit||'caisse',
     quantity:r.qty, unitPrice:r.prix, nombreUnite:r.nbUnite, prixCaisse:r.prixCaisse,
     amount:r.amount, cash: i===0 ? cash : 0, credit: i===0 ? balance : 0, balance: i===0 ? balance : 0,
-    client:client||'', status:'sent', saleGroupId, deviceInfo, createdAt: new Date().toISOString()
+    client:client||'', note:note||'', status:'sent', saleGroupId, deviceInfo, createdAt: new Date().toISOString()
   }));
   // Si vente à crédit (balance > 0), auto-créer UNE SEULE entrée dans credits
   // pour le montant total de la fiche (pas une par produit).
@@ -3212,7 +3271,13 @@ async function submitSaleInner() {
       const {doc, deleteDoc} = window._fbFns;
       await deleteDoc(doc(window._db,'transactions',_pendingCorrection.id));
       STATE.transactions = STATE.transactions.filter(t => t.id !== _pendingCorrection.id);
-      await logNotification('✏️ Correction vente', `Vendeur: ${STATE.currentUser.username} | Produit: ${rows[0]?.desc||''} | Montant: ${fmtHTG(rows.reduce((a,r)=>a+(r.amount||0),0))} | Date: ${_pendingCorrection.date||'?'}`);
+      // Trace explicitement un changement de date (utile pour l'audit — voir
+      // #v-date) plutôt que d'afficher juste la nouvelle date comme si de rien.
+      const dateMsg = (saleDate !== _pendingCorrection.date)
+        ? `Date changée: ${_pendingCorrection.date||'?'} → ${saleDate}`
+        : `Date: ${saleDate}`;
+      const noteMsg = note ? ` | Remarque: ${note}` : '';
+      await logNotification('✏️ Correction vente', `Vendeur: ${STATE.currentUser.username} | Produit: ${rows[0]?.desc||''} | Montant: ${fmtHTG(rows.reduce((a,r)=>a+(r.amount||0),0))} | ${dateMsg}${noteMsg}`);
     } catch(e) {
       console.error('Suppression ancienne vente (correction):', e);
       showToast('⚠ La correction a été enregistrée, mais l\'ancienne fiche n\'a pas pu être supprimée — contactez l\'admin.','warn');
@@ -3537,7 +3602,7 @@ function renderMySales() {
     });
 
   if (!allRows.length) {
-    body.innerHTML='<tr><td colspan="17" style="text-align:center;color:var(--text3);padding:1.5rem;">Aucune vente.</td></tr>';
+    body.innerHTML='<tr><td colspan="18" style="text-align:center;color:var(--text3);padding:1.5rem;">Aucune vente.</td></tr>';
     renderGlaceSales();
     return;
   }
@@ -3567,7 +3632,7 @@ function renderMySales() {
     const label = isCurrentMonth ? `📅 CE MOIS-CI — ${formatMonthLabel(month)}` : formatMonthLabel(month);
 
     html += `<tr style="background:${isCurrentMonth?'#1a56db':'#5a6282'};color:#fff;font-weight:700;">
-      <td colspan="17" style="padding:8px 10px;font-size:.9rem;">
+      <td colspan="18" style="padding:8px 10px;font-size:.9rem;">
         ${label} &nbsp;|&nbsp; ${ventes.length} vente(s)
       </td>
     </tr>`;
@@ -3590,7 +3655,7 @@ function renderMySales() {
       const dayTotBalance = dayVentes.reduce((a,t) => a+(t.balance||0), 0);
 
       html += `<tr style="background:#eef1f8;font-weight:600;">
-        <td colspan="17" style="padding:6px 10px;font-size:.82rem;color:#3a4260;">
+        <td colspan="18" style="padding:6px 10px;font-size:.82rem;color:#3a4260;">
           ${formatGroupLabel(day)} &nbsp;|&nbsp; ${dayVentes.length} vente(s)
         </td>
       </tr>`;
@@ -3637,6 +3702,7 @@ function renderMySales() {
           <td>${fmtHTG(t.amount)}</td><td>${fmtHTG(t.cash||0)}</td>
           <td>${fmtHTG(t.credit||0)}</td><td>${fmtHTG(t.balance||0)}</td>
           <td style="color:${(t.balance||0)>0?'#c0392b':'#0f7b4f'};font-weight:600;">${esc(t.client||'')}</td>
+          <td style="font-size:.78rem;max-width:220px;white-space:normal;" title="${esc(t.note||'')}">${esc(t.note||'—')}</td>
           <td style="font-size:.78rem;">${esc(t.deviceInfo||'—')}</td>
           ${statutCell}
           ${actionsCell}
@@ -3650,7 +3716,7 @@ function renderMySales() {
         <td>${fmtHTG(dayTotCash)}</td>
         <td>${fmtHTG(dayTotCredit)}</td>
         <td>${fmtHTG(dayTotBalance)}</td>
-        <td colspan="5" style="font-size:.8rem;">${dayVentes.length} vente(s)</td>
+        <td colspan="6" style="font-size:.8rem;">${dayVentes.length} vente(s)</td>
       </tr>`;
     });
 
@@ -3661,7 +3727,7 @@ function renderMySales() {
       <td>${fmtHTG(totCash)}</td>
       <td>${fmtHTG(totCredit)}</td>
       <td>${fmtHTG(totBalance)}</td>
-      <td colspan="5">${ventes.length} vente(s)</td>
+      <td colspan="6">${ventes.length} vente(s)</td>
     </tr>`;
   });
 
