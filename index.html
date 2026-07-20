@@ -218,6 +218,15 @@ tr:hover td{background:#f7f9ff;}
 .badge-in{background:var(--accent-bg);color:var(--accent-text);}
 .badge-out{background:#fdecea;color:#c0392b;}
 
+/* Mise en surbrillance temporaire d'une ligne (voir jumpToCaisseDetail()) :
+   après un clic sur "🔎" depuis "Mouvement de caisse par jour" pour retrouver
+   les ventes/remboursements/retraits d'un jour donné dans leur propre onglet,
+   histoire d'éviter toute confusion sur "où suis-je arrivé et quelle ligne
+   dois-je regarder" (voir la confusion signalée le 20 juillet 2026 avec le
+   retrait de caisse). Autodétruite après 2,5s via jumpToCaisseDetail(). */
+@keyframes jumpHighlightFade{ from{ background:#fff3b0; } to{ background:transparent; } }
+.jump-highlight{ animation:jumpHighlightFade 2.5s ease-out; }
+
 .pending-queue{background:#fef3e2;border:1px solid #f7c948;border-radius:var(--radius);padding:.8rem 1rem;margin-bottom:1rem;font-size:.82rem;color:#b45309;display:none;}
 .pending-queue.show{display:block;}
 
@@ -734,8 +743,17 @@ tr:hover td{background:#f7f9ff;}
 
     <!-- MOUVEMENT CAISSE -->
     <div class="tab-content" id="tab-caisse">
-      <div class="card">
+      <div class="card" id="caisse-ouverture-card">
         <div class="card-title">💰 Enregistrer l'ouverture de caisse</div>
+        <!-- Bandeau affiché quand on arrive ici via "✏️ Corriger" depuis le
+             tableau "Mouvement de caisse par jour" plus bas — sans lui, rien
+             ne distingue clairement cette carte de la carte "Retrait de
+             caisse" juste en dessous une fois qu'on a défilé jusqu'ici, ce
+             qui donnait l'impression trompeuse d'avoir été envoyé vers le
+             retrait de caisse (signalé le 20 juillet 2026). -->
+        <div id="caisse-ouverture-banner" style="display:none;background:#fef3e2;color:#8a5a00;border:1px solid #f5d59a;border-radius:8px;padding:8px 12px;margin-bottom:12px;font-size:.85rem;font-weight:600;">
+          ✏️ Correction de l'<u>ouverture de caisse</u> — <span id="caisse-ouverture-banner-text"></span>. <a href="#" onclick="hideCaisseOuvertureBanner();return false;" style="color:#8a5a00;text-decoration:underline;">Annuler la correction</a>
+        </div>
         <div class="form-row">
           <div class="form-group">
             <label>Date</label>
@@ -9313,6 +9331,8 @@ async function submitCaisse() {
     renderCaisse();
     document.getElementById('cx-date').value='';
     document.getElementById('cx-ouverture').value='';
+    const ouvBannerOffline = document.getElementById('caisse-ouverture-banner');
+    if (ouvBannerOffline) ouvBannerOffline.style.display = 'none';
     return;
   }
   try {
@@ -9334,6 +9354,8 @@ async function submitCaisse() {
   renderCaisse();
   document.getElementById('cx-date').value='';
   document.getElementById('cx-ouverture').value='';
+  const ouvBanner = document.getElementById('caisse-ouverture-banner');
+  if (ouvBanner) ouvBanner.style.display = 'none';
 }
 
 // Retrait de caisse : date, montant retiré, personne, objet. Intégré dans le
@@ -9483,9 +9505,84 @@ function correctCaisseOuverture(isoDay, ouverture) {
   if (!dateInput || !montantInput) return;
   dateInput.value = isoDay;
   montantInput.value = (ouverture||0).toFixed(2);
-  montantInput.scrollIntoView({ behavior:'smooth', block:'center' });
-  montantInput.focus();
+  // Défile jusqu'au HAUT de la carte "Enregistrer l'ouverture de caisse"
+  // (block:'start', pas 'center') et affiche un bandeau bien visible — sans
+  // ça, défiler jusqu'au champ montant seul pouvait laisser la carte
+  // "Retrait de caisse" (juste en dessous) occuper le plus clair de l'écran,
+  // donnant l'impression trompeuse d'avoir été envoyé vers le retrait de
+  // caisse au lieu de l'ouverture (signalé le 20 juillet 2026).
+  const card = document.getElementById('caisse-ouverture-card');
+  if (card) card.scrollIntoView({ behavior:'smooth', block:'start' });
+  const banner = document.getElementById('caisse-ouverture-banner');
+  const bannerText = document.getElementById('caisse-ouverture-banner-text');
+  if (banner && bannerText) {
+    bannerText.textContent = `journée du ${isoDay}`;
+    banner.style.display = 'block';
+  }
+  montantInput.focus({ preventScroll: true });
   showToast(`✏️ Corrigez le montant puis cliquez sur "Enregistrer" pour mettre à jour l'ouverture du ${isoDay}.`);
+}
+
+// Referme le bandeau de correction de l'ouverture de caisse (bouton "Annuler
+// la correction" du bandeau) — remet le formulaire à vide, sans rien envoyer.
+function hideCaisseOuvertureBanner() {
+  const banner = document.getElementById('caisse-ouverture-banner');
+  if (banner) banner.style.display = 'none';
+  const dateInput = document.getElementById('cx-date');
+  const montantInput = document.getElementById('cx-ouverture');
+  if (dateInput) dateInput.value = '';
+  if (montantInput) montantInput.value = '';
+}
+
+// Ajoute une surbrillance temporaire (2,5s, voir la classe CSS
+// .jump-highlight) sur une ligne, pour qu'on sache clairement laquelle vient
+// d'être retrouvée après un saut depuis "Mouvement de caisse par jour".
+function flashHighlightRow(el) {
+  if (!el) return;
+  el.classList.remove('jump-highlight');
+  // Force un reflow pour permettre de rejouer l'animation même si la même
+  // ligne est ciblée deux fois de suite (sinon la classe déjà présente
+  // n'aurait aucun effet visuel la deuxième fois).
+  void el.offsetWidth;
+  el.classList.add('jump-highlight');
+  setTimeout(() => el.classList.remove('jump-highlight'), 2600);
+}
+
+// Amène directement à la ligne concernée dans le bon onglet, pour corriger
+// les ventes cash / remboursements de crédit / retraits d'un jour donné
+// depuis "Mouvement de caisse par jour" — ces totaux sont calculés à partir
+// de leurs propres onglets (pas des valeurs saisies ici), voir le commentaire
+// dans renderCaisse() (demande du 20 juillet 2026).
+function jumpToCaisseDetail(isoDay, kind) {
+  if (kind === 'ventes') {
+    switchTab('ventes');
+    const label = formatGroupLabel(isoDay);
+    const target = [...document.querySelectorAll('#my-sales-body tr')].find(tr => tr.textContent.includes(label));
+    if (target) { target.scrollIntoView({behavior:'smooth', block:'start'}); flashHighlightRow(target); }
+    else showToast(`Aucune vente trouvée pour le ${isoDay}.`, 'warn');
+  } else if (kind === 'credits') {
+    switchTab('credit');
+    switchCreditSubTab('clients', null);
+    const label = formatGroupLabel(isoDay);
+    const target = [...document.querySelectorAll('#credit-table-body tr')].find(tr => tr.textContent.includes(label));
+    if (target) { target.scrollIntoView({behavior:'smooth', block:'start'}); flashHighlightRow(target); }
+    else showToast(`Aucun remboursement trouvé pour le ${isoDay}.`, 'warn');
+  } else if (kind === 'retraits') {
+    // Le tableau des retraits (#caisse-retraits-body) n'est pas groupé par
+    // jour — on cible directement la (les) ligne(s) dont la date affichée
+    // correspond, et on met la première en surbrillance.
+    const displayDate = isoToDisplayDate(isoDay);
+    const rowsFound = [...document.querySelectorAll('#caisse-retraits-body tr')].filter(tr => {
+      const firstCell = tr.querySelector('td');
+      return firstCell && firstCell.textContent.trim() === displayDate;
+    });
+    if (rowsFound.length) {
+      rowsFound[0].scrollIntoView({behavior:'smooth', block:'center'});
+      rowsFound.forEach(flashHighlightRow);
+    } else {
+      showToast(`Aucun retrait trouvé pour le ${isoDay}.`, 'warn');
+    }
+  }
 }
 
 // Admin/gestionnaire : efface TOUTES les données rattachées à une journée
@@ -9642,12 +9739,30 @@ function renderCaisse() {
             <button class="btn" style="font-size:.72rem;padding:3px 9px;background:var(--danger-bg);color:var(--danger);border:1px solid #f5b7b1;" onclick="deleteAllCaisseDataForDay('${day}')">🗑 Effacer</button>
           </div></td>`
         : '<td>—</td>';
+      // Ventes cash/Remboursements/Retraits ne sont pas des valeurs saisies
+      // directement ici — ce sont des totaux calculés à partir des ventes,
+      // des remboursements de crédit et des retraits de CE jour, chacun dans
+      // son propre onglet. Les corriger "sur place" ne servirait à rien : le
+      // total serait recalculé et écraserait toute modification au prochain
+      // rafraîchissement. On offre donc un raccourci "🔎" qui amène
+      // directement à la bonne ligne, dans le bon onglet, prête à corriger
+      // (demande du 20 juillet 2026 : "possibilité de faire des corrections
+      // au niveau des lignes de cette partie").
+      const cashCell = (canEditCaisse && cash > 0)
+        ? `<td><a href="#" onclick="event.preventDefault();jumpToCaisseDetail('${day}','ventes')" title="Voir/corriger les ventes cash de ce jour" style="color:inherit;text-decoration:underline dotted;cursor:pointer;">${fmtHTG(cash)} 🔎</a></td>`
+        : `<td>${fmtHTG(cash)}</td>`;
+      const rembCell = (canEditCaisse && remb > 0)
+        ? `<td><a href="#" onclick="event.preventDefault();jumpToCaisseDetail('${day}','credits')" title="Voir/corriger les remboursements de crédit de ce jour" style="color:inherit;text-decoration:underline dotted;cursor:pointer;">${fmtHTG(remb)} 🔎</a></td>`
+        : `<td>${fmtHTG(remb)}</td>`;
+      const retraitCell = (canEditCaisse && retrait > 0)
+        ? `<td style="color:#c0392b;"><a href="#" onclick="event.preventDefault();jumpToCaisseDetail('${day}','retraits')" title="Voir/corriger les retraits de ce jour" style="color:inherit;text-decoration:underline dotted;cursor:pointer;">${retrait>0?'-':''}${fmtHTG(retrait)} 🔎</a></td>`
+        : `<td style="color:#c0392b;">${retrait>0?'-':''}${fmtHTG(retrait)}</td>`;
       html += `<tr>
         <td>${formatGroupLabel(day)}</td>
         <td>${fmtHTG(ouverture)}</td>
-        <td>${fmtHTG(cash)}</td>
-        <td>${fmtHTG(remb)}</td>
-        <td style="color:#c0392b;">${retrait>0?'-':''}${fmtHTG(retrait)}</td>
+        ${cashCell}
+        ${rembCell}
+        ${retraitCell}
         <td style="font-weight:600;">${fmtHTG(encaisse)}</td>
         <td style="font-weight:700;color:#1a56db;">${fmtHTG(fermeture)}</td>
         ${actionsCell}
