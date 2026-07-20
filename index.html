@@ -527,6 +527,17 @@ tr:hover td{background:#f7f9ff;}
               <input type="number" id="cr-final" placeholder="0.00" readonly style="background:#f0f2f7;font-weight:700;color:#0f7b4f;"/>
             </div>
           </div>
+          <!-- Réservé à admin/gestionnaire (voir applyRoleUI()) : permet de
+               fixer la date d'un remboursement (ex: remboursement reçu un
+               jour donné mais saisi en retard). Laissé vide, la date reste
+               celle du jour pour un nouveau paiement, ou la date d'origine
+               en cas de correction (voir submitCredit()). -->
+          <div class="form-row" id="cr-admin-date-wrap" style="display:none;">
+            <div class="form-group">
+              <label>Date du paiement (optionnel)</label>
+              <input type="date" id="cr-date" title="Laissez vide pour garder la date par défaut (aujourd'hui, ou la date d'origine en cas de correction)."/>
+            </div>
+          </div>
           <button class="send-btn" onclick="submitCredit()">Enregistrer paiement ➤</button>
 
           <div id="fpq-shortcut-wrap" style="margin-top:1.8rem;padding-top:1.4rem;border-top:1.5px dashed var(--border);">
@@ -549,6 +560,12 @@ tr:hover td{background:#f7f9ff;}
               <div class="form-group">
                 <label>Balance finale (HTG)</label>
                 <input type="number" id="fpq-final" placeholder="0.00" readonly style="background:#f0f2f7;font-weight:700;color:#0f7b4f;"/>
+              </div>
+            </div>
+            <div class="form-row">
+              <div class="form-group">
+                <label>Date du paiement (optionnel)</label>
+                <input type="date" id="fpq-date" title="Laissez vide pour garder la date d'aujourd'hui."/>
               </div>
             </div>
             <button class="send-btn" onclick="submitFournisseurPayment('fpq')">Enregistrer paiement fournisseur ➤</button>
@@ -591,6 +608,12 @@ tr:hover td{background:#f7f9ff;}
             <div class="form-group">
               <label>Balance finale (HTG)</label>
               <input type="number" id="fp-final" placeholder="0.00" readonly style="background:#f0f2f7;font-weight:700;color:#0f7b4f;"/>
+            </div>
+          </div>
+          <div class="form-row">
+            <div class="form-group">
+              <label>Date du paiement (optionnel)</label>
+              <input type="date" id="fp-date" title="Laissez vide pour garder la date par défaut (aujourd'hui, ou la date d'origine en cas de correction)."/>
             </div>
           </div>
           <button class="send-btn" onclick="submitFournisseurPayment()">Enregistrer paiement ➤</button>
@@ -2235,6 +2258,9 @@ function applyRoleUI(role) {
     // ajouter une remarque libre (voir submitSaleInner()) — masqué pour le
     // vendeur, qui garde le comportement habituel (date = aujourd'hui).
     document.getElementById('v-admin-fields-wrap').style.display = '';
+    // Seuls admin et gestionnaire peuvent fixer la date d'un remboursement de
+    // crédit client (voir submitCredit()) — masqué pour le vendeur.
+    document.getElementById('cr-admin-date-wrap').style.display = '';
     // Seuls admin et gestionnaire voient la carte "Rembourser une dette
     // fournisseur" (raccourci sous Paiement Client) et le sous-onglet dédié
     // "Paiement Dettes envers Fournisseurs" — le vendeur garde "Paiement
@@ -2261,6 +2287,7 @@ function applyRoleUI(role) {
     // seuls admin et gestionnaire en ont le droit désormais.
     document.getElementById('btn-corriger-vente').style.display = 'none';
     document.getElementById('v-admin-fields-wrap').style.display = 'none';
+    document.getElementById('cr-admin-date-wrap').style.display = 'none';
     // Le vendeur n'a pas accès à "Rembourser une dette fournisseur" : ni le
     // raccourci sous Paiement Client, ni le sous-onglet dédié. "Paiement
     // Client" (crédit client) reste intact et pleinement fonctionnel.
@@ -6965,13 +6992,13 @@ function correctFromTransSheet(kind, id) {
     if (!c) { showToast('⚠ Enregistrement introuvable.','warn'); return; }
     switchTab('credit');
     switchCreditSubTab('clients', null);
-    openEditCredit(c.id, c.client, c.due, c.paid, c.finalBalance, c.date, c.time);
+    openEditCredit(c.id, c.client, c.due, c.paid, c.finalBalance, c.date, c.time, c.isoDate);
   } else if (kind === 'fournisseur') {
     const p = (STATE.fournisseurPayments||[]).find(x=>x.id===id);
     if (!p) { showToast('⚠ Enregistrement introuvable.','warn'); return; }
     switchTab('credit');
     switchCreditSubTab('fournisseurs', null);
-    openEditFournisseurPayment(p.id, p.supplier, p.due, p.paid, p.finalBalance, p.date, p.time);
+    openEditFournisseurPayment(p.id, p.supplier, p.due, p.paid, p.finalBalance, p.date, p.time, p.isoDate);
   } else if (kind === 'retrait') {
     switchTab('caisse');
     openEditRetrait(id);
@@ -7894,10 +7921,17 @@ async function submitCredit() {
   const paid = parseFloat(document.getElementById('cr-paid').value) || 0;
   const final = parseFloat(document.getElementById('cr-final').value) || 0;
   if (!client || paid <= 0) { showToast('⚠ Veuillez remplir tous les champs.','warn'); return; }
+  // Date optionnelle (admin/gestionnaire uniquement — voir applyRoleUI() et
+  // #cr-admin-date-wrap) permettant de fixer la date d'un remboursement, ex:
+  // reçu un jour donné mais saisi en retard. Laissé vide : comportement
+  // inchangé (aujourd'hui pour un nouveau paiement, date d'origine en
+  // correction) — demande du 20 juillet 2026.
+  const crDateEl = document.getElementById('cr-date');
+  const crDateVal = crDateEl ? crDateEl.value : '';
 
   // Mode modification (clic sur ✏ dans l'historique) : on met à jour
-  // l'enregistrement existant au lieu d'en créer un nouveau, sans toucher
-  // au client ni à la date d'origine.
+  // l'enregistrement existant au lieu d'en créer un nouveau. Le client reste
+  // figé ; la date peut désormais être corrigée si le champ est rempli.
   if (_pendingCreditEditId) {
     if (!requireAdminOrGest()) return;
     const id = _pendingCreditEditId;
@@ -7905,15 +7939,22 @@ async function submitCredit() {
     if (STATE.isOnline && STATE.fbReady) {
       try {
         const {doc, updateDoc} = window._fbFns;
-        await updateDoc(doc(window._db,'credits',id), {
+        const updatePayload = {
           paid:paid, finalBalance:final, status: final===0?'soldé':'partiel',
           editedBy: STATE.currentUser.username, editedAt: new Date().toISOString()
-        });
-        await logNotification('✏️ Modification crédit', `Client: ${client} | Ancien paiement: ${fmtHTG(oldCredit?.paid||0)} | Nouveau: ${fmtHTG(paid)} | Balance finale: ${fmtHTG(final)}`);
+        };
+        if (crDateVal) {
+          updatePayload.isoDate = crDateVal;
+          updatePayload.date = isoToDisplayDate(crDateVal) || (oldCredit?.date || todayStr());
+        }
+        await updateDoc(doc(window._db,'credits',id), updatePayload);
+        const dateMsg = (crDateVal && oldCredit && updatePayload.date !== oldCredit.date)
+          ? ` | Date changée: ${oldCredit.date||'?'} → ${updatePayload.date}` : '';
+        await logNotification('✏️ Modification crédit', `Client: ${client} | Ancien paiement: ${fmtHTG(oldCredit?.paid||0)} | Nouveau: ${fmtHTG(paid)} | Balance finale: ${fmtHTG(final)}${dateMsg}`);
         showToast('✅ Paiement modifié.');
         markUnsaved();
         const idx = (STATE.credits||[]).findIndex(c=>c.id===id);
-        if (idx>=0) STATE.credits[idx] = {...STATE.credits[idx], paid, finalBalance:final, status: final===0?'soldé':'partiel'};
+        if (idx>=0) STATE.credits[idx] = {...STATE.credits[idx], paid, finalBalance:final, status: final===0?'soldé':'partiel', ...(crDateVal?{isoDate:updatePayload.isoDate, date:updatePayload.date}:{})};
         renderCredits();
         renderDettes();
         renderMySales();
@@ -7937,7 +7978,10 @@ async function submitCredit() {
   }
 
   const cr = {
-    type:'credit', date:todayStr(), isoDate:isoDate(), time:nowStr(),
+    type:'credit',
+    date: crDateVal ? (isoToDisplayDate(crDateVal) || todayStr()) : todayStr(),
+    isoDate: crDateVal || isoDate(),
+    time:nowStr(),
     seller:STATE.currentUser.username, client:client, due:due, paid:paid, finalBalance:final,
     status: final === 0 ? 'soldé' : 'partiel', createdAt: new Date().toISOString()
   };
@@ -7973,6 +8017,7 @@ async function submitCredit() {
   document.getElementById('cr-balance-due').value = '';
   document.getElementById('cr-paid').value = '';
   document.getElementById('cr-final').value = '';
+  if (crDateEl) crDateEl.value = '';
 }
 
 // Créances clients / dettes fournisseurs ajoutées manuellement
@@ -8079,7 +8124,7 @@ function renderCredits() {
         const hasDebt = currentDebt > 0;
         const clientColor = hasDebt ? 'color:#c0392b;font-weight:700;' : 'color:#0f7b4f;font-weight:700;';
         const canEditCredit = STATE.currentUser&&(STATE.currentUser.role==='admin'||STATE.currentUser.role==='gestionnaire');
-        const editCreditCall = `openEditCredit('${c.id||''}','${esc(c.client)}',${c.due||0},${c.paid||0},${c.finalBalance||0},'${esc(c.date||'')}','${esc(c.time||'')}')`;
+        const editCreditCall = `openEditCredit('${c.id||''}','${esc(c.client)}',${c.due||0},${c.paid||0},${c.finalBalance||0},'${esc(c.date||'')}','${esc(c.time||'')}','${esc(c.isoDate||'')}')`;
         const rowClickAttr = (canEditCredit && c.id) ? ` style="cursor:pointer;" onclick="${editCreditCall}" title="Cliquer pour corriger ce paiement"` : '';
         rows.push(`<tr${rowClickAttr}>
           <td>${c.date}</td><td>${c.time}</td>
@@ -8125,13 +8170,16 @@ function renderCredits() {
 // Charge le paiement dans le formulaire "Paiement Client" pour le corriger ;
 // le nom du client reste figé et la validation met à jour l'enregistrement
 // existant au lieu d'en créer un nouveau.
-function openEditCredit(id, client, due, paid, finalBalance, date, time) {
+function openEditCredit(id, client, due, paid, finalBalance, date, time, isoDateVal) {
   if (!requireAdminOrGest()) return;
   if (!id) { showToast('⚠ Paiement introuvable.','warn'); return; }
   document.getElementById('cr-client').value = client || '';
   document.getElementById('cr-balance-due').value = (due||0).toFixed(2);
   document.getElementById('cr-paid').value = paid || '';
   document.getElementById('cr-final').value = (finalBalance||0).toFixed(2);
+  // Pré-remplit la date d'origine (modifiable — voir submitCredit()).
+  const crDateEdit = document.getElementById('cr-date');
+  if (crDateEdit) crDateEdit.value = isoDateVal || '';
   const clientInput = document.getElementById('cr-client');
   clientInput.readOnly = true;
   clientInput.style.background = '#f0f2f7';
@@ -8162,6 +8210,8 @@ function unlockCreditForm() {
   document.getElementById('cr-balance-due').value = '';
   document.getElementById('cr-paid').value = '';
   document.getElementById('cr-final').value = '';
+  const crDateElUnlock = document.getElementById('cr-date');
+  if (crDateElUnlock) crDateElUnlock.value = '';
 }
 
 async function deleteCredit(id) {
@@ -8738,23 +8788,37 @@ async function submitFournisseurPayment(prefix) {
   const paid = parseFloat(document.getElementById(prefix+'-paid').value) || 0;
   const final = parseFloat(document.getElementById(prefix+'-final').value) || 0;
   if (!supplier || paid <= 0) { showToast('⚠ Veuillez remplir tous les champs.','warn'); return; }
+  // Date optionnelle permettant de fixer la date d'un remboursement (ex: reçu
+  // un jour donné mais saisi en retard). Laissé vide : comportement inchangé
+  // (aujourd'hui pour un nouveau paiement, date d'origine en correction) —
+  // demande du 20 juillet 2026. Déjà réservé admin/gestionnaire dans son
+  // ensemble (voir requireAdminOrGest() juste au-dessus), donc pas besoin
+  // d'un masquage séparé comme #cr-admin-date-wrap pour le vendeur.
+  const fpDateEl = document.getElementById(prefix+'-date');
+  const fpDateVal = fpDateEl ? fpDateEl.value : '';
 
   // Le mode "modification" (clic sur ✏ dans l'historique) n'existe que pour le
   // formulaire dédié ('fp') — le raccourci ('fpq') n'a pas d'historique propre.
   if (_pendingFournisseurPaymentEditId && prefix === 'fp') {
     if (!requireAdminOrGest()) return;
     const id = _pendingFournisseurPaymentEditId;
+    const oldFp = (STATE.fournisseurPayments||[]).find(p=>p.id===id);
     if (STATE.isOnline && STATE.fbReady) {
       try {
         const {doc, updateDoc} = window._fbFns;
-        await updateDoc(doc(window._db,'fournisseur_payments',id), {
+        const updatePayload = {
           paid:paid, finalBalance:final, status: final===0?'soldé':'partiel',
           editedBy: STATE.currentUser.username, editedAt: new Date().toISOString()
-        });
+        };
+        if (fpDateVal) {
+          updatePayload.isoDate = fpDateVal;
+          updatePayload.date = isoToDisplayDate(fpDateVal) || (oldFp?.date || todayStr());
+        }
+        await updateDoc(doc(window._db,'fournisseur_payments',id), updatePayload);
         showToast('✅ Paiement modifié.');
         markUnsaved();
         const idx = (STATE.fournisseurPayments||[]).findIndex(p=>p.id===id);
-        if (idx>=0) STATE.fournisseurPayments[idx] = {...STATE.fournisseurPayments[idx], paid, finalBalance:final, status: final===0?'soldé':'partiel'};
+        if (idx>=0) STATE.fournisseurPayments[idx] = {...STATE.fournisseurPayments[idx], paid, finalBalance:final, status: final===0?'soldé':'partiel', ...(fpDateVal?{isoDate:updatePayload.isoDate, date:updatePayload.date}:{})};
         renderFournisseurPayments();
         renderDettesFournisseurs();
         if (currentTab === 'compta') refreshAccounting();
@@ -8772,7 +8836,10 @@ async function submitFournisseurPayment(prefix) {
   }
 
   const fp = {
-    type:'fournisseur_payment', date:todayStr(), isoDate:isoDate(), time:nowStr(),
+    type:'fournisseur_payment',
+    date: fpDateVal ? (isoToDisplayDate(fpDateVal) || todayStr()) : todayStr(),
+    isoDate: fpDateVal || isoDate(),
+    time:nowStr(),
     seller:STATE.currentUser.username, supplier:supplier, due:due, paid:paid, finalBalance:final,
     status: final === 0 ? 'soldé' : 'partiel', createdAt: new Date().toISOString()
   };
@@ -8806,6 +8873,7 @@ async function submitFournisseurPayment(prefix) {
   document.getElementById(prefix+'-balance-due').value = '';
   document.getElementById(prefix+'-paid').value = '';
   document.getElementById(prefix+'-final').value = '';
+  if (fpDateEl) fpDateEl.value = '';
 }
 
 function renderFournisseurPayments() {
@@ -8860,7 +8928,7 @@ function renderFournisseurPayments() {
         const hasDebt = currentDebt > 0;
         const supplierColor = hasDebt ? 'color:#c0392b;font-weight:700;' : 'color:#0f7b4f;font-weight:700;';
         const canEditFp = STATE.currentUser&&(STATE.currentUser.role==='admin'||STATE.currentUser.role==='gestionnaire');
-        const editFpCall = `openEditFournisseurPayment('${p.id||''}','${esc(p.supplier)}',${p.due||0},${p.paid||0},${p.finalBalance||0},'${esc(p.date||'')}','${esc(p.time||'')}')`;
+        const editFpCall = `openEditFournisseurPayment('${p.id||''}','${esc(p.supplier)}',${p.due||0},${p.paid||0},${p.finalBalance||0},'${esc(p.date||'')}','${esc(p.time||'')}','${esc(p.isoDate||'')}')`;
         const rowClickAttr = (canEditFp && p.id) ? ` style="cursor:pointer;" onclick="${editFpCall}" title="Cliquer pour corriger ce paiement"` : '';
         rows.push(`<tr${rowClickAttr}>
           <td>${p.date}</td><td>${p.time}</td>
@@ -8890,13 +8958,16 @@ function renderFournisseurPayments() {
   body.innerHTML = rows.join('');
 }
 
-function openEditFournisseurPayment(id, supplier, due, paid, finalBalance, date, time) {
+function openEditFournisseurPayment(id, supplier, due, paid, finalBalance, date, time, isoDateVal) {
   if (!requireAdminOrGest()) return;
   if (!id) { showToast('⚠ Paiement introuvable.','warn'); return; }
   document.getElementById('fp-supplier').value = supplier || '';
   document.getElementById('fp-balance-due').value = (due||0).toFixed(2);
   document.getElementById('fp-paid').value = paid || '';
   document.getElementById('fp-final').value = (finalBalance||0).toFixed(2);
+  // Pré-remplit la date d'origine (modifiable — voir submitFournisseurPayment()).
+  const fpDateEdit = document.getElementById('fp-date');
+  if (fpDateEdit) fpDateEdit.value = isoDateVal || '';
   const supplierInput = document.getElementById('fp-supplier');
   supplierInput.readOnly = true;
   supplierInput.style.background = '#f0f2f7';
@@ -8927,6 +8998,8 @@ function unlockFournisseurPaymentForm() {
   document.getElementById('fp-balance-due').value = '';
   document.getElementById('fp-paid').value = '';
   document.getElementById('fp-final').value = '';
+  const fpDateElUnlock = document.getElementById('fp-date');
+  if (fpDateElUnlock) fpDateElUnlock.value = '';
 }
 
 async function deleteFournisseurPayment(id) {
