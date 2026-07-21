@@ -1073,6 +1073,8 @@ tr:hover td{background:#f7f9ff;}
       </div>
       <div class="card">
         <div class="card-title">📦 Historique des mouvements de stock (Achats et Sorties)</div>
+        <div id="stock-movements-reset-status" style="display:none;font-size:.85rem;color:var(--text3);margin-bottom:10px;"></div>
+        <button id="btn-reset-stock-movements" class="btn btn-outline" style="font-size:.8rem;margin-bottom:12px;display:none;" onclick="resetStockMovementsTracking()">🔄 Réinitialiser le suivi (compter seulement à partir de maintenant)</button>
         <div class="table-wrap">
           <table>
             <thead><tr><th>Date</th><th>Type</th><th>Produit</th><th>Qté</th><th>Prix d'achat/Caisse</th><th>Prix d'achat unitaire</th><th>Valeur</th><th>Fournisseur/Client</th><th>Actions</th></tr></thead>
@@ -1484,6 +1486,7 @@ let STATE = {
   manualClientDebts: [],    // synced from Firestore (créances clients préexistantes, ajoutées manuellement)
   manualSupplierDebts: [],  // synced from Firestore (dettes fournisseurs préexistantes, ajoutées manuellement)
   customProducts: [],       // synced from Firestore (produits ajoutés par les utilisateurs, en plus de la liste de base)
+  stockMovementsResetAt: null, // synced from Firestore (settings/stock_movements) — voir resetStockMovementsTracking()
   pendingQueue: [],   // offline queue
   currentUser: null,
   isOnline: navigator.onLine,
@@ -1625,10 +1628,11 @@ if (!navigator.onLine && STATE.lastSession && STATE.lastSession.username) {
 let unsubCredits = null, unsubStockDepart = null, unsubCaisse = null, unsubCaisseRetraits = null, unsubCharges = null, unsubApports = null, unsubDepensesDom = null, unsubFournisseurPayments = null;
 let unsubManualClientDebts = null, unsubManualSupplierDebts = null;
 let unsubProduits = null;
+let unsubStockMovementsSettings = null;
 
 function startFirebaseListeners() {
   if (!window._fbReady || !window._db) return;
-  const {collection, onSnapshot, query, orderBy} = window._fbFns;
+  const {collection, onSnapshot, query, orderBy, doc} = window._fbFns;
   const db = window._db;
 
   // TRANSACTIONS - Synchronisation globale (tous appareils, tous utilisateurs)
@@ -1710,8 +1714,29 @@ function startFirebaseListeners() {
       STATE.stockDepart = snap.docs.map(d => ({id: d.id, ...d.data()}));
       if (currentTab === 'stock-depart') renderStockDepart();
       renderStockActuel();
+      // La date du Stock de départ de chaque produit sert de point de départ
+      // aux Mouvements de Stocks (voir computeStockDepartCutoffByProduct) :
+      // il faut donc aussi rafraîchir cet onglet quand elle change.
+      renderStocks();
     },
     err => console.error('StockDepart listener:', err)
+  );
+
+  // RÉGLAGES MOUVEMENTS DE STOCK (doc unique) - Synchronisation globale : ne
+  // sert qu'à mémoriser l'instant de la dernière "Réinitialisation du suivi"
+  // (voir resetStockMovementsTracking()), pour que les Mouvements de Stocks
+  // / le Stock Actuel ne comptent que ce qui a été enregistré depuis.
+  if (unsubStockMovementsSettings) unsubStockMovementsSettings();
+  unsubStockMovementsSettings = onSnapshot(
+    doc(db, 'settings', 'stock_movements'),
+    snap => {
+      const data = snap.exists() ? snap.data() : null;
+      STATE.stockMovementsResetAt = data ? (data.resetAt || null) : null;
+      renderStockMovementsResetStatus();
+      renderStocks();
+      renderStockActuel();
+    },
+    err => console.error('Stock movements settings listener:', err)
   );
 
   // MOUVEMENT CAISSE - Synchronisation globale
@@ -2285,6 +2310,9 @@ function applyRoleUI(role) {
     // Client" (crédit client) intact.
     document.getElementById('fpq-shortcut-wrap').style.display = '';
     document.getElementById('credit-sub-fournisseurs-btn').style.display = '';
+    // Seuls admin et gestionnaire peuvent réinitialiser le suivi des
+    // Mouvements de Stocks / Stock Actuel (voir resetStockMovementsTracking()).
+    document.getElementById('btn-reset-stock-movements').style.display = 'inline-block';
   } else {
     // Vendeur : onglets Ventes, Crédit Client, Liste des Dettes
     document.getElementById('tab-admin-btn').style.display = 'none';
@@ -2311,6 +2339,7 @@ function applyRoleUI(role) {
     // Client" (crédit client) reste intact et pleinement fonctionnel.
     document.getElementById('fpq-shortcut-wrap').style.display = 'none';
     document.getElementById('credit-sub-fournisseurs-btn').style.display = 'none';
+    document.getElementById('btn-reset-stock-movements').style.display = 'none';
     // Si le sous-onglet fournisseur était actif (état résiduel d'une session
     // précédente sur cet appareil), revenir sur "Paiement Clients" pour ne
     // jamais laisser un vendeur bloqué sur un sous-onglet désormais masqué.
@@ -2552,7 +2581,7 @@ function switchTab(tab) {
   if (tab==='admin') { renderAdminTrans(); renderUsers(); updateBackupStatusLine(); }
   if (tab==='tableau') renderDashboard();
   if (tab==='data-analyse') renderDataAnalyse();
-  if (tab==='stocks') renderStocks();
+  if (tab==='stocks') { renderStocks(); renderStockMovementsResetStatus(); }
   if (tab==='credit') { renderCredits(); renderFournisseurPayments(); }
   if (tab==='dettes') { renderDettes(); renderDettesFournisseurs(); }
   if (tab==='caisse') { renderCaisse(); renderCaisseRetraits(); }
@@ -2691,17 +2720,29 @@ function computeStockDepartCutoffByProduct() {
   return cutoff;
 }
 
-// Vrai si un achat/une vente d'un produit donné (à la date isoDateStr) doit
-// être intégré aux Mouvements de Stocks / au calcul du Stock actuel : le
-// produit doit déjà avoir un Stock de départ enregistré, et la date de
-// l'achat/vente doit être égale ou postérieure à la date de ce Stock de
-// départ. Un produit jamais enregistré dans le Stock de départ, ou un
-// achat/vente antérieur à cette date, ne sont jamais intégrés.
-function isStockMovementCounted(description, isoDateStr, cutoffMap) {
+// Vrai si un achat/une vente d'un produit donné (à la date isoDateStr, créé
+// à l'instant createdAt) doit être intégré aux Mouvements de Stocks / au
+// calcul du Stock actuel : le produit doit déjà avoir un Stock de départ
+// enregistré, et la date de l'achat/vente doit être égale ou postérieure à
+// la date de ce Stock de départ. Un produit jamais enregistré dans le Stock
+// de départ, ou un achat/vente antérieur à cette date, ne sont jamais
+// intégrés. Si un admin/gestionnaire a réinitialisé le suivi (voir
+// resetStockMovementsTracking(), demande du 21 juillet 2026), tout
+// achat/vente créé avant cet instant est également exclu, même s'il
+// respecte par ailleurs la règle de date du Stock de départ.
+function isStockMovementCounted(description, isoDateStr, cutoffMap, createdAt) {
   const key = normProduit(description);
   const cutoff = cutoffMap[key];
   if (!cutoff) return false;
-  return (isoDateStr||'') >= cutoff;
+  if ((isoDateStr||'') < cutoff) return false;
+  if (STATE.stockMovementsResetAt) {
+    // Repli sur la fin de journée (isoDateStr) si createdAt est absent (ex:
+    // anciens enregistrements créés avant l'ajout de ce champ) — évite de
+    // tout exclure par erreur faute d'horodatage précis.
+    const horodatage = createdAt || ((isoDateStr||'') + 'T23:59:59.999Z');
+    if (horodatage < STATE.stockMovementsResetAt) return false;
+  }
+  return true;
 }
 
 // Remplit la <datalist> partagée "produit-list" avec le catalogue complet
@@ -4218,6 +4259,51 @@ async function deleteStock(id) {
   }
 }
 
+// Affiche, au-dessus de l'historique des Mouvements de Stocks, l'instant de
+// la dernière réinitialisation (voir resetStockMovementsTracking()), pour
+// que l'équipe sache clairement à partir de quand le suivi actuel compte.
+function renderStockMovementsResetStatus() {
+  const el = document.getElementById('stock-movements-reset-status');
+  if (!el) return;
+  if (STATE.stockMovementsResetAt) {
+    const d = new Date(STATE.stockMovementsResetAt);
+    const dateStr = isNaN(d.getTime()) ? STATE.stockMovementsResetAt : d.toLocaleString('fr-FR');
+    el.textContent = `ℹ️ Suivi réinitialisé le ${dateStr} — seuls les achats/ventes enregistrés depuis cet instant sont comptés ci-dessous (et dans le Stock Actuel).`;
+    el.style.display = 'block';
+  } else {
+    el.style.display = 'none';
+  }
+}
+
+// Admin/gestionnaire : réinitialise le suivi des Mouvements de Stocks / du
+// Stock Actuel à l'instant présent (demande du 21 juillet 2026, suite à des
+// sorties historiques incohérentes déjà en base) — à partir de ce moment,
+// seuls les achats/ventes enregistrés ENSUITE sont comptés dans ces deux
+// onglets (et dans les alertes de rupture de stock / l'export Excel), en
+// plus de la règle habituelle par produit (date du Stock de départ). Les
+// ventes/achats déjà existants ne sont PAS supprimés : ils restent intacts
+// et visibles ailleurs dans l'application (Vente du jour, Comptabilité...),
+// seule leur prise en compte dans le calcul du stock s'arrête.
+async function resetStockMovementsTracking() {
+  if (!requireAdminOrGest()) return;
+  if (!confirm("Réinitialiser le suivi des Mouvements de Stocks et du Stock Actuel à partir de maintenant ?\n\nLes achats/ventes déjà enregistrés ne seront plus comptés dans ces deux onglets (ils restent conservés ailleurs dans l'application). Seuls les achats/ventes enregistrés à partir de maintenant seront intégrés.")) return;
+  if (!STATE.isOnline || !STATE.fbReady) {
+    showToast('⚠ Hors ligne — impossible de réinitialiser maintenant.','warn'); return;
+  }
+  const resetAt = new Date().toISOString();
+  try {
+    const {doc, setDoc} = window._fbFns;
+    await setDoc(doc(window._db,'settings','stock_movements'), {
+      resetAt, resetBy: STATE.currentUser.username
+    });
+    STATE.stockMovementsResetAt = resetAt;
+    renderStockMovementsResetStatus();
+    renderStocks();
+    renderStockActuel();
+    showToast('✅ Suivi réinitialisé — seuls les prochains achats/ventes seront comptés.');
+  } catch(e) { showToast('⚠ Erreur: '+e.message,'warn'); }
+}
+
 function renderStocks() {
   const body = document.getElementById('stock-table-body');
 
@@ -4241,7 +4327,7 @@ function renderStocks() {
   const cutoffMap = computeStockDepartCutoffByProduct();
 
   // Entrées de stock
-  const entrees = STATE.stocks.filter(s => isStockMovementCounted(s.description, s.isoDate, cutoffMap)).map(s => ({
+  const entrees = STATE.stocks.filter(s => isStockMovementCounted(s.description, s.isoDate, cutoffMap, s.createdAt)).map(s => ({
     ...s, _type:'entree',
     qtyCaisses: s.quantityCaisses || s.quantity,
     prixCaisse: s.unitPrice || 0,
@@ -4250,7 +4336,7 @@ function renderStocks() {
   }));
 
   // Sorties (ventes)
-  const sorties = (STATE.transactions||[]).filter(t=>t.type==='vente').filter(t => isStockMovementCounted(t.description, t.isoDate, cutoffMap)).map(t => {
+  const sorties = (STATE.transactions||[]).filter(t=>t.type==='vente').filter(t => isStockMovementCounted(t.description, t.isoDate, cutoffMap, t.createdAt)).map(t => {
     return {...t, _type:'sortie', qtyCaisses: getQtyCaisses(t), prixCaisse:t.prixCaisse||t.unitPrice||0,
       prixUnitaire: t.unitPrice||0, casseSize: getCasseSize(t.description, t.unit)};
   });
@@ -5383,13 +5469,13 @@ function computeStockAlerts() {
   });
   (STATE.stocks||[]).forEach(s=>{
     const key = normProduit(s.description);
-    if (!key || !isStockMovementCounted(s.description, s.isoDate, stockDepartCutoffMap)) return;
+    if (!key || !isStockMovementCounted(s.description, s.isoDate, stockDepartCutoffMap, s.createdAt)) return;
     entreesMap[key] = (entreesMap[key]||0) + (parseFloat(s.quantityCaisses||s.quantity)||0);
   });
   const ventesAll = (STATE.transactions||[]).filter(t=>t.type==='vente');
   ventesAll.forEach(t=>{
     const key = normProduit(t.description);
-    if (!key || !isStockMovementCounted(t.description, t.isoDate, stockDepartCutoffMap)) return;
+    if (!key || !isStockMovementCounted(t.description, t.isoDate, stockDepartCutoffMap, t.createdAt)) return;
     sortiesMap[key] = (sortiesMap[key]||0) + getQtyCaisses(t);
   });
   const cutoff = new Date(); cutoff.setDate(cutoff.getDate()-30);
@@ -7833,12 +7919,12 @@ function buildFullWorkbook() {
   // Stock Actuel), un achat/une vente ne compte qu'à partir de la date du
   // Stock de départ du produit concerné.
   const stockDepartCutoffMap = computeStockDepartCutoffByProduct();
-  const entrees = (STATE.stocks||[]).filter(s=>isStockMovementCounted(s.description, s.isoDate, stockDepartCutoffMap)).map(s=>({
+  const entrees = (STATE.stocks||[]).filter(s=>isStockMovementCounted(s.description, s.isoDate, stockDepartCutoffMap, s.createdAt)).map(s=>({
     date:s.date, type:'Achat', description:s.description,
     qtyCaisses: s.quantityCaisses||s.quantity||0, prixCaisse: s.unitPrice||0,
     amount: s.amount||0, tiers: s.supplier||''
   }));
-  const sorties = sales.filter(t=>isStockMovementCounted(t.description, t.isoDate, stockDepartCutoffMap)).map(t=>({
+  const sorties = sales.filter(t=>isStockMovementCounted(t.description, t.isoDate, stockDepartCutoffMap, t.createdAt)).map(t=>({
     date:t.date, type:'Sortie', description:t.description,
     qtyCaisses: getQtyCaisses(t), prixCaisse: t.prixCaisse||t.unitPrice||0,
     amount: t.amount||0, tiers: t.client||t.seller||''
@@ -7873,12 +7959,12 @@ function buildFullWorkbook() {
   });
   (STATE.stocks||[]).forEach(s=>{
     const key = normProduit(s.description);
-    if (!key || !isStockMovementCounted(s.description, s.isoDate, stockDepartCutoffMap)) return;
+    if (!key || !isStockMovementCounted(s.description, s.isoDate, stockDepartCutoffMap, s.createdAt)) return;
     entreesMap[key] = (entreesMap[key]||0) + (parseFloat(s.quantityCaisses||s.quantity)||0);
   });
   sales.forEach(t=>{
     const key = normProduit(t.description);
-    if (!key || !isStockMovementCounted(t.description, t.isoDate, stockDepartCutoffMap)) return;
+    if (!key || !isStockMovementCounted(t.description, t.isoDate, stockDepartCutoffMap, t.createdAt)) return;
     sortiesMap[key] = (sortiesMap[key]||0) + getQtyCaisses(t);
     if (t.prixCaisse) {
       const horodatage = (t.isoDate||'') + ' ' + (t.time||'');
@@ -9924,7 +10010,7 @@ function renderStockActuel() {
   const entreesMap = {};
   STATE.stocks.forEach(s => {
     const key = normProduit(s.description);
-    if (!key || !isStockMovementCounted(s.description, s.isoDate, cutoffMap)) return;
+    if (!key || !isStockMovementCounted(s.description, s.isoDate, cutoffMap, s.createdAt)) return;
     if (!entreesMap[key]) entreesMap[key] = 0;
     entreesMap[key] += parseFloat(s.quantityCaisses || s.quantity) || 0;
   });
@@ -9933,7 +10019,7 @@ function renderStockActuel() {
   const sortiesMap = {};
   (STATE.transactions||[]).filter(t=>t.type==='vente').forEach(t => {
     const key = normProduit(t.description);
-    if (!key || !isStockMovementCounted(t.description, t.isoDate, cutoffMap)) return;
+    if (!key || !isStockMovementCounted(t.description, t.isoDate, cutoffMap, t.createdAt)) return;
     if (!sortiesMap[key]) sortiesMap[key] = 0;
     sortiesMap[key] += getQtyCaisses(t);
   });
@@ -9947,7 +10033,7 @@ function renderStockActuel() {
   const venteRecentMap = {};
   (STATE.transactions||[]).filter(t=>t.type==='vente').forEach(t => {
     const key = normProduit(t.description);
-    if (!key || !t.prixCaisse || !isStockMovementCounted(t.description, t.isoDate, cutoffMap)) return;
+    if (!key || !t.prixCaisse || !isStockMovementCounted(t.description, t.isoDate, cutoffMap, t.createdAt)) return;
     const horodatage = (t.isoDate||'') + ' ' + (t.time||'');
     if (!venteRecentMap[key] || horodatage > venteRecentMap[key]._horodatage) {
       venteRecentMap[key] = { prixCaisse: t.prixCaisse, unitPrice: t.unitPrice||0, _horodatage: horodatage };
