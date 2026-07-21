@@ -2671,6 +2671,39 @@ function normProduit(name) {
   return (name||'').trim().toLowerCase();
 }
 
+// Calcule, pour chaque produit (clé normalisée via normProduit), la date
+// (isoDate) la plus ancienne à laquelle il a été enregistré dans le Stock de
+// départ — demande du 21 juillet 2026 : les Mouvements de Stocks et le
+// calcul du Stock actuel ne doivent intégrer les achats/ventes d'un produit
+// qu'à partir du jour où son Stock de départ a été rempli (inclus). Si un
+// même produit a été saisi plusieurs fois dans le Stock de départ (ex: un
+// réapprovisionnement ultérieur), on retient la date la PLUS ANCIENNE — le
+// suivi de ce produit démarre dès son tout premier enregistrement.
+function computeStockDepartCutoffByProduct() {
+  const cutoff = {};
+  (STATE.stockDepart||[]).forEach(s => {
+    const key = normProduit(s.description);
+    if (!key) return;
+    const d = s.isoDate || s.date || '';
+    if (!d) return;
+    if (!cutoff[key] || d < cutoff[key]) cutoff[key] = d;
+  });
+  return cutoff;
+}
+
+// Vrai si un achat/une vente d'un produit donné (à la date isoDateStr) doit
+// être intégré aux Mouvements de Stocks / au calcul du Stock actuel : le
+// produit doit déjà avoir un Stock de départ enregistré, et la date de
+// l'achat/vente doit être égale ou postérieure à la date de ce Stock de
+// départ. Un produit jamais enregistré dans le Stock de départ, ou un
+// achat/vente antérieur à cette date, ne sont jamais intégrés.
+function isStockMovementCounted(description, isoDateStr, cutoffMap) {
+  const key = normProduit(description);
+  const cutoff = cutoffMap[key];
+  if (!cutoff) return false;
+  return (isoDateStr||'') >= cutoff;
+}
+
 // Remplit la <datalist> partagée "produit-list" avec le catalogue complet
 // (appelé au chargement/connexion et à chaque mise à jour des produits
 // personnalisés), pour qu'elle apparaisse dès qu'on clique sur un champ vide.
@@ -4200,8 +4233,15 @@ function renderStocks() {
     return;
   }
 
+  // Demande du 21 juillet 2026 : un achat ou une vente d'un produit donné
+  // n'est intégré aux Mouvements de Stocks que s'il est daté à partir du
+  // jour où le Stock de départ de CE produit a été rempli (inclus) — les
+  // achats/ventes antérieurs, ou concernant un produit jamais enregistré
+  // dans le Stock de départ, sont exclus de cet onglet.
+  const cutoffMap = computeStockDepartCutoffByProduct();
+
   // Entrées de stock
-  const entrees = STATE.stocks.map(s => ({
+  const entrees = STATE.stocks.filter(s => isStockMovementCounted(s.description, s.isoDate, cutoffMap)).map(s => ({
     ...s, _type:'entree',
     qtyCaisses: s.quantityCaisses || s.quantity,
     prixCaisse: s.unitPrice || 0,
@@ -4210,7 +4250,7 @@ function renderStocks() {
   }));
 
   // Sorties (ventes)
-  const sorties = (STATE.transactions||[]).filter(t=>t.type==='vente').map(t => {
+  const sorties = (STATE.transactions||[]).filter(t=>t.type==='vente').filter(t => isStockMovementCounted(t.description, t.isoDate, cutoffMap)).map(t => {
     return {...t, _type:'sortie', qtyCaisses: getQtyCaisses(t), prixCaisse:t.prixCaisse||t.unitPrice||0,
       prixUnitaire: t.unitPrice||0, casseSize: getCasseSize(t.description, t.unit)};
   });
@@ -4251,9 +4291,12 @@ function renderStocks() {
       <td colspan="5">Valeur achats: ${fmtHTG(entrees.reduce((a,s)=>a+s.amount,0))}</td>
     </tr>`;
   }
-  const stockVal = STATE.stocks.reduce((a,s)=>a+s.amount,0);
+  // "Valeur totale du stock" / "Achats enregistrés" ne portent que sur les
+  // achats effectivement intégrés (voir filtre ci-dessus), pas sur la
+  // totalité brute de STATE.stocks.
+  const stockVal = entrees.reduce((a,s)=>a+(s.amount||0),0);
   document.getElementById('stock-value').textContent = fmtHTG(stockVal);
-  document.getElementById('stock-items').textContent = STATE.stocks.length;
+  document.getElementById('stock-items').textContent = entrees.length;
 }
 
 // ============================================================
@@ -5329,18 +5372,24 @@ function closeContributionModal() {
 // moins une fois récemment (sinon "jours restants" n'a pas de sens), triés
 // du plus urgent (le moins de jours restants) au moins urgent.
 function computeStockAlerts() {
+  // Demande du 21 juillet 2026 : mêmes règles d'intégration que Stock Actuel
+  // / Mouvements de Stocks — un achat/une vente ne compte qu'à partir de la
+  // date du Stock de départ du produit concerné (voir isStockMovementCounted).
+  const stockDepartCutoffMap = computeStockDepartCutoffByProduct();
   const departMap = {}, entreesMap = {}, sortiesMap = {};
   (STATE.stockDepart||[]).forEach(s=>{
     const key = normProduit(s.description); if (!key) return;
     departMap[key] = (departMap[key]||0) + (parseFloat(s.quantity)||0);
   });
   (STATE.stocks||[]).forEach(s=>{
-    const key = normProduit(s.description); if (!key) return;
+    const key = normProduit(s.description);
+    if (!key || !isStockMovementCounted(s.description, s.isoDate, stockDepartCutoffMap)) return;
     entreesMap[key] = (entreesMap[key]||0) + (parseFloat(s.quantityCaisses||s.quantity)||0);
   });
   const ventesAll = (STATE.transactions||[]).filter(t=>t.type==='vente');
   ventesAll.forEach(t=>{
-    const key = normProduit(t.description); if (!key) return;
+    const key = normProduit(t.description);
+    if (!key || !isStockMovementCounted(t.description, t.isoDate, stockDepartCutoffMap)) return;
     sortiesMap[key] = (sortiesMap[key]||0) + getQtyCaisses(t);
   });
   const cutoff = new Date(); cutoff.setDate(cutoff.getDate()-30);
@@ -7779,13 +7828,17 @@ function buildFullWorkbook() {
     ['TOTAL', debtors.reduce((a,d)=>a+d.totalDu,0), debtors.reduce((a,d)=>a+d.totalPaye,0), debtors.reduce((a,d)=>a+d.balanceRestante,0), '']
   ]), '📋 Liste des Dettes');
 
-  // 4. Mouvements Stocks (achats + sorties)
-  const entrees = (STATE.stocks||[]).map(s=>({
+  // 4. Mouvements Stocks (achats + sorties) — demande du 21 juillet 2026 :
+  // mêmes règles d'intégration que dans l'app (onglet Mouvements de Stocks /
+  // Stock Actuel), un achat/une vente ne compte qu'à partir de la date du
+  // Stock de départ du produit concerné.
+  const stockDepartCutoffMap = computeStockDepartCutoffByProduct();
+  const entrees = (STATE.stocks||[]).filter(s=>isStockMovementCounted(s.description, s.isoDate, stockDepartCutoffMap)).map(s=>({
     date:s.date, type:'Achat', description:s.description,
     qtyCaisses: s.quantityCaisses||s.quantity||0, prixCaisse: s.unitPrice||0,
     amount: s.amount||0, tiers: s.supplier||''
   }));
-  const sorties = sales.map(t=>({
+  const sorties = sales.filter(t=>isStockMovementCounted(t.description, t.isoDate, stockDepartCutoffMap)).map(t=>({
     date:t.date, type:'Sortie', description:t.description,
     qtyCaisses: getQtyCaisses(t), prixCaisse: t.prixCaisse||t.unitPrice||0,
     amount: t.amount||0, tiers: t.client||t.seller||''
@@ -7819,11 +7872,13 @@ function buildFullWorkbook() {
     }
   });
   (STATE.stocks||[]).forEach(s=>{
-    const key = normProduit(s.description); if (!key) return;
+    const key = normProduit(s.description);
+    if (!key || !isStockMovementCounted(s.description, s.isoDate, stockDepartCutoffMap)) return;
     entreesMap[key] = (entreesMap[key]||0) + (parseFloat(s.quantityCaisses||s.quantity)||0);
   });
   sales.forEach(t=>{
-    const key = normProduit(t.description); if (!key) return;
+    const key = normProduit(t.description);
+    if (!key || !isStockMovementCounted(t.description, t.isoDate, stockDepartCutoffMap)) return;
     sortiesMap[key] = (sortiesMap[key]||0) + getQtyCaisses(t);
     if (t.prixCaisse) {
       const horodatage = (t.isoDate||'') + ' ' + (t.time||'');
@@ -9858,11 +9913,18 @@ function renderStockActuel() {
     }
   });
 
+  // Demande du 21 juillet 2026 : un achat ou une vente d'un produit donné
+  // n'est intégré au calcul du Stock actuel que s'il est daté à partir du
+  // jour où le Stock de départ de CE produit a été rempli (inclus) — les
+  // achats/ventes antérieurs, ou concernant un produit jamais enregistré
+  // dans le Stock de départ, sont exclus des Entrées/Sorties ci-dessous.
+  const cutoffMap = computeStockDepartCutoffByProduct();
+
   // 2. Entrées de stock par produit (en caisses)
   const entreesMap = {};
   STATE.stocks.forEach(s => {
     const key = normProduit(s.description);
-    if (!key) return;
+    if (!key || !isStockMovementCounted(s.description, s.isoDate, cutoffMap)) return;
     if (!entreesMap[key]) entreesMap[key] = 0;
     entreesMap[key] += parseFloat(s.quantityCaisses || s.quantity) || 0;
   });
@@ -9871,21 +9933,21 @@ function renderStockActuel() {
   const sortiesMap = {};
   (STATE.transactions||[]).filter(t=>t.type==='vente').forEach(t => {
     const key = normProduit(t.description);
-    if (!key) return;
+    if (!key || !isStockMovementCounted(t.description, t.isoDate, cutoffMap)) return;
     if (!sortiesMap[key]) sortiesMap[key] = 0;
     sortiesMap[key] += getQtyCaisses(t);
   });
 
   // 4. Prix de vente le plus récent par produit, tiré des ventes elles-mêmes
   // (prixCaisse/unitPrice saisis au moment de la vente) — sert de repli pour
-  // les produits introduits APRÈS la mise en place du Stock de départ (ex:
-  // ajoutés seulement via un Achat/Mouvement de Stock), qui n'ont donc aucun
-  // prix de vente enregistré dans Stock de départ. Sans ce repli, la Valeur
-  // (HTG) de ces produits restait incorrectement à 0.
+  // les produits dont le Stock de départ n'a pas de prix enregistré. Sans ce
+  // repli, la Valeur (HTG) de ces produits resterait incorrectement à 0.
+  // Seules les ventes déjà intégrées (voir filtre ci-dessus) sont prises en
+  // compte, par cohérence avec le reste du calcul.
   const venteRecentMap = {};
   (STATE.transactions||[]).filter(t=>t.type==='vente').forEach(t => {
     const key = normProduit(t.description);
-    if (!key || !t.prixCaisse) return;
+    if (!key || !t.prixCaisse || !isStockMovementCounted(t.description, t.isoDate, cutoffMap)) return;
     const horodatage = (t.isoDate||'') + ' ' + (t.time||'');
     if (!venteRecentMap[key] || horodatage > venteRecentMap[key]._horodatage) {
       venteRecentMap[key] = { prixCaisse: t.prixCaisse, unitPrice: t.unitPrice||0, _horodatage: horodatage };
