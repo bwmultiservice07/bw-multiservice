@@ -9289,6 +9289,9 @@ function renderStockDepart() {
     return;
   }
   const canEdit = STATE.currentUser && (STATE.currentUser.role==='admin' || STATE.currentUser.role==='gestionnaire');
+  const totalQuantity = items.reduce((s,i)=>s+(parseFloat(i.quantity)||0),0);
+  const totalNombreUnite = items.reduce((s,i)=>s+(parseFloat(i.nombreUnite)||0),0);
+  const totalValeur = items.reduce((s,i)=>s+(parseFloat(i.valeur)||0),0);
   body.innerHTML = items.map(s=>`<tr${canEdit ? ` style="cursor:pointer;" onclick="loadStockDepartForCorrection('${s.id||''}')" title="Cliquer pour corriger cet enregistrement"` : ''}>
     <td>${s.date}</td><td>${esc(s.description)}</td><td>${s.quantity}</td>
     <td>${esc(formatUnitLabel(s.unit))}</td>
@@ -9297,7 +9300,17 @@ function renderStockDepart() {
     <td>${s.nombreUnite||0}</td>
     <td>${fmtHTG(s.valeur)}</td>
     <td style="white-space:nowrap;">${canEdit ? `<button class="btn" style="font-size:.75rem;padding:3px 10px;background:var(--danger-bg);color:var(--danger);border:1px solid #f5b7b1;" onclick="event.stopPropagation();deleteStockDepart('${s.id||''}')">🗑</button>` : '—'}</td>
-  </tr>`).join('');
+  </tr>`).join('')
+    + `<tr style="font-weight:700;background:var(--surface2);">
+    <td colspan="2">Totaux</td>
+    <td>${totalQuantity}</td>
+    <td></td>
+    <td></td>
+    <td></td>
+    <td>${totalNombreUnite}</td>
+    <td style="color:#1a56db;">${fmtHTG(totalValeur)}</td>
+    <td></td>
+  </tr>`;
 }
 
 // ============================================================
