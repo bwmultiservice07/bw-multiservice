@@ -1167,6 +1167,13 @@ tr:hover td{background:#f7f9ff;}
         <div id="users-list"></div>
       </div>
       <div class="card">
+        <div class="section-title">🏷️ Produits personnalisés ajoutés</div>
+        <div style="font-size:.85rem;color:var(--text2);margin-bottom:.8rem;">
+          Ces produits ont été ajoutés automatiquement à la liste déroulante (Ventes, Stock de départ, Mouvements de Stocks...) dès qu'un admin/gestionnaire a tapé un nom qui n'existait pas encore — y compris par erreur (frappe incomplète, faute de frappe). Supprimez ici ceux qui prêtent à confusion ; ils disparaîtront de la liste déroulante sur tous les appareils. La liste de base des produits (7up, beller, coca kola...) n'apparaît pas ici : elle ne peut pas être supprimée.
+        </div>
+        <div id="custom-products-list"></div>
+      </div>
+      <div class="card">
         <div class="section-title">🗄️ Sauvegarde complète vers Google Drive</div>
         <div style="font-size:.85rem;color:var(--text2);margin-bottom:.8rem;">
           Exporte TOUTES les données brutes de l'application (ventes, stock, crédits, dettes, charges, apports, caisse, utilisateurs) dans un fichier Excel envoyé sur ton Google Drive — un filet de sécurité en plus de Firebase, au cas où. Une sauvegarde automatique et silencieuse est aussi tentée une fois par jour à la connexion d'un admin/gestionnaire (si l'autorisation Google a déjà été donnée une première fois).
@@ -1835,6 +1842,7 @@ function startFirebaseListeners() {
     snap => {
       STATE.customProducts = snap.docs.map(d => ({id: d.id, ...d.data()}));
       renderProduitDatalist();
+      if (currentTab === 'admin') renderCustomProductsAdmin();
     },
     err => console.error('Produits listener:', err)
   );
@@ -2578,7 +2586,7 @@ function switchTab(tab) {
   const names = ['ventes','credit','stocks','tableau','admin','compta'];
   document.querySelectorAll('.tabs button').forEach((b,i) => { if(names[i]===tab) b.classList.add('active'); });
   if (tab==='compta') refreshAccounting();
-  if (tab==='admin') { renderAdminTrans(); renderUsers(); updateBackupStatusLine(); }
+  if (tab==='admin') { renderAdminTrans(); renderUsers(); renderCustomProductsAdmin(); updateBackupStatusLine(); }
   if (tab==='tableau') renderDashboard();
   if (tab==='data-analyse') renderDataAnalyse();
   if (tab==='stocks') { renderStocks(); renderStockMovementsResetStatus(); }
@@ -6214,6 +6222,50 @@ function renderUsers() {
       <button class="del-btn" style="background:none;color:var(--accent);border:1px solid var(--accent);font-size:.72rem;" title="Réinitialiser le mot de passe" onclick="resetUserPassword('${esc(u.username)}','${u.id||''}')">🔑</button>
       ${(u.role==='admin' && adminCount<=1)?'':`<button class="del-btn" onclick="deleteUser('${u.username}','${u.id||''}')">×</button>`}
     </div>`).join('');
+}
+
+// Liste (admin) des produits ajoutés automatiquement au catalogue partagé
+// (voir ensureCustomProduct()) — permet de supprimer ceux qui prêtent à
+// confusion (fautes de frappe, saisie incomplète comme "co"/"coca" au lieu
+// de "coca kola") sans toucher à la liste de base DEFAULT_PRODUCTS, qui elle
+// est codée en dur et non modifiable depuis l'app.
+function renderCustomProductsAdmin() {
+  const container = document.getElementById('custom-products-list');
+  if (!container) return;
+  const items = [...(STATE.customProducts||[])].sort((a,b) => (a.name||'').localeCompare(b.name||'', 'fr'));
+  if (!items.length) {
+    container.innerHTML = '<div style="color:var(--text3);font-size:.85rem;">Aucun produit personnalisé ajouté pour l\'instant.</div>';
+    return;
+  }
+  container.innerHTML = items.map(p => `
+    <div class="user-chip">
+      <span>${esc(p.name)}</span>
+      ${p.addedBy ? `<span class="role-badge" title="Ajouté par">${esc(p.addedBy)}</span>` : ''}
+      <button class="del-btn" ${p.id?'':'disabled title="Pas encore synchronisé"'} onclick="deleteCustomProduct('${p.id||''}','${esc(p.name)}')">×</button>
+    </div>`).join('');
+}
+
+// Supprime un produit personnalisé du catalogue partagé (admin/gestionnaire
+// uniquement — mêmes droits que pour l'ajout, voir ensureCustomProduct()).
+// Ne touche à AUCUNE vente/achat/stock de départ déjà enregistré sous ce nom
+// (ils gardent leur description telle quelle) : seule la liste déroulante
+// suggérée est nettoyée, pour éviter qu'on le sélectionne à nouveau par
+// erreur.
+async function deleteCustomProduct(id, name) {
+  if (!requireAdminOrGest()) return;
+  if (!id) { showToast('⚠ Ce produit n\'est pas encore synchronisé — réessayez dans un instant.','warn'); return; }
+  if (!confirm(`Supprimer « ${name} » de la liste des produits ?\n\nLes ventes/achats déjà enregistrés sous ce nom ne seront PAS modifiés — seule la liste déroulante suggérée sera nettoyée.`)) return;
+  if (!STATE.isOnline || !STATE.fbReady) {
+    showToast('⚠ Hors ligne — impossible de supprimer maintenant.','warn'); return;
+  }
+  try {
+    const {doc, deleteDoc} = window._fbFns;
+    await deleteDoc(doc(window._db,'produits_personnalises',id));
+    STATE.customProducts = (STATE.customProducts||[]).filter(p => p.id !== id);
+    renderCustomProductsAdmin();
+    renderProduitDatalist();
+    showToast('🗑 « '+name+' » supprimé de la liste des produits.');
+  } catch(e) { showToast('⚠ Erreur: '+e.message,'warn'); }
 }
 
 // Changement de mot de passe centralisé : SEUL admin/gestionnaire peut
