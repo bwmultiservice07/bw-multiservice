@@ -9335,8 +9335,13 @@ async function submitStockDepart() {
   const prixUnit = parseFloat(document.getElementById('sd-prix-unitaire').value) || 0;
   const nbUnite = parseFloat(document.getElementById('sd-nb-unite').value) || 0;
   const date = document.getElementById('sd-date').value || isoDate();
-  if (!desc || qty <= 0 || prixCaisse <= 0) {
-    showToast('⚠ Veuillez remplir tous les champs.','warn'); return;
+  // Quantité 0 autorisée (demande du 21 juillet 2026) : un produit du
+  // catalogue peut être à court de stock au moment du premier enregistrement
+  // — seule une quantité NÉGATIVE (saisie invalide) est refusée. Le prix de
+  // vente Caisse/Bout reste, lui, obligatoire (>0) : sans lui, ni la Valeur
+  // ni le Prix de vente affichés dans Stock Actuel ne peuvent être calculés.
+  if (!desc || qty < 0 || prixCaisse <= 0) {
+    showToast('⚠ Veuillez remplir tous les champs (la quantité peut être 0, mais pas négative).','warn'); return;
   }
   const valeur = calcStockDepartValeur();
   const entry = {
