@@ -4473,6 +4473,27 @@ function computeProductPriceMaps() {
   Object.keys(venteAgg).forEach(k => {
     prixVenteMap[k] = venteAgg[k].sumQty > 0 ? venteAgg[k].sumPrixQty / venteAgg[k].sumQty : 0;
   });
+  // Repli sur le Stock de départ UNIQUEMENT pour les produits qui n'ont
+  // encore JAMAIS été vendus (aucune vente en Caisse enregistrée) — demande
+  // du 21 juillet 2026 ("Les prix de vente sont Stock d'entrée. Complète
+  // pour moi") : sans ce repli, leur Prix de vente Caisse resterait à 0
+  // dans le tableau du taux de marge. Dès qu'une vraie vente existe pour un
+  // produit, elle seule est utilisée (comportement confirmé précédemment) —
+  // ce repli ne sert qu'à compléter les trous, jamais à remplacer une
+  // donnée de vente réelle. Si plusieurs enregistrements de Stock de départ
+  // existent pour un même produit, le plus RÉCENT est retenu.
+  const departVentePrixMap = {};
+  (STATE.stockDepart||[]).filter(s=>isCaisseUnit(s.unit)).forEach(s => {
+    const key = normProduit(s.description);
+    if (!key || !s.prixCaisse) return;
+    const horodatage = s.isoDate || s.date || '';
+    if (!departVentePrixMap[key] || horodatage >= departVentePrixMap[key]._h) {
+      departVentePrixMap[key] = { prix: s.prixCaisse, _h: horodatage };
+    }
+  });
+  Object.keys(departVentePrixMap).forEach(k => {
+    if (!prixVenteMap[k]) prixVenteMap[k] = departVentePrixMap[k].prix;
+  });
   // Prix d'achat Caisse, depuis les Mouvements de stocks (Achats) enregistrés
   // en unité Caisse — moyenne pondérée par quantité si plusieurs achats
   // existent pour le même produit à des prix différents. Les achats en
