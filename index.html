@@ -4452,6 +4452,57 @@ function isCaisseUnit(unit) {
   return !String(unit).trim().toLowerCase().startsWith('bout');
 }
 
+// Renvoie la dernière valeur connue d'une liste de points {isoDate,
+// valeurCumulee} triée chronologiquement, à une date donnée (le dernier
+// point ≤ isoDateStr) — ou, si aucun point n'existe encore à cette date, le
+// tout premier point connu (repli raisonnable pour ne pas afficher "aucune
+// donnée" pour un mouvement antérieur au tout premier enregistré). Malgré
+// son nom (hérité de l'ancien système de moyenne cumulée), sert aussi pour
+// une simple série de "derniers prix connus" (voir getLastAchatPrice()).
+function getCumulativeValueAsOf(checkpoints, isoDateStr) {
+  let result = null;
+  for (const cp of checkpoints) {
+    if (cp.isoDate <= isoDateStr) result = cp.valeurCumulee;
+    else break;
+  }
+  if (result == null && checkpoints.length) result = checkpoints[0].valeurCumulee;
+  return result;
+}
+
+// Historique des prix D'ACHAT enregistrés pour un produit (Mouvements de
+// stocks / STATE.stocks, achats en Caisse uniquement), un point par achat —
+// PAS une moyenne pondérée : chaque point garde le prix EXACT de cet achat.
+// Sert de base à getLastAchatPrice() ci-dessous (demande du 22 juillet 2026 :
+// "le prix d'achat depend du prix enregistre dans le mouvement des stocks...
+// on doit considerer le prix d'achat du dernier achat a chaque fois" — donc
+// le DERNIER achat connu, pas une moyenne sur tout l'historique).
+function computeAchatLastPriceCheckpoints(productKey) {
+  // Un achat SANS date connue (ancien enregistrement incomplet) n'est pas
+  // écarté : il est traité comme le plus ancien connu (chaîne vide = trie en
+  // premier), pour ne jamais faire disparaître silencieusement un prix
+  // d'achat réellement saisi — même philosophie que isCaisseUnit() pour les
+  // champs optionnels manquants sur d'anciens enregistrements.
+  return (STATE.stocks||[])
+    .filter(s => normProduit(s.description) === productKey && isCaisseUnit(s.unit))
+    .map(s => ({ isoDate: s.isoDate || s.date || '', prix: s.unitPrice||0 }))
+    .filter(p => p.prix > 0)
+    .sort((a,b) => a.isoDate.localeCompare(b.isoDate))
+    .map(p => ({ isoDate: p.isoDate, valeurCumulee: p.prix }));
+}
+
+// Renvoie le prix d'achat du DERNIER achat connu pour un produit, à une date
+// donnée (le dernier achat ≤ cette date ; ou, si aucun achat n'a encore eu
+// lieu à cette date, le tout premier achat connu — repli raisonnable pour ne
+// pas laisser un produit sans aucun prix d'achat). Sans date fournie, renvoie
+// le tout dernier achat connu (le plus récent de tous, toutes dates
+// confondues) — utilisé pour les calculs globaux (ex: profit cumulé).
+function getLastAchatPrice(productKey, asOfIsoDate) {
+  const checkpoints = computeAchatLastPriceCheckpoints(productKey);
+  if (!checkpoints.length) return 0;
+  if (!asOfIsoDate) return checkpoints[checkpoints.length-1].valeurCumulee;
+  return getCumulativeValueAsOf(checkpoints, asOfIsoDate) || 0;
+}
+
 function computeProductPriceMaps() {
   // Prix de vente Caisse, depuis les VRAIES ventes enregistrées en unité
   // Caisse (onglet Ventes) — moyenne pondérée par quantité si un même
@@ -4495,52 +4546,26 @@ function computeProductPriceMaps() {
     if (!prixVenteMap[k]) prixVenteMap[k] = departVentePrixMap[k].prix;
   });
   // Prix d'achat Caisse, depuis les Mouvements de stocks (Achats) enregistrés
-  // en unité Caisse — moyenne pondérée par quantité si plusieurs achats
-  // existent pour le même produit à des prix différents. Les achats en
-  // "Bout" sont ignorés (voir isCaisseUnit ci-dessus).
-  const achatAgg = {};
-  (STATE.stocks||[]).filter(s=>isCaisseUnit(s.unit)).forEach(s => {
-    const key = normProduit(s.description);
-    if (!key) return;
-    const qty = parseFloat(s.quantityCaisses || s.quantity) || 0;
-    if (qty <= 0) return;
-    const pc = s.unitPrice || 0; // "Prix d'achat / Caisse" déjà saisi en caisse
-    if (!pc) return;
-    if (!achatAgg[key]) achatAgg[key] = {sumPrixQty:0, sumQty:0};
-    achatAgg[key].sumPrixQty += pc * qty;
-    achatAgg[key].sumQty += qty;
-  });
+  // en unité Caisse — le prix du DERNIER achat enregistré pour ce produit
+  // (PAS une moyenne pondérée sur tout l'historique) : demande explicite du
+  // 22 juillet 2026, "on doit considerer le prix d'achat du dernier achat a
+  // chaque fois". Les achats en "Bout" sont ignorés (voir isCaisseUnit
+  // ci-dessus). Voir getLastAchatPrice().
   const prixAchatMap = {};
-  Object.keys(achatAgg).forEach(k => {
-    prixAchatMap[k] = achatAgg[k].sumQty > 0 ? achatAgg[k].sumPrixQty / achatAgg[k].sumQty : 0;
-  });
+  const achatProducts = new Set(
+    (STATE.stocks||[]).filter(s=>isCaisseUnit(s.unit)).map(s=>normProduit(s.description)).filter(Boolean)
+  );
+  achatProducts.forEach(k => { prixAchatMap[k] = getLastAchatPrice(k); });
   return {prixVenteMap, prixAchatMap};
 }
 
 // Calcule la moyenne pondérée du taux de marge produit pour un sous-ensemble
-// de ventes donné (ex : les ventes d'un seul jour ou d'un seul mois), avec la
-// même formule : Σ [((Prix vente − Prix achat) / Prix achat) × Quota vente],
-// le quota étant recalculé sur ce sous-ensemble (mix de produits de la période).
-function computeMargeProduitPourVentes(ventes, prixVenteMap, prixAchatMap) {
-  const qtyVenduMap = {};
-  let totalQtyVendu = 0;
-  ventes.forEach(t => {
-    const key = normProduit(t.description); if (!key) return;
-    const q = getQtyCaisses(t);
-    qtyVenduMap[key] = (qtyVenduMap[key]||0) + q;
-    totalQtyVendu += q;
-  });
-  if (totalQtyVendu <= 0) return null;
-  let tauxMoyenPondere = 0, hasData = false;
-  Object.keys(qtyVenduMap).forEach(p => {
-    const prixVente = prixVenteMap[p] || 0;
-    const prixAchat = prixAchatMap[p] || 0;
-    if (prixAchat <= 0) return;
-    hasData = true;
-    const quota = qtyVenduMap[p] / totalQtyVendu;
-    const ratioMarge = (prixVente - prixAchat) / prixAchat;
-    tauxMoyenPondere += ratioMarge * quota * 100;
-  });
+// de ventes donné (ex : les ventes d'un seul jour ou d'un seul mois) — simple
+// enveloppe autour de computeProductMarginRatesForVentes() pour ne renvoyer
+// que le chiffre agrégé (utilisé par le tableau jour/mois d'Analyse financière).
+function computeMargeProduitPourVentes(ventes) {
+  const {margeRows, tauxMoyenPondere} = computeProductMarginRatesForVentes(ventes);
+  const hasData = margeRows.some(r => r.donneesOk);
   return hasData ? tauxMoyenPondere : null;
 }
 
@@ -4549,7 +4574,6 @@ function computeMargeProduitPourVentes(ventes, prixVenteMap, prixAchatMap) {
 // afficher ce taux à côté des autres indicateurs cumulés.
 function computeProductMarginRatesByPeriod() {
   const ventes = (STATE.transactions||[]).filter(t=>t.type==='vente');
-  const {prixVenteMap, prixAchatMap} = computeProductPriceMaps();
   const ventesByDay = {}, ventesByMonth = {};
   ventes.forEach(t => {
     const day = getIsoFromTx(t);
@@ -4560,38 +4584,58 @@ function computeProductMarginRatesByPeriod() {
     ventesByMonth[month].push(t);
   });
   const byDay = {}, byMonth = {};
-  Object.keys(ventesByDay).forEach(day => { byDay[day] = computeMargeProduitPourVentes(ventesByDay[day], prixVenteMap, prixAchatMap); });
-  Object.keys(ventesByMonth).forEach(month => { byMonth[month] = computeMargeProduitPourVentes(ventesByMonth[month], prixVenteMap, prixAchatMap); });
+  Object.keys(ventesByDay).forEach(day => { byDay[day] = computeMargeProduitPourVentes(ventesByDay[day]); });
+  Object.keys(ventesByMonth).forEach(month => { byMonth[month] = computeMargeProduitPourVentes(ventesByMonth[month]); });
   return {byDay, byMonth};
 }
 
 // Calcule le détail par produit (taux de marge + quota) pour un sous-ensemble
-// de ventes donné, avec les prix de vente/achat déjà calculés (globaux ou
-// pour une période) — factorisé pour être réutilisé aussi bien pour le total
+// de ventes donné (le total général, ou les ventes d'un seul jour / une
+// semaine / un mois) — factorisé pour être réutilisé aussi bien pour le total
 // général (computeProductMarginRates) que pour un jour/une semaine/un mois
 // précis (voir la fenêtre "Détail du taux de marge" dans Data Analyse).
-// Taux moyen de marge produit = ((Prix de vente caisse/bout - Prix d'achat
-// caisse/bout) / Prix d'achat caisse/bout) × Quota vente, le quota étant la
-// part du produit dans le total des quantités vendues de ce sous-ensemble.
-function computeProductMarginRatesForVentes(ventes, prixVenteMap, prixAchatMap) {
+//
+// Demande explicite du 22 juillet 2026 : "il faut considerer le prix de
+// vente d'une caisse du produit chaque jour, puisque le prix de vente est
+// evolutif" — le Prix de vente utilisé pour chaque produit N'EST PLUS une
+// moyenne globale figée sur tout l'historique : c'est la moyenne pondérée
+// des VENTES DE CE SOUS-ENSEMBLE lui-même (donc le prix réel du jour quand
+// on appelle cette fonction avec les ventes d'un seul jour, le prix réel du
+// mois quand on l'appelle avec les ventes d'un mois entier, etc.). Le Prix
+// d'achat est le prix du DERNIER achat (Mouvements de stocks) connu à la
+// date de la DERNIÈRE vente de ce produit dans le sous-ensemble — pas une
+// moyenne, juste "le dernier achat, à chaque fois" (voir getLastAchatPrice()).
+//
+// Taux moyen de marge produit = ((Prix de vente caisse − Prix d'achat
+// caisse) / Prix d'achat caisse) × Quota vente, le quota étant la part du
+// produit dans le total des quantités vendues de ce sous-ensemble.
+function computeProductMarginRatesForVentes(ventes) {
+  const ventesCaisse = (ventes||[]).filter(t => isCaisseUnit(t.unit));
   const qtyVenduMap = {};
   let totalQtyVendu = 0;
-  ventes.forEach(t => {
+  const venteAgg = {}; // {sumPrixQty, sumQty, refDate (dernière date de vente de ce produit dans ce sous-ensemble)}
+  ventesCaisse.forEach(t => {
     const key = normProduit(t.description); if (!key) return;
     const q = getQtyCaisses(t);
+    if (q <= 0) return;
     qtyVenduMap[key] = (qtyVenduMap[key]||0) + q;
     totalQtyVendu += q;
+    const day = t.isoDate || getIsoFromTx(t) || '';
+    if (!venteAgg[key]) venteAgg[key] = {sumPrixQty:0, sumQty:0, refDate:''};
+    const pv = t.prixCaisse || 0;
+    if (pv > 0) { venteAgg[key].sumPrixQty += pv*q; venteAgg[key].sumQty += q; }
+    if (day > venteAgg[key].refDate) venteAgg[key].refDate = day;
   });
-  const margeProducts = new Set(Object.keys(qtyVenduMap));
-  const margeRows = [...margeProducts].map(p => {
-    const prixVente = prixVenteMap[p] || 0;
-    const prixAchat = prixAchatMap[p] || 0;
+  const margeRows = Object.keys(qtyVenduMap).map(p => {
+    const agg = venteAgg[p];
+    const prixVente = agg && agg.sumQty > 0 ? agg.sumPrixQty / agg.sumQty : 0;
+    const prixAchat = agg && agg.refDate ? getLastAchatPrice(p, agg.refDate) : 0;
     const qtyVendu = qtyVenduMap[p] || 0;
     const quota = totalQtyVendu > 0 ? qtyVendu / totalQtyVendu : 0;
-    const donneesOk = prixAchat > 0;
+    const donneesOk = prixAchat > 0 && prixVente > 0;
     const ratioMarge = donneesOk ? (prixVente - prixAchat) / prixAchat : null; // ratio brut (0.5 = 50%)
-    // Taux moyen de marge produit = ((Prix de vente caisse/bout − Prix d'achat caisse/bout)
-    // / Prix d'achat caisse/bout) × Quota vente — formule demandée, calculée pour chaque produit.
+    // Taux moyen de marge produit = ((Prix de vente caisse − Prix d'achat caisse)
+    // / Prix d'achat caisse) × Quota vente — formule demandée, calculée pour chaque produit.
     const tauxMarge = donneesOk ? ratioMarge * quota * 100 : null;
     return {produit:p, prixVente, prixAchat, qtyVendu, quota, tauxMarge, donneesOk};
   }).filter(r => r.qtyVendu > 0)
@@ -4603,12 +4647,13 @@ function computeProductMarginRatesForVentes(ventes, prixVenteMap, prixAchatMap) 
 }
 
 // Calcule le taux de marge par produit vendu et la moyenne pondérée globale
-// (toutes ventes confondues, depuis le début). Réutilisé par Data Analyse ET
-// Analyse financière (+ export Excel) pour des chiffres cohérents.
+// (toutes ventes confondues, depuis le début — prix de vente = moyenne
+// pondérée de TOUTE l'historique des ventes, prix d'achat = dernier achat
+// connu). Réutilisé par Data Analyse ET Analyse financière (+ export Excel)
+// pour des chiffres cohérents.
 function computeProductMarginRates() {
   const ventes = (STATE.transactions||[]).filter(t=>t.type==='vente');
-  const {prixVenteMap, prixAchatMap} = computeProductPriceMaps();
-  const {margeRows, tauxMoyenPondere} = computeProductMarginRatesForVentes(ventes, prixVenteMap, prixAchatMap);
+  const {margeRows, tauxMoyenPondere} = computeProductMarginRatesForVentes(ventes);
   return {margeRows, tauxMoyenPondere: tauxMoyenPondere||0};
 }
 
@@ -4634,9 +4679,8 @@ function getWeekRangeForIsoDate(isoDateStr) {
 // pour computeProductMarginRatesByPeriod().
 function computeMarginDetailForDate(isoDateStr) {
   const ventes = (STATE.transactions||[]).filter(t=>t.type==='vente');
-  const {prixVenteMap, prixAchatMap} = computeProductPriceMaps();
   const ventesJour = ventes.filter(t => getIsoFromTx(t) === isoDateStr);
-  const jour = computeProductMarginRatesForVentes(ventesJour, prixVenteMap, prixAchatMap);
+  const jour = computeProductMarginRatesForVentes(ventesJour);
   return { jour: {...jour, label: formatGroupLabel(isoDateStr)} };
 }
 
@@ -4646,7 +4690,6 @@ function computeMarginDetailForDate(isoDateStr) {
 // la plus ancienne.
 function computeAllWeeksMarginRates() {
   const ventes = (STATE.transactions||[]).filter(t=>t.type==='vente');
-  const {prixVenteMap, prixAchatMap} = computeProductPriceMaps();
   const weekBuckets = {};
   ventes.forEach(t => {
     const day = getIsoFromTx(t);
@@ -4658,7 +4701,7 @@ function computeAllWeeksMarginRates() {
   return Object.values(weekBuckets)
     .sort((a,b) => b.startIso.localeCompare(a.startIso))
     .map(w => {
-      const {margeRows, tauxMoyenPondere} = computeProductMarginRatesForVentes(w.ventes, prixVenteMap, prixAchatMap);
+      const {margeRows, tauxMoyenPondere} = computeProductMarginRatesForVentes(w.ventes);
       return {
         startIso: w.startIso, endIso: w.endIso,
         label: `Semaine du ${w.startIso.split('-').reverse().join('/')} au ${w.endIso.split('-').reverse().join('/')}`,
@@ -4673,13 +4716,12 @@ function computeAllWeeksMarginRates() {
 // coup plutôt qu'un seul mois à la fois.
 function computeAllMonthsMarginRatesForYear(year) {
   const ventes = (STATE.transactions||[]).filter(t=>t.type==='vente');
-  const {prixVenteMap, prixAchatMap} = computeProductPriceMaps();
   const monthNames = ['Janvier','Février','Mars','Avril','Mai','Juin','Juillet','Août','Septembre','Octobre','Novembre','Décembre'];
   const rows = [];
   for (let m = 1; m <= 12; m++) {
     const monthKey = `${year}-${String(m).padStart(2,'0')}`;
     const ventesMois = ventes.filter(t => getIsoFromTx(t).slice(0,7) === monthKey);
-    const {tauxMoyenPondere} = computeProductMarginRatesForVentes(ventesMois, prixVenteMap, prixAchatMap);
+    const {tauxMoyenPondere} = computeProductMarginRatesForVentes(ventesMois);
     rows.push({ month: monthKey, label: `${monthNames[m-1]} ${year}`, tauxMoyenPondere });
   }
   return rows;
@@ -4769,76 +4811,30 @@ function renderMarginDetailModal() {
 // quota — et on la fait ÉVOLUER dans le temps : une ligne par période
 // (jour/semaine/mois où le produit a été vendu), du plus ancien au plus
 // récent, pour voir si sa marge commerciale progresse ou recule.
-// Le Prix de vente vient des VRAIES ventes enregistrées (onglet Ventes /
-// STATE.transactions type='vente', champ prixCaisse saisi à la vente) et le
-// Prix d'achat des VRAIS Mouvements de stocks (onglet Achats / STATE.stocks,
-// champ unitPrice saisi à l'achat) — les deux étant le COÛT/PRIX MOYEN
-// PONDÉRÉ CUMULÉ (toutes les entrées dont la date est ≤ à la période
-// considérée), pour que les deux composantes évoluent réellement dans le
-// temps, exactement comme le prescrit la formule demandée.
+//
+// Demande explicite du 22 juillet 2026 : "il faut considerer le prix de
+// vente d'une caisse du produit chaque jour, puisque le prix de vente est
+// evolutif". Le Prix de vente de chaque ligne est donc la moyenne pondérée
+// des VRAIES ventes (Caisse uniquement, voir isCaisseUnit()) de CETTE
+// PÉRIODE précise (jour/semaine/mois de la ligne) — PAS une moyenne cumulée
+// depuis le début. Le Prix d'achat est le prix du DERNIER achat (Mouvements
+// de stocks) connu à la date de la dernière vente de la période — "le prix
+// d'achat du dernier achat, à chaque fois" (voir getLastAchatPrice()), pas
+// non plus une moyenne.
 // ============================================================
-
-// Construit, à partir d'une liste d'entrées {isoDate, qty, prix} déjà
-// filtrée pour un seul produit, l'historique du coût/prix moyen pondéré
-// CUMULÉ : une entrée par date de mouvement, avec la moyenne pondérée de
-// TOUTES les entrées depuis le début jusqu'à (et y compris) cette date.
-function computeCumulativeWeightedCheckpoints(entriesForProduct) {
-  const sorted = (entriesForProduct||[])
-    .filter(p => p.isoDate && p.qty > 0 && p.prix > 0)
-    .sort((a,b) => a.isoDate.localeCompare(b.isoDate));
-  const checkpoints = [];
-  let sumPrixQty = 0, sumQty = 0;
-  sorted.forEach(p => {
-    sumPrixQty += p.prix * p.qty;
-    sumQty += p.qty;
-    checkpoints.push({ isoDate: p.isoDate, valeurCumulee: sumQty > 0 ? sumPrixQty / sumQty : 0 });
-  });
-  return checkpoints;
-}
-
-// Renvoie la valeur moyenne pondérée cumulée connue à une date donnée (le
-// dernier point ≤ isoDateStr) — ou, si aucun mouvement n'est encore survenu
-// à cette date, le tout premier point connu (repli raisonnable pour ne pas
-// afficher "aucune donnée" pour un mouvement antérieur au tout premier
-// enregistré).
-function getCumulativeValueAsOf(checkpoints, isoDateStr) {
-  let result = null;
-  for (const cp of checkpoints) {
-    if (cp.isoDate <= isoDateStr) result = cp.valeurCumulee;
-    else break;
-  }
-  if (result == null && checkpoints.length) result = checkpoints[0].valeurCumulee;
-  return result;
-}
-
-// Historique du prix de vente moyen pondéré cumulé d'un produit, à partir
-// des VRAIES ventes (onglet Ventes / STATE.transactions, champ prixCaisse).
-function computeCumulativePrixVenteCheckpoints(productKey) {
-  const ventes = (STATE.transactions||[])
-    .filter(t => t.type==='vente' && normProduit(t.description) === productKey)
-    .map(t => ({ isoDate: t.isoDate || getIsoFromTx(t) || '', qty: getQtyCaisses(t), prix: t.prixCaisse||0 }));
-  return computeCumulativeWeightedCheckpoints(ventes);
-}
-
-// Historique du coût d'achat moyen pondéré cumulé d'un produit, à partir des
-// VRAIS Mouvements de stocks (onglet Achats / STATE.stocks, champ unitPrice).
-function computeCumulativePrixAchatCheckpoints(productKey) {
-  const purchases = (STATE.stocks||[])
-    .filter(s => normProduit(s.description) === productKey)
-    .map(s => ({ isoDate: s.isoDate || s.date || '', qty: parseFloat(s.quantityCaisses||s.quantity)||0, prix: s.unitPrice||0 }));
-  return computeCumulativeWeightedCheckpoints(purchases);
-}
 
 // Calcule, pour CHAQUE produit vendu, l'évolution de sa marge commerciale
 // période après période (granularity: 'jour' | 'semaine' | 'mois'), triée du
 // plus ancien au plus récent.
 function computeProductMarginEvolution(granularity) {
-  const ventes = (STATE.transactions||[]).filter(t=>t.type==='vente');
+  const ventes = (STATE.transactions||[]).filter(t=>t.type==='vente').filter(t=>isCaisseUnit(t.unit));
 
   const byProduct = {};
   ventes.forEach(t => {
     const key = normProduit(t.description); if (!key) return;
-    const day = getIsoFromTx(t); if (!day) return;
+    const day = t.isoDate || getIsoFromTx(t) || ''; if (!day) return;
+    const qty = getQtyCaisses(t); if (qty <= 0) return;
+    const pv = t.prixCaisse || 0;
     let periodKey, periodLabel, sortKey;
     if (granularity === 'semaine') {
       const {startIso, endIso} = getWeekRangeForIsoDate(day);
@@ -4851,21 +4847,21 @@ function computeProductMarginEvolution(granularity) {
       periodKey = day; sortKey = day; periodLabel = formatGroupLabel(day);
     }
     if (!byProduct[key]) byProduct[key] = {};
-    if (!byProduct[key][periodKey]) byProduct[key][periodKey] = { periodKey, sortKey, periodLabel, refDate: day };
-    if (day > byProduct[key][periodKey].refDate) byProduct[key][periodKey].refDate = day;
+    if (!byProduct[key][periodKey]) byProduct[key][periodKey] = { periodKey, sortKey, periodLabel, refDate: day, sumPrixQty: 0, sumQty: 0 };
+    const bucket = byProduct[key][periodKey];
+    if (day > bucket.refDate) bucket.refDate = day;
+    if (pv > 0) { bucket.sumPrixQty += pv * qty; bucket.sumQty += qty; }
   });
 
   const result = {};
   Object.keys(byProduct).forEach(produit => {
-    const venteCheckpoints = computeCumulativePrixVenteCheckpoints(produit);
-    const achatCheckpoints = computeCumulativePrixAchatCheckpoints(produit);
     const periods = Object.values(byProduct[produit]).sort((a,b)=>a.sortKey.localeCompare(b.sortKey));
     result[produit] = periods.map(p => {
-      const prixVente = getCumulativeValueAsOf(venteCheckpoints, p.refDate);
-      const prixAchat = getCumulativeValueAsOf(achatCheckpoints, p.refDate);
-      const donneesOk = prixVente != null && prixVente > 0 && prixAchat != null && prixAchat > 0;
+      const prixVente = p.sumQty > 0 ? p.sumPrixQty / p.sumQty : 0;
+      const prixAchat = getLastAchatPrice(produit, p.refDate);
+      const donneesOk = prixVente > 0 && prixAchat > 0;
       const margeCommerciale = donneesOk ? (prixVente - prixAchat) / prixAchat * 100 : null;
-      return { periodLabel: p.periodLabel, prixVente: prixVente||0, prixAchat: prixAchat||0, margeCommerciale, donneesOk };
+      return { periodLabel: p.periodLabel, prixVente, prixAchat, margeCommerciale, donneesOk };
     });
   });
   return result;
@@ -4966,7 +4962,12 @@ function renderPrixVenteModal() {
   if (!cont) return;
 
   const ventes = (STATE.transactions||[])
-    .filter(t => t.type==='vente' && !t.isGlace && (t.prixCaisse||0) > 0)
+    // Ventes en Caisse uniquement (demande du 22 juillet 2026 : "Enleve bout
+    // dans tous les calculs, tout doit etre calcule a partir de caisse") —
+    // mélanger un prix par Bout avec un prix par Caisse dans la même moyenne
+    // n'aurait de toute façon aucun sens (le prix par bout n'est pas
+    // directement comparable au prix par caisse complète).
+    .filter(t => t.type==='vente' && !t.isGlace && (t.prixCaisse||0) > 0 && isCaisseUnit(t.unit))
     .sort((a,b) => {
       const da = getIsoFromTx(a), db = getIsoFromTx(b);
       if (da !== db) return da.localeCompare(db); // ordre chronologique croissant (le plus ancien en premier)
@@ -4989,8 +4990,7 @@ function renderPrixVenteModal() {
   const rows = Object.keys(byProduct).sort((a,b) => a.localeCompare(b, 'fr')).map(key => {
     const list = byProduct[key];
     const last = list[list.length - 1];
-    const isBout = (last.unit === 'bout' || last.unit === 'bout-1-2');
-    const uniteLabel = isBout ? 'bout' : 'caisse';
+    const uniteLabel = 'caisse'; // liste déjà filtrée sur les ventes en Caisse uniquement
     const avg = list.reduce((a,t) => a + t.prixCaisse, 0) / list.length;
     const histo = list.slice(-5).map(t => fmtHTG(t.prixCaisse)).join(' → ');
     return `<tr>
