@@ -4437,12 +4437,28 @@ function prevMonthStr(monthStr) {
 // stocks (onglet Achats / STATE.stocks, champ unitPrice saisi à l'achat).
 // Ces prix ne sont pas propres à une période : seul le mix de produits vendus
 // (et donc le quota de chacun) varie selon le jour/semaine/mois choisi.
+// Vrai si l'unité choisie N'appartient PAS à la famille "Bout" (demande du 21
+// juillet 2026 : le taux de marge ne doit se baser QUE sur le prix de vente
+// Caisse et le prix d'achat Caisse — les ventes/achats enregistrés en
+// "Bout" sont exclus de ce calcul, car leur prix par bout n'est pas
+// directement comparable au prix par caisse complète). Une unité absente
+// (achats/ventes anciens, enregistrés avant l'introduction du choix
+// Caisse/Bout, où quantityCaisses était stocké directement sans champ
+// "unit") est traitée comme Caisse par défaut — comportement historique
+// inchangé, pour ne pas exclure par erreur des données existantes qui
+// n'ont simplement jamais eu ce champ.
+function isCaisseUnit(unit) {
+  if (!unit) return true;
+  return !String(unit).trim().toLowerCase().startsWith('bout');
+}
+
 function computeProductPriceMaps() {
-  // Prix de vente caisse/bout, depuis les VRAIES ventes (onglet Ventes) —
-  // moyenne pondérée par quantité si un même produit a été vendu à des prix
-  // différents au fil du temps.
+  // Prix de vente Caisse, depuis les VRAIES ventes enregistrées en unité
+  // Caisse (onglet Ventes) — moyenne pondérée par quantité si un même
+  // produit a été vendu à des prix différents au fil du temps. Les ventes
+  // en "Bout" sont ignorées (voir isCaisseUnit ci-dessus).
   const venteAgg = {};
-  (STATE.transactions||[]).filter(t=>t.type==='vente').forEach(t => {
+  (STATE.transactions||[]).filter(t=>t.type==='vente').filter(t=>isCaisseUnit(t.unit)).forEach(t => {
     const key = normProduit(t.description);
     if (!key) return;
     const qty = getQtyCaisses(t);
@@ -4457,16 +4473,17 @@ function computeProductPriceMaps() {
   Object.keys(venteAgg).forEach(k => {
     prixVenteMap[k] = venteAgg[k].sumQty > 0 ? venteAgg[k].sumPrixQty / venteAgg[k].sumQty : 0;
   });
-  // Prix d'achat caisse/bout, depuis les Mouvements de stocks (Achats) —
-  // moyenne pondérée par quantité si plusieurs achats existent pour le même
-  // produit à des prix différents.
+  // Prix d'achat Caisse, depuis les Mouvements de stocks (Achats) enregistrés
+  // en unité Caisse — moyenne pondérée par quantité si plusieurs achats
+  // existent pour le même produit à des prix différents. Les achats en
+  // "Bout" sont ignorés (voir isCaisseUnit ci-dessus).
   const achatAgg = {};
-  (STATE.stocks||[]).forEach(s => {
+  (STATE.stocks||[]).filter(s=>isCaisseUnit(s.unit)).forEach(s => {
     const key = normProduit(s.description);
     if (!key) return;
     const qty = parseFloat(s.quantityCaisses || s.quantity) || 0;
     if (qty <= 0) return;
-    const pc = s.unitPrice || 0; // "Prix d'achat / Caisse" déjà saisi en caisse/bout
+    const pc = s.unitPrice || 0; // "Prix d'achat / Caisse" déjà saisi en caisse
     if (!pc) return;
     if (!achatAgg[key]) achatAgg[key] = {sumPrixQty:0, sumQty:0};
     achatAgg[key].sumPrixQty += pc * qty;
