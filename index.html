@@ -4555,14 +4555,14 @@ function getLastAchatPrice(productKey, asOfIsoDate) {
 // Prix de vente Caisse le plus récent enregistré dans le Stock de départ
 // pour un produit (isCaisseUnit uniquement) — ou 0 si aucun. Si plusieurs
 // enregistrements de Stock de départ existent pour un même produit, le plus
-// RÉCENT est retenu. Demande du 22 juillet 2026 ("prend le prix de vente
-// par caisse des produits du tableau de stock de depart") : ce prix est
-// désormais la source PRIORITAIRE du "Prix de vente Caisse" utilisé dans
-// tous les calculs de marge — le Stock de départ reflète le prix
-// officiellement fixé pour le produit, alors que les ventes réelles peuvent
-// varier (négociation, erreurs de saisie historiques, etc.) et produisaient
-// des moyennes peu fiables. Les ventes réelles ne servent plus de repli que
-// pour les produits SANS aucun enregistrement de Stock de départ.
+// RÉCENT est retenu. Historique de priorité (22 juillet 2026, deux
+// revirements le même jour) : d'abord repli uniquement -> puis rendu
+// PRIORITAIRE sur les vraies ventes -> puis, nouvelle demande explicite
+// ("les prix de vente du tableau de taux de marge doivent être en lien avec
+// les prix de vente des produits vendus dans l'onglet vente"), remis en
+// simple REPLI : les vraies ventes (onglet Ventes) sont de nouveau la
+// source prioritaire partout, ce prix ne sert que pour un produit qui n'a
+// encore jamais été vendu.
 function getStockDepartPrixCaisse(productKey) {
   let best = null;
   (STATE.stockDepart||[]).filter(s=>isCaisseUnit(s.unit)).forEach(s => {
@@ -4596,16 +4596,19 @@ function computeProductPriceMaps() {
   Object.keys(venteAgg).forEach(k => {
     prixVenteMap[k] = venteAgg[k].sumQty > 0 ? venteAgg[k].sumPrixQty / venteAgg[k].sumQty : 0;
   });
-  // Le Stock de départ est désormais PRIORITAIRE sur les ventes réelles
-  // (demande du 22 juillet 2026 — voir getStockDepartPrixCaisse ci-dessus) :
-  // pour tout produit ayant un enregistrement de Stock de départ, son prix
-  // remplace la moyenne des ventes réelles, au lieu de ne combler que les
-  // trous comme avant.
+  // Deuxième revirement le 22 juillet 2026 : "les prix de vente du tableau de
+  // taux de marge doivent être en lien avec les prix de vente des produits
+  // vendus dans l'onglet vente" — les VRAIES ventes redeviennent la source
+  // PRIORITAIRE (le bug de formule qui produisait des prix aberrants est
+  // corrigé depuis, donc les ventes réelles sont de nouveau fiables). Le
+  // Stock de départ ne sert plus que de REPLI pour un produit qui n'a encore
+  // jamais été vendu (aucune entrée dans prixVenteMap).
   const departKeys = new Set([
     ...Object.keys(prixVenteMap),
     ...(STATE.stockDepart||[]).map(s=>normProduit(s.description)).filter(Boolean)
   ]);
   departKeys.forEach(k => {
+    if (prixVenteMap[k] > 0) return;
     const departPrix = getStockDepartPrixCaisse(k);
     if (departPrix > 0) prixVenteMap[k] = departPrix;
   });
@@ -4692,12 +4695,13 @@ function computeProductMarginRatesForVentes(ventes) {
   });
   const margeRows = Object.keys(qtyVenduMap).map(p => {
     const agg = venteAgg[p];
-    // Le Stock de départ est prioritaire sur la moyenne des ventes réelles
-    // (demande du 22 juillet 2026 : "prend le prix de vente par caisse des
-    // produits du tableau de stock de depart") — voir getStockDepartPrixCaisse().
+    // Deuxième revirement le 22 juillet 2026 : les VRAIES ventes (onglet
+    // Ventes) redeviennent la source prioritaire du prix de vente caisse —
+    // le Stock de départ ne sert plus que de repli si le produit n'a jamais
+    // été vendu (voir computeProductPriceMaps() ci-dessus pour le détail).
     const prixVenteVentes = agg && agg.sumQty > 0 ? agg.sumPrixQty / agg.sumQty : 0;
     const prixVenteDepart = getStockDepartPrixCaisse(p);
-    const prixVente = prixVenteDepart > 0 ? prixVenteDepart : prixVenteVentes;
+    const prixVente = prixVenteVentes > 0 ? prixVenteVentes : prixVenteDepart;
     const prixAchat = agg && agg.refDate ? getLastAchatPrice(p, agg.refDate) : 0;
     const qtyVendu = qtyVenduMap[p] || 0;
     const quota = totalQtyVendu > 0 ? qtyVendu / totalQtyVendu : 0;
@@ -4924,16 +4928,15 @@ function computeProductMarginEvolution(granularity) {
 
   const result = {};
   Object.keys(byProduct).forEach(produit => {
-    // Le Stock de départ est prioritaire sur la moyenne des ventes réelles
-    // (demande du 22 juillet 2026) — voir getStockDepartPrixCaisse(). Il est
-    // constant d'une période à l'autre (le prix officiel du produit ne
-    // change pas period par période comme le fait le coût d'achat), donc la
-    // marge continue quand même d'évoluer grâce au prix d'achat.
+    // Deuxième revirement le 22 juillet 2026 : chaque période utilise
+    // d'abord le prix moyen des VRAIES ventes de CETTE période (onglet
+    // Ventes) ; le Stock de départ ne sert que de repli si le produit n'a
+    // eu aucune vente réelle valorisée sur cette période précise.
     const prixVenteDepart = getStockDepartPrixCaisse(produit);
     const periods = Object.values(byProduct[produit]).sort((a,b)=>a.sortKey.localeCompare(b.sortKey));
     result[produit] = periods.map(p => {
       const prixVenteVentes = p.sumQty > 0 ? p.sumPrixQty / p.sumQty : 0;
-      const prixVente = prixVenteDepart > 0 ? prixVenteDepart : prixVenteVentes;
+      const prixVente = prixVenteVentes > 0 ? prixVenteVentes : prixVenteDepart;
       const prixAchat = getLastAchatPrice(produit, p.refDate);
       const donneesOk = prixVente > 0 && prixAchat > 0;
       const margeCommerciale = donneesOk ? (prixVente - prixAchat) / prixAchat * 100 : null;
@@ -4952,7 +4955,11 @@ function computeProductMarginEvolution(granularity) {
 // sans avoir besoin d'ouvrir la fenêtre séparément.
 function computeMarginTrendIcon(evolutionRows) {
   const validRows = (evolutionRows||[]).filter(r => r.donneesOk);
-  if (validRows.length < 2) return '—';
+  // Un simple tiret « — » donnait l'impression d'une case vide/cassée (ex :
+  // gros frutop vendu pour la première fois le 22 juillet 2026 — la colonne
+  // semblait vide alors que c'était juste faute d'un 2e mois à comparer).
+  // On rend donc le message explicite plutôt qu'un tiret nu.
+  if (validRows.length < 2) return '— (historique insuffisant)';
   const last = validRows[validRows.length - 1].margeCommerciale;
   const prev = validRows[validRows.length - 2].margeCommerciale;
   if (last > prev + 0.01) return '📈 En hausse';
@@ -5942,15 +5949,22 @@ function renderDataAnalyse() {
   if (!margeRows.length) {
     html += `<div style="color:var(--text3);padding:.5rem 0;">Pas assez de données (prix de vente et prix d'achat) pour calculer les taux de marge.</div>`;
   } else {
-    // Tendance de la marge commerciale de chaque produit (mois par mois) —
-    // colonne ajoutée le 22 juillet 2026, juste après "Prix d'achat caisse".
-    const evolutionParMois = computeProductMarginEvolution('mois');
+    // Tendance de la marge commerciale de chaque produit — colonne ajoutée le
+    // 22 juillet 2026, juste après "Prix d'achat caisse". Calculée JOUR PAR
+    // JOUR (pas mois par mois) : demande explicite du 22 juillet 2026 ("on
+    // n'a pas besoin de 2 mois d'enregistrement de vente ... commencer à le
+    // calculer dès maintenant") — avec une granularité mensuelle, un produit
+    // vendu pour la première fois ce mois-ci devait attendre le mois suivant
+    // avant d'afficher la moindre tendance. En jour par jour, dès qu'un
+    // produit a 2 jours de vente (+ achat) valides — même très rapprochés —
+    // la tendance apparaît immédiatement.
+    const evolutionParJour = computeProductMarginEvolution('jour');
     html += `<div class="table-wrap"><table><thead><tr><th>Produit</th><th>Prix de vente caisse</th><th>Prix d'achat caisse</th><th>Marge commerciale évolutive</th><th>Quota (part des ventes)</th><th>Taux moyen de marge produit</th></tr></thead><tbody>` +
       margeRows.map(r=>`<tr>
         <td>${esc(r.produit)}</td>
         <td>${fmtHTG(r.prixVente)}</td>
         <td>${fmtHTG(r.prixAchat)}</td>
-        <td>${computeMarginTrendIcon(evolutionParMois[r.produit])}</td>
+        <td>${computeMarginTrendIcon(evolutionParJour[r.produit])}</td>
         <td>${(r.quota*100).toFixed(1)}%</td>
         <td style="font-weight:600;color:${r.donneesOk?(r.tauxMarge>=0?'#1a7a4c':'#c0392b'):'var(--text3)'};">${r.donneesOk?r.tauxMarge.toFixed(1)+'%':'Données insuffisantes'}</td>
       </tr>`).join('') +
