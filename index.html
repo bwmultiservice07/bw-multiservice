@@ -4552,11 +4552,34 @@ function getLastAchatPrice(productKey, asOfIsoDate) {
 // ferait qu'ajouter une fausse ligne "produits glacés" à 0,00 HTG dans les
 // tableaux de marge/prix (demande du 22 juillet 2026). Leur montant reste
 // bien compté dans le chiffre d'affaires global et la caisse (non touché ici).
+// Prix de vente Caisse le plus récent enregistré dans le Stock de départ
+// pour un produit (isCaisseUnit uniquement) — ou 0 si aucun. Si plusieurs
+// enregistrements de Stock de départ existent pour un même produit, le plus
+// RÉCENT est retenu. Demande du 22 juillet 2026 ("prend le prix de vente
+// par caisse des produits du tableau de stock de depart") : ce prix est
+// désormais la source PRIORITAIRE du "Prix de vente Caisse" utilisé dans
+// tous les calculs de marge — le Stock de départ reflète le prix
+// officiellement fixé pour le produit, alors que les ventes réelles peuvent
+// varier (négociation, erreurs de saisie historiques, etc.) et produisaient
+// des moyennes peu fiables. Les ventes réelles ne servent plus de repli que
+// pour les produits SANS aucun enregistrement de Stock de départ.
+function getStockDepartPrixCaisse(productKey) {
+  let best = null;
+  (STATE.stockDepart||[]).filter(s=>isCaisseUnit(s.unit)).forEach(s => {
+    const key = normProduit(s.description);
+    if (key !== productKey || !s.prixCaisse) return;
+    const horodatage = s.isoDate || s.date || '';
+    if (!best || horodatage >= best._h) best = { prix: s.prixCaisse, _h: horodatage };
+  });
+  return best ? best.prix : 0;
+}
+
 function computeProductPriceMaps() {
   // Prix de vente Caisse, depuis les VRAIES ventes enregistrées en unité
   // Caisse (onglet Ventes) — moyenne pondérée par quantité si un même
   // produit a été vendu à des prix différents au fil du temps. Les ventes
-  // en "Bout" sont ignorées (voir isCaisseUnit ci-dessus).
+  // en "Bout" sont ignorées (voir isCaisseUnit ci-dessus). Ne sert que de
+  // REPLI pour les produits sans Stock de départ (voir plus bas).
   const venteAgg = {};
   (STATE.transactions||[]).filter(t=>t.type==='vente' && !t.isGlace).filter(t=>isCaisseUnit(t.unit)).forEach(t => {
     const key = normProduit(t.description);
@@ -4573,26 +4596,18 @@ function computeProductPriceMaps() {
   Object.keys(venteAgg).forEach(k => {
     prixVenteMap[k] = venteAgg[k].sumQty > 0 ? venteAgg[k].sumPrixQty / venteAgg[k].sumQty : 0;
   });
-  // Repli sur le Stock de départ UNIQUEMENT pour les produits qui n'ont
-  // encore JAMAIS été vendus (aucune vente en Caisse enregistrée) — demande
-  // du 21 juillet 2026 ("Les prix de vente sont Stock d'entrée. Complète
-  // pour moi") : sans ce repli, leur Prix de vente Caisse resterait à 0
-  // dans le tableau du taux de marge. Dès qu'une vraie vente existe pour un
-  // produit, elle seule est utilisée (comportement confirmé précédemment) —
-  // ce repli ne sert qu'à compléter les trous, jamais à remplacer une
-  // donnée de vente réelle. Si plusieurs enregistrements de Stock de départ
-  // existent pour un même produit, le plus RÉCENT est retenu.
-  const departVentePrixMap = {};
-  (STATE.stockDepart||[]).filter(s=>isCaisseUnit(s.unit)).forEach(s => {
-    const key = normProduit(s.description);
-    if (!key || !s.prixCaisse) return;
-    const horodatage = s.isoDate || s.date || '';
-    if (!departVentePrixMap[key] || horodatage >= departVentePrixMap[key]._h) {
-      departVentePrixMap[key] = { prix: s.prixCaisse, _h: horodatage };
-    }
-  });
-  Object.keys(departVentePrixMap).forEach(k => {
-    if (!prixVenteMap[k]) prixVenteMap[k] = departVentePrixMap[k].prix;
+  // Le Stock de départ est désormais PRIORITAIRE sur les ventes réelles
+  // (demande du 22 juillet 2026 — voir getStockDepartPrixCaisse ci-dessus) :
+  // pour tout produit ayant un enregistrement de Stock de départ, son prix
+  // remplace la moyenne des ventes réelles, au lieu de ne combler que les
+  // trous comme avant.
+  const departKeys = new Set([
+    ...Object.keys(prixVenteMap),
+    ...(STATE.stockDepart||[]).map(s=>normProduit(s.description)).filter(Boolean)
+  ]);
+  departKeys.forEach(k => {
+    const departPrix = getStockDepartPrixCaisse(k);
+    if (departPrix > 0) prixVenteMap[k] = departPrix;
   });
   // Prix d'achat Caisse, depuis les Mouvements de stocks (Achats) enregistrés
   // en unité Caisse — le prix du DERNIER achat enregistré pour ce produit
@@ -4677,7 +4692,12 @@ function computeProductMarginRatesForVentes(ventes) {
   });
   const margeRows = Object.keys(qtyVenduMap).map(p => {
     const agg = venteAgg[p];
-    const prixVente = agg && agg.sumQty > 0 ? agg.sumPrixQty / agg.sumQty : 0;
+    // Le Stock de départ est prioritaire sur la moyenne des ventes réelles
+    // (demande du 22 juillet 2026 : "prend le prix de vente par caisse des
+    // produits du tableau de stock de depart") — voir getStockDepartPrixCaisse().
+    const prixVenteVentes = agg && agg.sumQty > 0 ? agg.sumPrixQty / agg.sumQty : 0;
+    const prixVenteDepart = getStockDepartPrixCaisse(p);
+    const prixVente = prixVenteDepart > 0 ? prixVenteDepart : prixVenteVentes;
     const prixAchat = agg && agg.refDate ? getLastAchatPrice(p, agg.refDate) : 0;
     const qtyVendu = qtyVenduMap[p] || 0;
     const quota = totalQtyVendu > 0 ? qtyVendu / totalQtyVendu : 0;
@@ -4904,9 +4924,16 @@ function computeProductMarginEvolution(granularity) {
 
   const result = {};
   Object.keys(byProduct).forEach(produit => {
+    // Le Stock de départ est prioritaire sur la moyenne des ventes réelles
+    // (demande du 22 juillet 2026) — voir getStockDepartPrixCaisse(). Il est
+    // constant d'une période à l'autre (le prix officiel du produit ne
+    // change pas period par période comme le fait le coût d'achat), donc la
+    // marge continue quand même d'évoluer grâce au prix d'achat.
+    const prixVenteDepart = getStockDepartPrixCaisse(produit);
     const periods = Object.values(byProduct[produit]).sort((a,b)=>a.sortKey.localeCompare(b.sortKey));
     result[produit] = periods.map(p => {
-      const prixVente = p.sumQty > 0 ? p.sumPrixQty / p.sumQty : 0;
+      const prixVenteVentes = p.sumQty > 0 ? p.sumPrixQty / p.sumQty : 0;
+      const prixVente = prixVenteDepart > 0 ? prixVenteDepart : prixVenteVentes;
       const prixAchat = getLastAchatPrice(produit, p.refDate);
       const donneesOk = prixVente > 0 && prixAchat > 0;
       const margeCommerciale = donneesOk ? (prixVente - prixAchat) / prixAchat * 100 : null;
