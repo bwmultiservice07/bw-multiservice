@@ -2688,17 +2688,29 @@ const PRODUCT_NAME_ALIASES = {
   'coca': 'coca kola'
 };
 
+// Produits personnalisés à TOUJOURS masquer du catalogue affiché, même s'ils
+// existent encore dans Firestore (collection produits_personnalises) —
+// demande du 22 juillet 2026 ("Enleve cheetos aussi", "Enleve produits
+// glaces dans cette liste"). Comme il n'y a pas d'accès direct à Firestore
+// depuis cet environnement pour supprimer ces documents (voir le panneau
+// admin "🏷️ Produits personnalisés ajoutés" qui reste le seul moyen de les
+// supprimer pour de bon), ce blocage les cache immédiatement de TOUTES les
+// listes/menus déroulants (Ventes, Stock de départ, Achats, etc.), sans
+// attendre une suppression manuelle.
+const HIDDEN_CUSTOM_PRODUCTS = new Set(['cheetos', 'produits glacés', 'produits glaces']);
+
 // Fusionne la liste de base avec les produits ajoutés par les utilisateurs
 // (synchronisés via Firestore), sans doublons, tout en minuscule, triée
 // alphabétiquement. Les noms qui ont un alias connu (ex: "coca") sont
 // résolus vers leur orthographe canonique (ex: "coca kola") pour ne jamais
-// afficher les deux comme des produits distincts dans les listes/menus.
+// afficher les deux comme des produits distincts dans les listes/menus. Les
+// noms bloqués (HIDDEN_CUSTOM_PRODUCTS) n'apparaissent jamais.
 function getProductCatalog() {
   const seen = new Set();
   DEFAULT_PRODUCTS.forEach(p => seen.add(p.toLowerCase()));
   (STATE.customProducts||[]).forEach(p => {
     const name = (p && p.name || '').trim().toLowerCase();
-    if (name) seen.add(PRODUCT_NAME_ALIASES[name] || name);
+    if (name && !HIDDEN_CUSTOM_PRODUCTS.has(name)) seen.add(PRODUCT_NAME_ALIASES[name] || name);
   });
   return [...seen].sort((a,b) => a.localeCompare(b, 'fr'));
 }
