@@ -5631,7 +5631,12 @@ function computeStockAlerts() {
   const departMap = {}, entreesMap = {}, sortiesMap = {};
   (STATE.stockDepart||[]).forEach(s=>{
     const key = normProduit(s.description); if (!key) return;
-    departMap[key] = (departMap[key]||0) + (parseFloat(s.quantity)||0);
+    // Bug corrigé le 22 juillet 2026 : même correction que dans l'export
+    // Excel et le tableau Stock Actuel — la quantité brute (s.quantity) ne
+    // tient pas compte de l'unité (1 caisse = 2 bout) ; on utilise
+    // quantityCaisses (déjà converti) quand il est disponible.
+    const qc = (s.quantityCaisses !== undefined) ? (parseFloat(s.quantityCaisses)||0) : (parseFloat(s.quantity)||0);
+    departMap[key] = (departMap[key]||0) + qc;
   });
   (STATE.stocks||[]).forEach(s=>{
     const key = normProduit(s.description);
@@ -8172,7 +8177,14 @@ function buildFullWorkbook() {
   (STATE.stockDepart||[]).forEach(s=>{
     const key = normProduit(s.description); if (!key) return;
     if (!departMap[key]) departMap[key] = {qty:0, prix:0, prixUnitaire:0};
-    departMap[key].qty += parseFloat(s.quantity)||0;
+    // Bug corrigé le 22 juillet 2026 : cette valeur utilisait la quantité
+    // BRUTE saisie (s.quantity), sans tenir compte de l'unité choisie (ex: 1
+    // caisse = 2 bout) — un Stock de départ enregistré en "Bout" comptait
+    // pour le double de sa vraie valeur en équivalent-caisses. Même règle
+    // que le tableau "Stock Actuel" à l'écran (voir renderStockActuel()) :
+    // on utilise quantityCaisses (déjà converti) quand il est disponible.
+    const qc = (s.quantityCaisses !== undefined) ? (parseFloat(s.quantityCaisses)||0) : (parseFloat(s.quantity)||0);
+    departMap[key].qty += qc;
     if (s.prixCaisse) {
       departMap[key].prix = s.prixCaisse;
       departMap[key].prixUnitaire = s.prixUnitaire || (s.prixCaisse / getUnitsPerSelection(s.description, s.unit));
