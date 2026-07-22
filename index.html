@@ -2697,7 +2697,7 @@ const PRODUCT_NAME_ALIASES = {
 // supprimer pour de bon), ce blocage les cache immédiatement de TOUTES les
 // listes/menus déroulants (Ventes, Stock de départ, Achats, etc.), sans
 // attendre une suppression manuelle.
-const HIDDEN_CUSTOM_PRODUCTS = new Set(['cheetos', 'produits glacés', 'produits glaces']);
+const HIDDEN_CUSTOM_PRODUCTS = new Set(['cheetos', 'produits glacés', 'produits glaces', 'ensure', 'aloe vera']);
 
 // Fusionne la liste de base avec les produits ajoutés par les utilisateurs
 // (synchronisés via Firestore), sans doublons, tout en minuscule, triée
@@ -4803,7 +4803,7 @@ function renderMarginRateSection(title, period) {
     <div class="label">Taux de marge moyen</div><div class="value">${period.tauxMoyenPondere.toFixed(1)}%</div>
   </div>`;
   if (period.margeRows.length) {
-    html += `<div class="table-wrap"><table><thead><tr><th>Produit</th><th>Prix de vente caisse/bout</th><th>Prix d'achat caisse/bout</th><th>Quota (part des ventes)</th><th>Taux de marge</th></tr></thead><tbody>` +
+    html += `<div class="table-wrap"><table><thead><tr><th>Produit</th><th>Prix de vente caisse</th><th>Prix d'achat caisse</th><th>Quota (part des ventes)</th><th>Taux de marge</th></tr></thead><tbody>` +
       period.margeRows.map(r=>`<tr>
         <td>${esc(r.produit)}</td>
         <td>${fmtHTG(r.prixVente)}</td>
@@ -4961,7 +4961,7 @@ function renderMarginEvolutionModal() {
     cont.innerHTML = '<div style="color:var(--text3);padding:1rem 0;">Aucune donnée pour ce produit.</div>';
     return;
   }
-  let html = `<div class="table-wrap"><table><thead><tr><th>Période</th><th>Prix de vente caisse/bout</th><th>Prix d'achat caisse/bout (coût moyen cumulé)</th><th>Marge commerciale</th><th>Évolution</th></tr></thead><tbody>`;
+  let html = `<div class="table-wrap"><table><thead><tr><th>Période</th><th>Prix de vente caisse</th><th>Prix d'achat caisse (dernier achat connu)</th><th>Marge commerciale</th><th>Évolution</th></tr></thead><tbody>`;
   let prevMarge = null;
   rows.forEach(r => {
     let evoIcon = '—';
@@ -5898,7 +5898,7 @@ function renderDataAnalyse() {
   if (!margeRows.length) {
     html += `<div style="color:var(--text3);padding:.5rem 0;">Pas assez de données (prix de vente et prix d'achat) pour calculer les taux de marge.</div>`;
   } else {
-    html += `<div class="table-wrap"><table><thead><tr><th>Produit</th><th>Prix de vente caisse/bout</th><th>Prix d'achat caisse/bout</th><th>Quota (part des ventes)</th><th>Taux moyen de marge produit</th></tr></thead><tbody>` +
+    html += `<div class="table-wrap"><table><thead><tr><th>Produit</th><th>Prix de vente caisse</th><th>Prix d'achat caisse</th><th>Quota (part des ventes)</th><th>Taux moyen de marge produit</th></tr></thead><tbody>` +
       margeRows.map(r=>`<tr>
         <td>${esc(r.produit)}</td>
         <td>${fmtHTG(r.prixVente)}</td>
@@ -6009,7 +6009,7 @@ function renderDataAnalyse() {
   if (!topProfit.length) {
     html += `<div style="color:var(--text3);padding:.5rem 0;">Pas assez de données (prix de vente et prix d'achat) pour estimer le profit par produit.</div>`;
   } else {
-    html += `<div class="table-wrap"><table><thead><tr><th>Rang</th><th>Produit</th><th>Profit unitaire (caisse/bout)</th><th>Quantité vendue (éq. caisses)</th><th>Profit total estimé</th></tr></thead><tbody>` +
+    html += `<div class="table-wrap"><table><thead><tr><th>Rang</th><th>Produit</th><th>Profit unitaire (caisse)</th><th>Quantité vendue (éq. caisses)</th><th>Profit total estimé</th></tr></thead><tbody>` +
       topProfit.map((r,i)=>`<tr><td>${i+1}</td><td>${esc(r.produit)}</td><td>${r.donneesOk?fmtHTG(r.profitUnitaire):'—'}</td><td>${r.qty.toFixed(2)}</td><td style="font-weight:600;color:${r.donneesOk?(r.profitTotal>=0?'#1a7a4c':'#c0392b'):'var(--text3)'};">${r.donneesOk?fmtHTG(r.profitTotal):'Données insuffisantes'}</td></tr>`).join('') +
       `</tbody></table></div>
       <div style="background:var(--surface2);border-radius:8px;padding:10px 12px;font-size:.85rem;line-height:1.5;margin-top:.6rem;">💡 <strong>Recommandation</strong> : concentrer les efforts de réapprovisionnement et de mise en avant sur les produits en tête de ce classement — ce sont eux qui génèrent le plus de profit réel, même si leur taux de marge en % n'est pas toujours le plus élevé.</div>`;
