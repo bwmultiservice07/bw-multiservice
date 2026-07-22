@@ -4964,25 +4964,27 @@ function computeProductMarginEvolution(granularity) {
   return result;
 }
 
-// Icône de tendance (📈/📉/➡️) comparant les DEUX DERNIÈRES périodes ayant
-// des données valides (donneesOk) dans une série renvoyée par
-// computeProductMarginEvolution() — même logique que la colonne "Évolution"
-// de la fenêtre "Marge commerciale — évolution", réutilisée pour la
-// nouvelle colonne "Marge commerciale évolutive" ajoutée à la carte "Taux de
-// marge par produit" (demande du 22 juillet 2026), pour voir la tendance
-// sans avoir besoin d'ouvrir la fenêtre séparément.
+// Tendance CHIFFRÉE (pas juste une icône) comparant les DEUX DERNIÈRES
+// périodes ayant des données valides (donneesOk) dans une série renvoyée par
+// computeProductMarginEvolution() — utilisée par la colonne "Marge
+// commerciale évolutive" de la carte "Taux de marge par produit". Demande du
+// 22 juillet 2026 ("j'aimerais avoir le taux de marge commerciale en
+// chiffres évolutif") : affiche le taux réel (%) de la période la plus
+// récente, avec celui de la période précédente entre parenthèses pour
+// comparaison, plutôt qu'une simple flèche sans valeur.
 function computeMarginTrendIcon(evolutionRows) {
   const validRows = (evolutionRows||[]).filter(r => r.donneesOk);
-  // Un simple tiret « — » donnait l'impression d'une case vide/cassée (ex :
-  // gros frutop vendu pour la première fois le 22 juillet 2026 — la colonne
-  // semblait vide alors que c'était juste faute d'un 2e mois à comparer).
-  // On rend donc le message explicite plutôt qu'un tiret nu.
-  if (validRows.length < 2) return '— (historique insuffisant)';
+  const fmtPct = v => `${v.toFixed(1)}%`;
+  if (!validRows.length) return 'Aucune donnée';
+  // Une seule période valide : pas de comparaison possible, mais on affiche
+  // quand même le chiffre disponible plutôt qu'un tiret vide.
+  if (validRows.length < 2) return `${fmtPct(validRows[0].margeCommerciale)} (historique insuffisant)`;
   const last = validRows[validRows.length - 1].margeCommerciale;
   const prev = validRows[validRows.length - 2].margeCommerciale;
-  if (last > prev + 0.01) return '📈 En hausse';
-  if (last < prev - 0.01) return '📉 En baisse';
-  return '➡️ Stable';
+  let icon = '➡️';
+  if (last > prev + 0.01) icon = '📈';
+  else if (last < prev - 0.01) icon = '📉';
+  return `${icon} ${fmtPct(last)} (précédent : ${fmtPct(prev)})`;
 }
 
 // Fenêtre "Marge commerciale par produit — évolution" : sélection d'un
