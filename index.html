@@ -4943,6 +4943,23 @@ function computeProductMarginEvolution(granularity) {
   return result;
 }
 
+// Icône de tendance (📈/📉/➡️) comparant les DEUX DERNIÈRES périodes ayant
+// des données valides (donneesOk) dans une série renvoyée par
+// computeProductMarginEvolution() — même logique que la colonne "Évolution"
+// de la fenêtre "Marge commerciale — évolution", réutilisée pour la
+// nouvelle colonne "Marge commerciale évolutive" ajoutée à la carte "Taux de
+// marge par produit" (demande du 22 juillet 2026), pour voir la tendance
+// sans avoir besoin d'ouvrir la fenêtre séparément.
+function computeMarginTrendIcon(evolutionRows) {
+  const validRows = (evolutionRows||[]).filter(r => r.donneesOk);
+  if (validRows.length < 2) return '—';
+  const last = validRows[validRows.length - 1].margeCommerciale;
+  const prev = validRows[validRows.length - 2].margeCommerciale;
+  if (last > prev + 0.01) return '📈 En hausse';
+  if (last < prev - 0.01) return '📉 En baisse';
+  return '➡️ Stable';
+}
+
 // Fenêtre "Marge commerciale par produit — évolution" : sélection d'un
 // produit et d'une granularité, puis affichage de l'évolution de sa marge
 // commerciale période après période, avec une flèche indiquant si elle
@@ -5925,11 +5942,15 @@ function renderDataAnalyse() {
   if (!margeRows.length) {
     html += `<div style="color:var(--text3);padding:.5rem 0;">Pas assez de données (prix de vente et prix d'achat) pour calculer les taux de marge.</div>`;
   } else {
-    html += `<div class="table-wrap"><table><thead><tr><th>Produit</th><th>Prix de vente caisse</th><th>Prix d'achat caisse</th><th>Quota (part des ventes)</th><th>Taux moyen de marge produit</th></tr></thead><tbody>` +
+    // Tendance de la marge commerciale de chaque produit (mois par mois) —
+    // colonne ajoutée le 22 juillet 2026, juste après "Prix d'achat caisse".
+    const evolutionParMois = computeProductMarginEvolution('mois');
+    html += `<div class="table-wrap"><table><thead><tr><th>Produit</th><th>Prix de vente caisse</th><th>Prix d'achat caisse</th><th>Marge commerciale évolutive</th><th>Quota (part des ventes)</th><th>Taux moyen de marge produit</th></tr></thead><tbody>` +
       margeRows.map(r=>`<tr>
         <td>${esc(r.produit)}</td>
         <td>${fmtHTG(r.prixVente)}</td>
         <td>${fmtHTG(r.prixAchat)}</td>
+        <td>${computeMarginTrendIcon(evolutionParMois[r.produit])}</td>
         <td>${(r.quota*100).toFixed(1)}%</td>
         <td style="font-weight:600;color:${r.donneesOk?(r.tauxMarge>=0?'#1a7a4c':'#c0392b'):'var(--text3)'};">${r.donneesOk?r.tauxMarge.toFixed(1)+'%':'Données insuffisantes'}</td>
       </tr>`).join('') +
