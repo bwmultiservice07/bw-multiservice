@@ -2681,31 +2681,42 @@ const DEFAULT_PRODUCTS = [
 // Analyse).
 const PRODUCT_NAME_ALIASES = {
   'koka': 'coca kola',
-  'coca-kola': 'coca kola'
+  'coca-kola': 'coca kola',
+  // "coca" fusionné avec "coca kola" (demande du 22 juillet 2026 : "remplace
+  // coca par coca kola") — évite une ligne "coca" séparée à côté de "coca
+  // kola" dans le catalogue et dans tous les tableaux par produit.
+  'coca': 'coca kola'
 };
 
 // Fusionne la liste de base avec les produits ajoutés par les utilisateurs
 // (synchronisés via Firestore), sans doublons, tout en minuscule, triée
-// alphabétiquement.
+// alphabétiquement. Les noms qui ont un alias connu (ex: "coca") sont
+// résolus vers leur orthographe canonique (ex: "coca kola") pour ne jamais
+// afficher les deux comme des produits distincts dans les listes/menus.
 function getProductCatalog() {
   const seen = new Set();
   DEFAULT_PRODUCTS.forEach(p => seen.add(p.toLowerCase()));
   (STATE.customProducts||[]).forEach(p => {
     const name = (p && p.name || '').trim().toLowerCase();
-    if (name) seen.add(name);
+    if (name) seen.add(PRODUCT_NAME_ALIASES[name] || name);
   });
   return [...seen].sort((a,b) => a.localeCompare(b, 'fr'));
 }
 
 // Clé de regroupement normalisée pour un nom de produit (espaces superflus
-// retirés, tout en minuscule). Utilisée PARTOUT où des mouvements de stock,
-// ventes ou stock de départ sont additionnés par produit (Stock Actuel,
-// Analyse financière, Data Analyse, export Excel), pour que d'anciens
-// enregistrements (ex: "Beller" tapé avant la mise en minuscule des noms de
-// produits) restent bien reliés aux nouveaux mouvements du même produit
-// (ex: "beller") au lieu de former deux lignes séparées.
+// retirés, tout en minuscule, PUIS alias connu résolu — voir
+// PRODUCT_NAME_ALIASES). Utilisée PARTOUT où des mouvements de stock, ventes
+// ou stock de départ sont additionnés par produit (Stock Actuel, Analyse
+// financière, Data Analyse, export Excel, calculs de marge), pour que
+// d'anciens enregistrements (ex: "Beller" tapé avant la mise en minuscule
+// des noms de produits, ou "coca" tapé avant l'unification avec "coca kola")
+// restent bien reliés aux nouveaux mouvements du même produit au lieu de
+// former deux lignes séparées — cette résolution est RÉTROACTIVE : elle
+// s'applique aussi aux ventes/achats déjà enregistrés sous l'ancien nom,
+// sans avoir besoin de corriger les données existantes.
 function normProduit(name) {
-  return (name||'').trim().toLowerCase();
+  const key = (name||'').trim().toLowerCase();
+  return PRODUCT_NAME_ALIASES[key] || key;
 }
 
 // Calcule, pour chaque produit (clé normalisée via normProduit), la date
@@ -2920,19 +2931,31 @@ function formatCaissesDisplay(qtyCaisses, casseSize) {
 // de chaque ligne (au lieu de taper un prix et de laisser l'app calculer le
 // montant) : le Prix / Caisse-Bout et le Prix unitaire ne sont plus des
 // champs saisis. À la place, un indicateur en lecture seule affiche EN
-// DIRECT, pendant la saisie, le prix de vente que ce montant représente —
-// formule demandée explicitement : Montant vendu ÷ (Quantité + Nombre
-// d'unité). Purement informatif sur cette fonction (aide le vendeur à voir
-// si son prix dérive) ; c'est ce même calcul qui alimente réellement le
-// champ prixCaisse enregistré sur la transaction (voir submitSale()), pour
-// que le taux de marge (Analyse financière / Data Analyse) continue de
-// recevoir de vraies données malgré la disparition du champ "Prix / Caisse".
+// DIRECT, pendant la saisie, le prix de vente que ce montant représente ;
+// c'est ce même calcul qui alimente réellement le champ prixCaisse
+// enregistré sur la transaction (voir submitSale()), pour que le taux de
+// marge (Analyse financière / Data Analyse) continue de recevoir de vraies
+// données malgré la disparition du champ "Prix / Caisse".
+//
+// CORRECTION du 22 juillet 2026 : la formule d'origine (Montant vendu ÷
+// (Quantité + Nombre d'unité)) traitait à tort 1 caisse et 1 unité comme
+// équivalentes dans le dénominateur, ce qui donnait un prix par caisse
+// beaucoup trop bas dès qu'une ligne mélangeait des caisses ET des unités
+// supplémentaires (ex: 1 caisse + 11 unités → divisé par 12 au lieu de
+// ~1,46 caisse) — exactement ce qui rendait les prix de vente/le taux de
+// marge irréalistes dans "Prix de vente par produit" et "Taux de marge par
+// produit". La quantité est maintenant convertie en équivalent-caisses avec
+// la MÊME logique que partout ailleurs dans l'app (getQtyCaisses — taille de
+// caisse par produit, facteur Bout = 0.5, etc.), pour que ce prix soit
+// TOUJOURS un vrai prix "par caisse complète", quel que soit le mélange
+// caisse/bout/unités de la ligne.
 function updateRowPriceIndicator(prefix) {
   prefix = prefix || 'v';
   const qtyEl = document.getElementById(prefix+'-qty');
   const nbUniteEl = document.getElementById(prefix+'-nb-unite');
   const montantEl = document.getElementById(prefix+'-row-amount');
   const unitEl = document.getElementById(prefix+'-unit');
+  const descEl = document.getElementById(prefix+'-desc');
   const indicatorEl = document.getElementById(prefix+'-prix-evolutif');
   const labelEl = document.getElementById(prefix+'-prix-evolutif-label');
   if (!qtyEl || !montantEl || !unitEl || !indicatorEl) return;
@@ -2941,12 +2964,12 @@ function updateRowPriceIndicator(prefix) {
   const nbUnite = parseFloat((nbUniteEl && nbUniteEl.value) || 0) || 0;
   const montant = parseFloat(montantEl.value) || 0;
   const unit = unitEl.value;
-  const isBout = (unit === 'bout' || unit === 'bout-1-2');
-  if (labelEl) labelEl.textContent = isBout ? 'Prix de vente bout (estimé)' : 'Prix de vente caisse (estimé)';
+  const desc = descEl ? descEl.value : '';
+  if (labelEl) labelEl.textContent = 'Prix de vente caisse (estimé)';
 
-  const denom = qty + nbUnite;
-  const prix = denom > 0 ? montant / denom : 0;
-  indicatorEl.value = denom > 0 && montant > 0 ? fmtHTG(prix) : '—';
+  const qtyCaisses = getQtyCaisses({ description: desc, unit, quantity: qty, nombreUnite: nbUnite });
+  const prix = qtyCaisses > 0 ? montant / qtyCaisses : 0;
+  indicatorEl.value = qtyCaisses > 0 && montant > 0 ? fmtHTG(prix) : '—';
 }
 
 // Additionne le "Montant vente" de CHAQUE ligne produit (v-row-amount,
@@ -3267,13 +3290,19 @@ async function submitSaleInner() {
       return;
     }
     // Prix de vente dérivé de cette ligne (alimente prixCaisse, donc le taux
-    // de marge) — formule demandée le 17 juillet 2026 : Montant vendu ÷
-    // (Quantité + Nombre d'unité). Le "prix unitaire" reste dérivé de la
-    // même façon qu'avant (prix caisse ÷ taille de la caisse pour ce
-    // produit), pour rester cohérent avec l'affichage existant (colonne
-    // "Prix unit.") et les formules qui s'appuient dessus en repli.
-    const denom = qty + nbUnite;
-    const prixCaisse = denom > 0 ? rowAmount / denom : 0;
+    // de marge) : Montant vendu ÷ Quantité en équivalent-caisses. CORRECTION
+    // du 22 juillet 2026 (voir commentaire détaillé sur
+    // updateRowPriceIndicator() ci-dessus) : la quantité est désormais
+    // convertie en équivalent-caisses via getQtyCaisses() — la même logique
+    // utilisée partout ailleurs dans l'app — au lieu de sommer naïvement
+    // Quantité + Nombre d'unité, ce qui donnait un prix par caisse bien trop
+    // bas dès qu'une ligne mélangeait caisses et unités supplémentaires. Le
+    // "prix unitaire" reste dérivé de la même façon qu'avant (prix caisse ÷
+    // taille de la caisse pour ce produit), pour rester cohérent avec
+    // l'affichage existant (colonne "Prix unit.") et les formules qui
+    // s'appuient dessus en repli.
+    const qtyCaisses = getQtyCaisses({ description: desc, unit, quantity: qty, nombreUnite: nbUnite });
+    const prixCaisse = qtyCaisses > 0 ? rowAmount / qtyCaisses : 0;
     const casseSize = getCasseSize(desc, unit);
     const prix = prixCaisse > 0 ? prixCaisse / casseSize : 0;
     rows.push({ desc, qty, unit, prix, prixCaisse, nbUnite, amount: rowAmount });
@@ -4503,13 +4532,21 @@ function getLastAchatPrice(productKey, asOfIsoDate) {
   return getCumulativeValueAsOf(checkpoints, asOfIsoDate) || 0;
 }
 
+// Les ventes glacées (isGlace:true, voir submitSaleGlace()) sont exclues de
+// TOUS les calculs par produit (marge, prix de vente, contribution au
+// profit) : elles sont enregistrées sous le nom générique fixe "Produits
+// glacés" (aucune vraie fiche produit, prixCaisse toujours à 0 par
+// conception) et n'ont donc aucun prix par caisse à comparer. Les inclure ne
+// ferait qu'ajouter une fausse ligne "produits glacés" à 0,00 HTG dans les
+// tableaux de marge/prix (demande du 22 juillet 2026). Leur montant reste
+// bien compté dans le chiffre d'affaires global et la caisse (non touché ici).
 function computeProductPriceMaps() {
   // Prix de vente Caisse, depuis les VRAIES ventes enregistrées en unité
   // Caisse (onglet Ventes) — moyenne pondérée par quantité si un même
   // produit a été vendu à des prix différents au fil du temps. Les ventes
   // en "Bout" sont ignorées (voir isCaisseUnit ci-dessus).
   const venteAgg = {};
-  (STATE.transactions||[]).filter(t=>t.type==='vente').filter(t=>isCaisseUnit(t.unit)).forEach(t => {
+  (STATE.transactions||[]).filter(t=>t.type==='vente' && !t.isGlace).filter(t=>isCaisseUnit(t.unit)).forEach(t => {
     const key = normProduit(t.description);
     if (!key) return;
     const qty = getQtyCaisses(t);
@@ -4573,7 +4610,7 @@ function computeMargeProduitPourVentes(ventes) {
 // mois — réutilisé par Analyse financière (tableau + export Excel) pour
 // afficher ce taux à côté des autres indicateurs cumulés.
 function computeProductMarginRatesByPeriod() {
-  const ventes = (STATE.transactions||[]).filter(t=>t.type==='vente');
+  const ventes = (STATE.transactions||[]).filter(t=>t.type==='vente' && !t.isGlace);
   const ventesByDay = {}, ventesByMonth = {};
   ventes.forEach(t => {
     const day = getIsoFromTx(t);
@@ -4652,7 +4689,7 @@ function computeProductMarginRatesForVentes(ventes) {
 // connu). Réutilisé par Data Analyse ET Analyse financière (+ export Excel)
 // pour des chiffres cohérents.
 function computeProductMarginRates() {
-  const ventes = (STATE.transactions||[]).filter(t=>t.type==='vente');
+  const ventes = (STATE.transactions||[]).filter(t=>t.type==='vente' && !t.isGlace);
   const {margeRows, tauxMoyenPondere} = computeProductMarginRatesForVentes(ventes);
   return {margeRows, tauxMoyenPondere: tauxMoyenPondere||0};
 }
@@ -4678,7 +4715,7 @@ function getWeekRangeForIsoDate(isoDateStr) {
 // le mix de produits vendus (quota) change selon le jour, exactement comme
 // pour computeProductMarginRatesByPeriod().
 function computeMarginDetailForDate(isoDateStr) {
-  const ventes = (STATE.transactions||[]).filter(t=>t.type==='vente');
+  const ventes = (STATE.transactions||[]).filter(t=>t.type==='vente' && !t.isGlace);
   const ventesJour = ventes.filter(t => getIsoFromTx(t) === isoDateStr);
   const jour = computeProductMarginRatesForVentes(ventesJour);
   return { jour: {...jour, label: formatGroupLabel(isoDateStr)} };
@@ -4689,7 +4726,7 @@ function computeMarginDetailForDate(isoDateStr) {
 // pas seulement la semaine de la date choisie. Triées de la plus récente à
 // la plus ancienne.
 function computeAllWeeksMarginRates() {
-  const ventes = (STATE.transactions||[]).filter(t=>t.type==='vente');
+  const ventes = (STATE.transactions||[]).filter(t=>t.type==='vente' && !t.isGlace);
   const weekBuckets = {};
   ventes.forEach(t => {
     const day = getIsoFromTx(t);
@@ -4715,7 +4752,7 @@ function computeAllWeeksMarginRates() {
 // (affichés à part comme "Aucune vente"), pour couvrir toute l'année d'un
 // coup plutôt qu'un seul mois à la fois.
 function computeAllMonthsMarginRatesForYear(year) {
-  const ventes = (STATE.transactions||[]).filter(t=>t.type==='vente');
+  const ventes = (STATE.transactions||[]).filter(t=>t.type==='vente' && !t.isGlace);
   const monthNames = ['Janvier','Février','Mars','Avril','Mai','Juin','Juillet','Août','Septembre','Octobre','Novembre','Décembre'];
   const rows = [];
   for (let m = 1; m <= 12; m++) {
@@ -4827,7 +4864,7 @@ function renderMarginDetailModal() {
 // période après période (granularity: 'jour' | 'semaine' | 'mois'), triée du
 // plus ancien au plus récent.
 function computeProductMarginEvolution(granularity) {
-  const ventes = (STATE.transactions||[]).filter(t=>t.type==='vente').filter(t=>isCaisseUnit(t.unit));
+  const ventes = (STATE.transactions||[]).filter(t=>t.type==='vente' && !t.isGlace).filter(t=>isCaisseUnit(t.unit));
 
   const byProduct = {};
   ventes.forEach(t => {
@@ -5580,7 +5617,7 @@ function computeSupplierDebtAlerts() {
 // profit total grâce à son volume : ce classement révèle où l'argent est
 // réellement gagné.
 function computeProductProfitContribution() {
-  const ventes = (STATE.transactions||[]).filter(t=>t.type==='vente');
+  const ventes = (STATE.transactions||[]).filter(t=>t.type==='vente' && !t.isGlace);
   const {prixVenteMap, prixAchatMap} = computeProductPriceMaps();
   const qtyMap = {};
   ventes.forEach(t => {
