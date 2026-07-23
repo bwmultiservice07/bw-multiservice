@@ -1513,6 +1513,8 @@ let STATE = {
   manualSupplierDebts: [],  // synced from Firestore (dettes fournisseurs préexistantes, ajoutées manuellement)
   customProducts: [],       // synced from Firestore (produits ajoutés par les utilisateurs, en plus de la liste de base)
   stockMovementsResetAt: null, // synced from Firestore (settings/stock_movements) — voir resetStockMovementsTracking()
+  marginManualPrices: {}, // synced from Firestore (settings/margin_manual_prices) — voir setMarginManualPrice()
+  marginManualPricesSeeded: false, // synced from Firestore (settings/margin_manual_prices.seededV1)
   pendingQueue: [],   // offline queue
   currentUser: null,
   isOnline: navigator.onLine,
@@ -1655,6 +1657,7 @@ let unsubCredits = null, unsubStockDepart = null, unsubCaisse = null, unsubCaiss
 let unsubManualClientDebts = null, unsubManualSupplierDebts = null;
 let unsubProduits = null;
 let unsubStockMovementsSettings = null;
+let unsubMarginManualPrices = null;
 
 function startFirebaseListeners() {
   if (!window._fbReady || !window._db) return;
@@ -1763,6 +1766,28 @@ function startFirebaseListeners() {
       renderStockActuel();
     },
     err => console.error('Stock movements settings listener:', err)
+  );
+
+  // PRIX DE VENTE CAISSE MANUELS (doc unique) - Synchronisation globale :
+  // demande du 23 juillet 2026 — permet à un admin/gestionnaire de fixer
+  // "à la main" le Prix de vente caisse d'un produit dans le tableau Taux de
+  // marge par produit (voir setMarginManualPrice()), quand la valeur
+  // calculée automatiquement (dernière vente réelle connue / Stock de
+  // départ) ne correspond pas à la réalité. Une valeur fixée manuellement
+  // devient la source PRIORITAIRE pour ce produit, au-dessus des ventes
+  // réelles et du Stock de départ, jusqu'à ce qu'elle soit changée ou retirée.
+  if (unsubMarginManualPrices) unsubMarginManualPrices();
+  unsubMarginManualPrices = onSnapshot(
+    doc(db, 'settings', 'margin_manual_prices'),
+    snap => {
+      const data = snap.exists() ? snap.data() : null;
+      STATE.marginManualPrices = (data && data.prices) ? data.prices : {};
+      STATE.marginManualPricesSeeded = !!(data && data.seededV1);
+      maybeSeedInitialMarginManualPrices();
+      if (currentTab === 'data-analyse') renderDataAnalyse();
+      if (currentTab === 'compta') refreshAccounting();
+    },
+    err => console.error('Margin manual prices listener:', err)
   );
 
   // MOUVEMENT CAISSE - Synchronisation globale
@@ -2421,6 +2446,12 @@ function finishLogin(user) {
   // en plus de Firebase) — délai pour laisser le temps aux données de se
   // charger depuis Firestore avant de générer le fichier de sauvegarde.
   setTimeout(() => { maybeAutoBackup(); }, 8000);
+  // Filet de sécurité : si l'écouteur Firestore des prix de vente/caisse
+  // manuels (voir startFirebaseListeners()) s'était déclenché AVANT que
+  // STATE.currentUser ne soit défini ici, il aurait sauté la condition de
+  // rôle et jamais retenté ensuite. On retente donc une fois ici, une fois
+  // le rôle connu (voir maybeSeedInitialMarginManualPrices()).
+  setTimeout(() => { maybeSeedInitialMarginManualPrices(); }, 3000);
   // Re-vérifie le rôle RÉEL juste après (voir verifyRealRoleOrLogout()) —
   // annule automatiquement toute tentative de faire croire à l'app qu'on
   // est admin/gestionnaire en rappelant finishLogin() à la main depuis la
@@ -2714,7 +2745,10 @@ const PRODUCT_NAME_ALIASES = {
   // "coca" fusionné avec "coca kola" (demande du 22 juillet 2026 : "remplace
   // coca par coca kola") — évite une ligne "coca" séparée à côté de "coca
   // kola" dans le catalogue et dans tous les tableaux par produit.
-  'coca': 'coca kola'
+  'coca': 'coca kola',
+  // "malta can" fusionné avec "malta canette" (demande du 23 juillet 2026 :
+  // "remplace malta can par malta canette dans toute l'application").
+  'malta can': 'malta canette'
 };
 
 // Produits personnalisés à TOUJOURS masquer du catalogue affiché, même s'ils
@@ -3726,7 +3760,7 @@ function renderInvoiceContent(lines) {
       <thead><tr><th style="text-align:left;font-size:10px;">Produit</th><th style="text-align:right;font-size:10px;">Qté</th><th style="text-align:right;font-size:10px;">P.U.</th><th style="text-align:right;font-size:10px;">Total</th></tr></thead>
       <tbody>
         ${lines.map(l=>`<tr>
-          <td style="text-align:left;font-size:10px;">${esc(l.description||'')}${l.isGlace?' 🧊':''}</td>
+          <td style="text-align:left;font-size:10px;">${esc(normProduit(l.description)||'')}${l.isGlace?' 🧊':''}</td>
           <td style="text-align:right;font-size:10px;">${l.quantity||0} ${esc(formatUnitLabel(l.unit))}</td>
           <td style="text-align:right;font-size:10px;">${fmtHTG(l.unitPrice||0)}</td>
           <td style="text-align:right;font-size:10px;">${fmtHTG(l.amount||0)}</td>
@@ -3894,7 +3928,7 @@ function renderMySales() {
         // loadSaleForCorrection()), demande du 17 juillet 2026.
         const rowClickAttr = clickable ? ` style="cursor:pointer;" onclick="loadSaleForCorrection('${t.id}')" title="Cliquer pour corriger cette vente"` : '';
         html += `<tr${rowClickAttr}>
-          <td>${t.date}</td><td>${t.time}</td><td>${esc(t.seller||'')}</td><td>${esc(t.description)}${t.isGlace?' <span title="Vente glacée" style="color:#1a73e8;">🧊</span>':''}</td><td>${t.quantity}</td>
+          <td>${t.date}</td><td>${t.time}</td><td>${esc(t.seller||'')}</td><td>${esc(normProduit(t.description))}${t.isGlace?' <span title="Vente glacée" style="color:#1a73e8;">🧊</span>':''}</td><td>${t.quantity}</td>
           <td>${esc(formatUnitLabel(t.unit))}</td><td>${t.nombreUnite||0}</td><td>${fmtHTG(t.prixCaisse||0)}</td><td>${fmtHTG(t.unitPrice||0)}</td>
           <td>${fmtHTG(t.amount)}</td><td>${fmtHTG(t.cash||0)}</td>
           <td>${fmtHTG(t.credit||0)}</td><td>${fmtHTG(t.balance||0)}</td>
@@ -4727,6 +4761,94 @@ function getStockDepartPrixCaisse(productKey) {
   return best ? best.prix : 0;
 }
 
+// Prix de vente/caisse fixé manuellement par un admin/gestionnaire pour un
+// produit donné (demande du 23 juillet 2026 : "mets un mecanisme en place me
+// permettant de modifier les prix de vente caisse de chacun des produits du
+// tableau de taux de marge par produits"). Quand une valeur manuelle existe
+// pour ce produit, elle devient la source PRIORITAIRE du Prix de vente
+// caisse partout où ce prix est utilisé pour la marge (tableau Taux de marge
+// par produit, Marge commerciale évolutive) — au-dessus des vraies ventes et
+// du Stock de départ, jusqu'à ce qu'elle soit changée ou retirée (voir
+// setMarginManualPrice()).
+function getMarginManualPrice(productKey) {
+  const v = (STATE.marginManualPrices||{})[productKey];
+  return (typeof v === 'number' && v > 0) ? v : 0;
+}
+
+// Empêche une deuxième tentative d'écriture pendant qu'une première est déjà
+// en cours (le marqueur définitif reste "seededV1" dans Firestore — voir
+// STATE.marginManualPricesSeeded — mais cet indicateur local évite des
+// écritures redondantes si la fonction est appelée plusieurs fois de suite
+// avant que la première réponse Firestore ne soit revenue).
+let _marginPricesSeedInProgress = false;
+
+// Demande du 23 juillet 2026 : "mets ces vrais prix de vente par caisse de
+// ces produits" (frooty = 1000 HTG, malta india = 2000 HTG, couronne = 1600
+// HTG). Applique ces valeurs UNE SEULE FOIS, comme prix de vente/caisse
+// manuel (voir getMarginManualPrice()), la première fois qu'un
+// admin/gestionnaire ouvre l'app après ce déploiement — sans jamais les
+// réappliquer ensuite, même si elles sont changées ou retirées plus tard via
+// promptSetMarginManualPrice() (protégé par le marqueur "seededV1" du
+// document Firestore settings/margin_manual_prices).
+function maybeSeedInitialMarginManualPrices() {
+  if (STATE.marginManualPricesSeeded) return;
+  if (_marginPricesSeedInProgress) return;
+  if (!STATE.isOnline || !STATE.fbReady) return;
+  if (!STATE.currentUser || (STATE.currentUser.role!=='admin' && STATE.currentUser.role!=='gestionnaire')) return;
+  _marginPricesSeedInProgress = true;
+  const defaults = { 'frooty':1000, 'malta india':2000, 'couronne':1600 };
+  const prices = { ...(STATE.marginManualPrices||{}) };
+  Object.keys(defaults).forEach(k => { if (!(prices[k] > 0)) prices[k] = defaults[k]; });
+  const {doc, setDoc} = window._fbFns;
+  setDoc(doc(window._db,'settings','margin_manual_prices'), {
+    prices, seededV1:true, updatedBy: STATE.currentUser.username, updatedAt: new Date().toISOString()
+  }).then(() => {
+    STATE.marginManualPrices = prices;
+    STATE.marginManualPricesSeeded = true;
+    _marginPricesSeedInProgress = false;
+    if (currentTab === 'data-analyse') renderDataAnalyse();
+  }).catch(e => { console.error('maybeSeedInitialMarginManualPrices:', e); _marginPricesSeedInProgress = false; });
+}
+
+// Admin/gestionnaire : ouvre une invite pour fixer, modifier ou retirer le
+// prix de vente/caisse manuel d'UN produit dans le tableau Taux de marge par
+// produit (demande du 23 juillet 2026 : "mets aussi un mecanisme en place me
+// permettant de modifier les prix de vente caisse de chacun des produits").
+// Un champ laissé vide retire la valeur manuelle et revient au calcul
+// automatique habituel (dernière vente réelle connue, puis Stock de départ
+// en repli).
+async function promptSetMarginManualPrice(produitBrut) {
+  if (!requireAdminOrGest()) return;
+  const key = normProduit(produitBrut);
+  const current = getMarginManualPrice(key);
+  const input = prompt(`Prix de vente/caisse manuel pour "${key}" (en HTG).\n\nCe prix sera utilisé en priorité dans le tableau Taux de marge par produit et la Marge commerciale évolutive, à la place du prix calculé automatiquement.\n\nLaissez le champ vide et validez pour retirer cette valeur et revenir au calcul automatique.`, current > 0 ? String(current) : '');
+  if (input === null) return; // annulé
+  if (!STATE.isOnline || !STATE.fbReady) {
+    showToast('⚠ Hors ligne — impossible d\'enregistrer maintenant.','warn'); return;
+  }
+  const trimmed = input.trim();
+  const newPrices = { ...(STATE.marginManualPrices||{}) };
+  if (trimmed === '') {
+    if (!(key in newPrices)) { showToast('ℹ️ Aucun prix manuel n\'était fixé pour ce produit.'); return; }
+    delete newPrices[key];
+  } else {
+    const val = parseFloat(trimmed.replace(',', '.'));
+    if (isNaN(val) || val <= 0) { showToast('⚠ Montant invalide.','warn'); return; }
+    newPrices[key] = val;
+  }
+  try {
+    const {doc, setDoc} = window._fbFns;
+    await setDoc(doc(window._db,'settings','margin_manual_prices'), {
+      prices: newPrices, seededV1:true, updatedBy: STATE.currentUser.username, updatedAt: new Date().toISOString()
+    });
+    STATE.marginManualPrices = newPrices;
+    STATE.marginManualPricesSeeded = true;
+    renderDataAnalyse();
+    if (currentTab === 'compta') refreshAccounting();
+    showToast(trimmed === '' ? '✅ Prix manuel retiré — retour au calcul automatique.' : '✅ Prix de vente/caisse manuel enregistré.');
+  } catch(e) { showToast('⚠ Erreur: '+e.message,'warn'); }
+}
+
 function computeProductPriceMaps() {
   // Prix de vente Caisse : le prix de la DERNIÈRE vente réellement
   // enregistrée en unité Caisse (onglet Ventes) — PAS une moyenne pondérée
@@ -4754,6 +4876,14 @@ function computeProductPriceMaps() {
     if (prixVenteMap[k] > 0) return;
     const departPrix = getStockDepartPrixCaisse(k);
     if (departPrix > 0) prixVenteMap[k] = departPrix;
+  });
+  // Demande du 23 juillet 2026 : un prix fixé manuellement (voir
+  // getMarginManualPrice()/setMarginManualPrice()) devient la source
+  // PRIORITAIRE — au-dessus des vraies ventes ET du Stock de départ — pour
+  // tout produit concerné, qu'il ait déjà une entrée ci-dessus ou non.
+  new Set([...Object.keys(prixVenteMap), ...Object.keys(STATE.marginManualPrices||{})]).forEach(k => {
+    const manuel = getMarginManualPrice(k);
+    if (manuel > 0) prixVenteMap[k] = manuel;
   });
   // Prix d'achat Caisse, depuis les Mouvements de stocks (Achats) enregistrés
   // en unité Caisse — le prix du DERNIER achat enregistré pour ce produit
@@ -4843,7 +4973,10 @@ function computeProductMarginRatesForVentes(ventes) {
     // vendu (voir computeProductPriceMaps() ci-dessus pour le détail).
     const prixVenteVentes = agg && agg.refDate ? getLastVentePrice(p, agg.refDate) : 0;
     const prixVenteDepart = getStockDepartPrixCaisse(p);
-    const prixVente = prixVenteVentes > 0 ? prixVenteVentes : prixVenteDepart;
+    // Demande du 23 juillet 2026 : un prix fixé manuellement (voir
+    // getMarginManualPrice()) est PRIORITAIRE sur tout le reste.
+    const prixVenteManuel = getMarginManualPrice(p);
+    const prixVente = prixVenteManuel > 0 ? prixVenteManuel : (prixVenteVentes > 0 ? prixVenteVentes : prixVenteDepart);
     const prixAchat = agg && agg.refDate ? getLastAchatPrice(p, agg.refDate) : 0;
     const qtyVendu = qtyVenduMap[p] || 0;
     const quota = totalQtyVendu > 0 ? qtyVendu / totalQtyVendu : 0;
@@ -5073,10 +5206,13 @@ function computeProductMarginEvolution(granularity) {
     // référence de cette période, pas une moyenne ; le Stock de départ ne
     // sert que de repli si le produit n'a jamais été vendu.
     const prixVenteDepart = getStockDepartPrixCaisse(produit);
+    // Demande du 23 juillet 2026 : un prix fixé manuellement est PRIORITAIRE
+    // sur tout le reste (voir getMarginManualPrice()).
+    const prixVenteManuel = getMarginManualPrice(produit);
     const periods = Object.values(byProduct[produit]).sort((a,b)=>a.sortKey.localeCompare(b.sortKey));
     result[produit] = periods.map(p => {
       const prixVenteVentes = getLastVentePrice(produit, p.refDate);
-      const prixVente = prixVenteVentes > 0 ? prixVenteVentes : prixVenteDepart;
+      const prixVente = prixVenteManuel > 0 ? prixVenteManuel : (prixVenteVentes > 0 ? prixVenteVentes : prixVenteDepart);
       const prixAchat = getLastAchatPrice(produit, p.refDate);
       const donneesOk = prixVente > 0 && prixAchat > 0;
       const margeCommerciale = donneesOk ? (prixVente - prixAchat) / prixAchat * 100 : null;
@@ -6106,15 +6242,25 @@ function renderDataAnalyse() {
     // produit a 2 jours de vente (+ achat) valides — même très rapprochés —
     // la tendance apparaît immédiatement.
     const evolutionParJour = computeProductMarginEvolution('jour');
+    // Demande du 23 juillet 2026 : un bouton ✏️ (admin/gestionnaire
+    // seulement) permet de fixer/modifier/retirer le Prix de vente caisse de
+    // CHAQUE produit à la main (voir promptSetMarginManualPrice()) — un badge
+    // "manuel" indique quand la valeur affichée vient de ce réglage plutôt
+    // que du calcul automatique.
     html += `<div class="table-wrap"><table><thead><tr><th>Produit</th><th>Prix de vente caisse</th><th>Prix d'achat caisse</th><th>Marge commerciale évolutive</th><th>Quota (part des ventes)</th><th>Taux moyen de marge produit</th></tr></thead><tbody>` +
-      margeRows.map(r=>`<tr>
+      margeRows.map(r=>{
+        const isManuel = getMarginManualPrice(r.produit) > 0;
+        const editBtn = isAdminOrGest ? `<button class="btn btn-outline" style="font-size:.7rem;padding:2px 8px;margin-left:6px;" onclick="promptSetMarginManualPrice('${esc(r.produit)}')" title="Fixer/modifier le prix de vente/caisse de ce produit à la main">✏️</button>` : '';
+        const badge = isManuel ? ` <span style="font-size:.72rem;color:#1a56db;" title="Prix fixé manuellement, prioritaire sur le calcul automatique">✋ manuel</span>` : '';
+        return `<tr>
         <td>${esc(r.produit)}</td>
-        <td>${fmtHTG(r.prixVente)}</td>
+        <td>${fmtHTG(r.prixVente)}${badge}${editBtn}</td>
         <td>${fmtHTG(r.prixAchat)}</td>
         <td>${computeMarginTrendIcon(evolutionParJour[r.produit])}</td>
         <td>${(r.quota*100).toFixed(1)}%</td>
         <td style="font-weight:600;color:${r.donneesOk?(r.tauxMarge>=0?'#1a7a4c':'#c0392b'):'var(--text3)'};">${r.donneesOk?r.tauxMarge.toFixed(1)+'%':'Données insuffisantes'}</td>
-      </tr>`).join('') +
+      </tr>`;
+      }).join('') +
       `</tbody></table></div>`;
   }
   html += `</div>`;
@@ -6393,7 +6539,7 @@ function renderAllTrans(filterIso) {
     // les achats et pour les ventes historiques enregistrées avant l'ajout de
     // ce suivi.
     return `<tr>
-      <td>${t.date}</td><td>${t.time}</td><td>${esc(t.seller)}</td><td>${esc(t.description)}</td>
+      <td>${t.date}</td><td>${t.time}</td><td>${esc(t.seller)}</td><td>${esc(normProduit(t.description))}</td>
       <td>${t.quantity} ${esc(formatUnitLabel(t.unit))}</td><td>${fmtHTG(t.amount)}</td>
       <td>${fmtHTG(t.cash||0)}</td><td>${fmtHTG(t.credit||0)}</td><td>${fmtHTG(t.balance||0)}</td><td>${esc(t.client||'')}</td>
       <td style="font-size:.78rem;">${t.type==='vente'?esc(t.deviceInfo||'—'):'—'}</td>
@@ -6488,7 +6634,7 @@ function renderAdminTrans() {
   // Admin et Gestionnaire peuvent modifier/supprimer
   const canEdit = STATE.currentUser && (STATE.currentUser.role==='admin' || STATE.currentUser.role==='gestionnaire');
   body.innerHTML=sorted.map(t=>`<tr>
-    <td>${t.date}</td><td>${t.time}</td><td>${esc(t.seller)}</td><td>${esc(t.description)}</td>
+    <td>${t.date}</td><td>${t.time}</td><td>${esc(t.seller)}</td><td>${esc(normProduit(t.description))}</td>
     <td>${t.quantity}</td><td>${fmtHTG(t.amount)}</td>
     <td style="white-space:nowrap;">
       ${canEdit ? `<button class="btn btn-outline" style="font-size:.75rem;padding:3px 10px;" onclick="openEditModal('${t.id}')">✏</button>
@@ -7465,8 +7611,13 @@ function buildTransSheet() {
           <button class="btn" style="font-size:.7rem;padding:3px 8px;background:var(--danger-bg);color:var(--danger);border:1px solid #f5b7b1;" onclick="deleteFromTransSheet('${t._kind}','${t.id||''}')">🗑</button>
         </div>`
       : '—';
+    // La description n'est un nom de produit (à normaliser via normProduit,
+    // ex: "malta can" -> "malta canette") que pour les ventes/achats — les
+    // autres lignes (charges, paiements, retraits) ont une description libre
+    // qu'il ne faut pas toucher.
+    const descAffichee = (t._kind==='vente'||t._kind==='achat') ? normProduit(t.description||'') : (t.description||'');
     return `<tr><td>${i+1}</td><td>${t.date||''}</td><td>${t.time||''}</td><td>${esc(t.seller||'')}</td>
-      <td>${esc(t.description||'')}</td><td>${t._isVente?(t.quantity||''):''}</td><td>${fmtHTG(montant)}</td>
+      <td>${esc(descAffichee)}</td><td>${t._isVente?(t.quantity||''):''}</td><td>${fmtHTG(montant)}</td>
       <td>${t._label}</td><td>${t._isVente?fmtHTG(cum):'—'}</td><td>${actions}</td></tr>`;
   }).join('') || '<tr><td colspan="10" style="text-align:center;color:var(--text3);padding:1rem;">Aucune transaction.</td></tr>';
   total.textContent = fmtHTG(grandTotal);
@@ -8157,7 +8308,11 @@ function exportAllToExcel() {
     ...items.map((t,i)=>{
       const montant = t._isVente ? (t.amount||0) : (t.montant||0);
       if (t._isVente) cum+=montant;
-      return [i+1,t.date||'',t.time||'',t.seller||'',t.description||'',t._isVente?(t.quantity||''):'',montant,t._label,t._isVente?cum:''];
+      // Normalise le nom de produit (ex: "malta can" -> "malta canette")
+      // uniquement pour les ventes/achats — les autres lignes (charges,
+      // paiements, retraits) ont une description libre à ne pas toucher.
+      const descAffichee = (t._isVente || t._label==='Achat') ? normProduit(t.description||'') : (t.description||'');
+      return [i+1,t.date||'',t.time||'',t.seller||'',descAffichee,t._isVente?(t.quantity||''):'',montant,t._label,t._isVente?cum:''];
     })
   ]),'Transactions');
 
@@ -8235,7 +8390,7 @@ function buildFullWorkbook() {
   // enregistrées avant l'ajout de ce suivi).
   XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([
     ['Date','Heure','Vendeur','Produit','Unité','Quantité','Prix unit.','Montant','Cash','Crédit','Balance','Client','Appareil','Statut'],
-    ...sales.map(t=>[t.date,t.time,t.seller,t.description,formatUnitLabel(t.unit),t.quantity,t.unitPrice||0,t.amount||0,t.cash||0,t.credit||0,t.balance||0,t.client||'',t.deviceInfo||'—',t.balance>0?(t.balance===t.credit?'Non soldé':'Partiel'):'Soldé'])
+    ...sales.map(t=>[t.date,t.time,t.seller,normProduit(t.description),formatUnitLabel(t.unit),t.quantity,t.unitPrice||0,t.amount||0,t.cash||0,t.credit||0,t.balance||0,t.client||'',t.deviceInfo||'—',t.balance>0?(t.balance===t.credit?'Non soldé':'Partiel'):'Soldé'])
   ]), '📋 Ventes');
 
   // 2. Crédits Clients
@@ -8290,7 +8445,7 @@ function buildFullWorkbook() {
   const stockDepart = [...(STATE.stockDepart||[])].sort((a,b)=>(b.isoDate||'').localeCompare(a.isoDate||''));
   XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([
     ['Date','Description','Quantité','Prix caisse','Valeur'],
-    ...stockDepart.map(s=>[s.date,s.description,s.quantity,s.prixCaisse||0,s.valeur||0])
+    ...stockDepart.map(s=>[s.date,normProduit(s.description),s.quantity,s.prixCaisse||0,s.valeur||0])
   ]), '🏁 Stock de Départ');
 
   // 6. Stock Actuel (départ + entrées - sorties) — regroupement par clé
@@ -9797,7 +9952,7 @@ function renderStockDepart() {
   const totalNombreUnite = items.reduce((s,i)=>s+(parseFloat(i.nombreUnite)||0),0);
   const totalValeur = items.reduce((s,i)=>s+(parseFloat(i.valeur)||0),0);
   body.innerHTML = items.map(s=>`<tr${canEdit ? ` style="cursor:pointer;" onclick="loadStockDepartForCorrection('${s.id||''}')" title="Cliquer pour corriger cet enregistrement"` : ''}>
-    <td>${s.date}</td><td>${esc(s.description)}</td><td>${s.quantity}</td>
+    <td>${s.date}</td><td>${esc(normProduit(s.description))}</td><td>${s.quantity}</td>
     <td>${esc(formatUnitLabel(s.unit))}</td>
     <td>${fmtHTG(s.prixCaisse||0)}</td>
     <td>${fmtHTG(s.prixUnitaire || (s.prixCaisse ? s.prixCaisse/getUnitsPerSelection(s.description, s.unit) : 0))}</td>
