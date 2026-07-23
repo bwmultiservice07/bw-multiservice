@@ -1205,6 +1205,13 @@ tr:hover td{background:#f7f9ff;}
           </table>
         </div>
       </div>
+      <div class="card">
+        <div class="section-title">🛠️ Corriger les prix de vente historiques (Taux de marge)</div>
+        <div style="font-size:.85rem;color:var(--text2);margin-bottom:.8rem;">
+          Avant la correction du 22 juillet 2026, le "Prix de vente/caisse" de certaines ventes déjà enregistrées (celles avec un Nombre d'unité en plus des caisses/bouts) était calculé avec une ancienne formule trop basse — ce qui fait encore apparaître aujourd'hui des prix incorrects dans le tableau "Taux de marge par produit", même si le montant réellement encaissé pour ces ventes, lui, a toujours été correct. Ce bouton recalcule cet indicateur à partir du montant réel de chaque vente concernée et le corrige — sans jamais modifier le montant encaissé, la quantité, ni aucune autre donnée de la vente.
+        </div>
+        <button class="btn btn-outline" style="font-size:.82rem;" onclick="repairHistoricalSalePrices()">🛠️ Corriger les prix de vente historiques</button>
+      </div>
     </div>
 
     <!-- COMPTABILITÉ -->
@@ -4373,6 +4380,74 @@ async function resetStockMovementsTracking() {
     renderStockActuel();
     showToast('✅ Suivi réinitialisé — seuls les prochains achats/ventes seront comptés.');
   } catch(e) { showToast('⚠ Erreur: '+e.message,'warn'); }
+}
+
+// Admin/gestionnaire : corrige, pour les ventes DÉJÀ enregistrées en base,
+// l'indicateur "Prix de vente/caisse" (prixCaisse) — celui qui alimente le
+// tableau "Taux de marge par produit" — quand il a été calculé avec
+// l'ancienne formule buguée (demande du 22 juillet 2026, signalée à
+// plusieurs reprises : 7up, frooty, prestige, ti vallée, malta india,
+// robusto, fanta, "petit", sprite...). Avant la correction apportée à
+// submitSaleInner()/updateRowPriceIndicator() le 22 juillet 2026, prixCaisse
+// était calculé en divisant le montant de la ligne par (Quantité + Nombre
+// d'unité) au lieu de la quantité convertie en équivalent-caisses
+// (getQtyCaisses) — ce qui donnait un prix par caisse trop bas dès qu'une
+// vente avait un "Nombre d'unité" renseigné en plus des caisses/bouts. Cette
+// correction ne touchait que les NOUVELLES ventes : les ventes déjà en base
+// à ce moment-là gardaient leur ancien prixCaisse erroné, ce qui explique
+// que le tableau Taux de marge continuait d'afficher des prix incohérents
+// avec l'onglet Ventes même après la correction du code.
+//
+// Le montant réellement encaissé (amount) n'a, lui, jamais été affecté par
+// ce bug (c'est prixCaisse qui était dérivé de amount, pas l'inverse) : on
+// peut donc recalculer prixCaisse de façon sûre et déterministe à partir de
+// lui, pour CHAQUE vente historique, sans risque de fausser un montant déjà
+// encaissé/comptabilisé.
+async function repairHistoricalSalePrices() {
+  if (!requireAdminOrGest()) return;
+  if (!STATE.isOnline || !STATE.fbReady) {
+    showToast('⚠ Hors ligne — impossible de corriger maintenant.','warn'); return;
+  }
+  const ventes = (STATE.transactions||[]).filter(t => t.type === 'vente' && t.id);
+  const toFix = [];
+  ventes.forEach(t => {
+    const qtyCaisses = getQtyCaisses(t);
+    if (!(qtyCaisses > 0)) return;
+    const amount = parseFloat(t.amount) || 0;
+    if (!(amount > 0)) return;
+    const correctPrixCaisse = amount / qtyCaisses;
+    const currentPrixCaisse = parseFloat(t.prixCaisse) || 0;
+    // Écart significatif seulement (plus de 1 HTG ET plus de 1%) — pour
+    // ignorer les simples arrondis et ne corriger que les vraies erreurs.
+    const diff = Math.abs(correctPrixCaisse - currentPrixCaisse);
+    if (diff > 1 && diff > currentPrixCaisse * 0.01) {
+      const casseSize = getCasseSize(t.description, t.unit);
+      const correctUnitPrice = casseSize > 0 ? correctPrixCaisse / casseSize : correctPrixCaisse;
+      toFix.push({ t, oldPrixCaisse: currentPrixCaisse, correctPrixCaisse, correctUnitPrice });
+    }
+  });
+  if (!toFix.length) {
+    showToast('✅ Aucune vente historique à corriger — tous les prix sont déjà cohérents.');
+    return;
+  }
+  const preview = toFix.slice(0,8).map(f => `• ${f.t.description} (${f.t.date||''}) : ${fmtHTG(f.oldPrixCaisse)} → ${fmtHTG(f.correctPrixCaisse)}`).join('\n');
+  const more = toFix.length > 8 ? `\n… et ${toFix.length-8} autre(s).` : '';
+  if (!confirm(`Corriger le "Prix de vente/caisse" de ${toFix.length} vente(s) historique(s) affectée(s) par l'ancienne formule ?\n\nLe montant réellement encaissé n'est PAS modifié — seul cet indicateur (utilisé dans le tableau Taux de marge par produit) est recalculé à partir du montant réel.\n\n${preview}${more}`)) return;
+  let fixed = 0, failed = 0;
+  const {doc, updateDoc} = window._fbFns;
+  for (const f of toFix) {
+    try {
+      await updateDoc(doc(window._db,'transactions',f.t.id), {
+        prixCaisse: f.correctPrixCaisse,
+        unitPrice: f.correctUnitPrice
+      });
+      f.t.prixCaisse = f.correctPrixCaisse;
+      f.t.unitPrice = f.correctUnitPrice;
+      fixed++;
+    } catch(e) { console.error('repairHistoricalSalePrices:', e); failed++; }
+  }
+  renderAll();
+  showToast(failed ? `⚠ ${fixed} vente(s) corrigée(s), ${failed} échec(s).` : `✅ ${fixed} vente(s) historique(s) corrigée(s) avec succès.`);
 }
 
 function renderStocks() {
