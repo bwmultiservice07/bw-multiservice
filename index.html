@@ -4422,10 +4422,15 @@ function renderStocks() {
   if (!all.length) {
     body.innerHTML='<tr><td colspan="9" style="text-align:center;color:var(--text3);padding:1.5rem;">Aucun mouvement.</td></tr>';
   } else {
+    // Description affichée via normProduit() (demande du 22 juillet 2026 :
+    // "remplace coca par coca kola dans le tableau historique mouvement
+    // stock") — même alias déjà appliqué partout ailleurs (marge, Stock
+    // Actuel...) pour fusionner les anciens enregistrements "coca" avec
+    // "coca kola", sans toucher aux données stockées.
     body.innerHTML=all.map(s=> s._type==='entree' ? `<tr style="background:#e6f6ef;${canEdit ? 'cursor:pointer;' : ''}"${canEdit ? ` onclick="loadStockForCorrection('${s.id||''}')" title="Cliquer pour corriger cet achat"` : ''}>
       <td>${s.date}</td>
       <td><span class="badge badge-in">📥 Entrées/Achats</span></td>
-      <td>${esc(s.description)}</td>
+      <td>${esc(normProduit(s.description))}</td>
       <td style="color:#0f7b4f;font-weight:600;">+${formatCaissesDisplay(s.qtyCaisses, s.casseSize)}</td>
       <td>${fmtHTG(s.prixCaisse)}</td>
       <td>${fmtHTG(s.prixUnitaire)}</td>
@@ -4435,7 +4440,7 @@ function renderStocks() {
     </tr>` : `<tr style="background:#fdecea;">
       <td>${s.date}</td>
       <td><span class="badge badge-out">📤 Sortie</span></td>
-      <td>${esc(s.description)}</td>
+      <td>${esc(normProduit(s.description))}</td>
       <td style="color:#c0392b;font-weight:600;">-${formatCaissesDisplay(s.qtyCaisses, s.casseSize)}</td>
       <td>${fmtHTG(s.prixCaisse||0)}</td>
       <td>${fmtHTG(s.prixUnitaire||0)}</td>
@@ -4539,6 +4544,16 @@ function getCumulativeValueAsOf(checkpoints, isoDateStr) {
 // "le prix d'achat depend du prix enregistre dans le mouvement des stocks...
 // on doit considerer le prix d'achat du dernier achat a chaque fois" — donc
 // le DERNIER achat connu, pas une moyenne sur tout l'historique).
+// Bug corrigé le 22 juillet 2026 : trie les points chronologiquement avec
+// une précision à la SECONDE (createdAt, ou à défaut isoDate+heure), pas
+// seulement par isoDate (jour). STATE.stocks est rempli par Firestore avec
+// le tri "orderBy('isoDate','desc')" (le plus récent EN PREMIER) — un
+// simple ".sort(isoDate)" (tri stable) laissait alors, pour un même jour
+// avec plusieurs achats, l'ordre relatif hérité de Firestore (le plus
+// récent d'abord) au lieu de le vraiment trier chronologiquement. Résultat
+// concret : "le dernier achat connu" pouvait en réalité être le PREMIER
+// achat du jour, pas le dernier — un vrai décalage de prix pour tout
+// produit acheté plusieurs fois le même jour.
 function computeAchatLastPriceCheckpoints(productKey) {
   // Un achat SANS date connue (ancien enregistrement incomplet) n'est pas
   // écarté : il est traité comme le plus ancien connu (chaîne vide = trie en
@@ -4547,9 +4562,9 @@ function computeAchatLastPriceCheckpoints(productKey) {
   // champs optionnels manquants sur d'anciens enregistrements.
   return (STATE.stocks||[])
     .filter(s => normProduit(s.description) === productKey && isCaisseUnit(s.unit))
-    .map(s => ({ isoDate: s.isoDate || s.date || '', prix: s.unitPrice||0 }))
+    .map(s => ({ isoDate: s.isoDate || s.date || '', sortKey: s.createdAt || ((s.isoDate||s.date||'') + 'T' + (s.time||'')), prix: s.unitPrice||0 }))
     .filter(p => p.prix > 0)
-    .sort((a,b) => a.isoDate.localeCompare(b.isoDate))
+    .sort((a,b) => a.sortKey.localeCompare(b.sortKey))
     .map(p => ({ isoDate: p.isoDate, valeurCumulee: p.prix }));
 }
 
@@ -4575,12 +4590,22 @@ function getLastAchatPrice(productKey, asOfIsoDate) {
 // l'onglet vente" — donc le DERNIER prix de vente réellement affiché/saisi
 // dans l'onglet Ventes, pas une moyenne pondérée sur tout l'historique,
 // exactement le même principe déjà appliqué au prix d'achat).
+// Bug corrigé le 22 juillet 2026 : même correction que
+// computeAchatLastPriceCheckpoints() ci-dessus — STATE.transactions est
+// rempli par Firestore avec le tri "orderBy('isoDate','desc'),
+// orderBy('time','desc')" (le plus récent EN PREMIER). Trier seulement par
+// isoDate (jour) laissait, pour un même jour avec plusieurs ventes du même
+// produit (très courant : sprite, fanta, 7up...), l'ordre hérité de
+// Firestore (le plus récent d'abord) au lieu d'un vrai ordre chronologique
+// — "le dernier prix de vente connu" pouvait donc être celui de la
+// PREMIÈRE vente du jour, pas de la dernière, d'où des écarts persistants
+// avec le prix réellement affiché dans l'onglet Ventes.
 function computeVenteLastPriceCheckpoints(productKey) {
   return (STATE.transactions||[])
     .filter(t => t.type==='vente' && !t.isGlace && normProduit(t.description) === productKey && isCaisseUnit(t.unit))
-    .map(t => ({ isoDate: t.isoDate || getIsoFromTx(t) || '', prix: t.prixCaisse||0 }))
+    .map(t => ({ isoDate: t.isoDate || getIsoFromTx(t) || '', sortKey: t.createdAt || ((t.isoDate||getIsoFromTx(t)||'') + 'T' + (t.time||'')), prix: t.prixCaisse||0 }))
     .filter(p => p.prix > 0)
-    .sort((a,b) => a.isoDate.localeCompare(b.isoDate))
+    .sort((a,b) => a.sortKey.localeCompare(b.sortKey))
     .map(p => ({ isoDate: p.isoDate, valeurCumulee: p.prix }));
 }
 
@@ -8167,13 +8192,16 @@ function buildFullWorkbook() {
   // Stock Actuel), un achat/une vente ne compte qu'à partir de la date du
   // Stock de départ du produit concerné.
   const stockDepartCutoffMap = computeStockDepartCutoffByProduct();
+  // Description via normProduit() (même correction que dans l'onglet
+  // Mouvements de Stocks à l'écran — demande du 22 juillet 2026 : "remplace
+  // coca par coca kola dans le tableau historique mouvement stock").
   const entrees = (STATE.stocks||[]).filter(s=>isStockMovementCounted(s.description, s.isoDate, stockDepartCutoffMap, s.createdAt)).map(s=>({
-    date:s.date, type:'Achat', description:s.description,
+    date:s.date, type:'Achat', description:normProduit(s.description),
     qtyCaisses: s.quantityCaisses||s.quantity||0, prixCaisse: s.unitPrice||0,
     amount: s.amount||0, tiers: s.supplier||''
   }));
   const sorties = sales.filter(t=>isStockMovementCounted(t.description, t.isoDate, stockDepartCutoffMap, t.createdAt)).map(t=>({
-    date:t.date, type:'Sortie', description:t.description,
+    date:t.date, type:'Sortie', description:normProduit(t.description),
     qtyCaisses: getQtyCaisses(t), prixCaisse: t.prixCaisse||t.unitPrice||0,
     amount: t.amount||0, tiers: t.client||t.seller||''
   }));
