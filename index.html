@@ -95,6 +95,18 @@ onAuthStateChanged(auth, user => {
     window._fbReady = true;
     window.dispatchEvent(new Event('fb-ready'));
     if (!user.isAnonymous) {
+      // Mémorisé sur window (comme window._fbReady) pour couvrir le cas —
+      // observé le 22 juillet 2026 (admin déjà connecté à l'ouverture de
+      // l'app, mais TOUS les tableaux de TOUS les onglets vides tant que
+      // pas de rechargement complet) — où onAuthStateChanged restaure une
+      // session réelle et déclenche cet événement AVANT que le script plus
+      // bas dans le fichier ait eu le temps d'enregistrer son écouteur
+      // "fb-user-restored" : l'événement se perdait alors silencieusement,
+      // finishLogin()/renderAll() n'était jamais appelé, l'app restait
+      // affichée (authentifiée) mais sans qu'aucun tableau n'ait jamais été
+      // peint — d'où l'écran vide. Voir le repli juste après
+      // l'enregistrement de l'écouteur plus bas.
+      window._restoredUserUid = user.uid;
       window.dispatchEvent(new CustomEvent('fb-user-restored', { detail: { uid: user.uid } }));
     }
   } else {
@@ -2446,24 +2458,34 @@ async function verifyRealRoleOrLogout() {
 // l'app hors ligne sans repasser par le formulaire de connexion, tant que la
 // personne s'est déjà connectée au moins une fois auparavant (avec internet)
 // sur cet appareil et ne s'est pas explicitement déconnectée depuis.
-window.addEventListener('fb-user-restored', async (e) => {
-  if (window._DEBUG_OFFLINE) window._logDebugOffline('fb-user-restored reçu (uid=' + e.detail.uid.slice(0,8) + ') — recherche du profil...');
+async function reconnectRestoredSession(uid) {
+  if (window._DEBUG_OFFLINE) window._logDebugOffline('fb-user-restored reçu (uid=' + uid.slice(0,8) + ') — recherche du profil...');
   if (STATE.currentUser) {
     if (window._DEBUG_OFFLINE) window._logDebugOffline('Déjà connecté par un autre chemin — ignoré.');
     return; // déjà connecté par un autre chemin (formulaire) — rien à faire
   }
   try {
-    const profile = await fetchUserProfile(e.detail.uid);
+    const profile = await fetchUserProfile(uid);
     if (window._DEBUG_OFFLINE) window._logDebugOffline(profile ? ('Profil trouvé: ' + profile.username + ' (' + profile.role + ')') : 'AUCUN profil trouvé (cache local vide pour cet uid)');
     if (profile && !STATE.currentUser) {
-      finishLogin({ uid: e.detail.uid, username: profile.username, role: profile.role });
+      finishLogin({ uid: uid, username: profile.username, role: profile.role });
       if (window._DEBUG_OFFLINE) window._logDebugOffline('finishLogin() appelé — reconnexion automatique effectuée.');
     }
   } catch(err) {
     if (window._DEBUG_OFFLINE) window._logDebugOffline('fetchUserProfile a ÉCHOUÉ: ' + (err.code || err.message));
     console.error('Reconnexion automatique échouée:', err);
   }
-});
+}
+window.addEventListener('fb-user-restored', (e) => reconnectRestoredSession(e.detail.uid));
+// Filet de sécurité (même principe que "if (window._fbReady)
+// startFirebaseListeners();" juste après l'écouteur "fb-ready" plus haut) :
+// couvre le cas où onAuthStateChanged a restauré une session réelle et
+// déjà déclenché "fb-user-restored" AVANT que la ligne ci-dessus n'ait eu
+// la chance de s'exécuter — sans ce repli, l'événement était perdu et
+// personne ne rappelait finishLogin()/renderAll(), laissant l'app affichée
+// mais avec tous les tableaux de tous les onglets vides jusqu'au prochain
+// rechargement complet (bug remonté le 22 juillet 2026).
+if (window._restoredUserUid && !STATE.currentUser) reconnectRestoredSession(window._restoredUserUid);
 
 async function saveAllData() {
   if (!STATE.isOnline || !STATE.fbReady) {
