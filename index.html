@@ -1134,7 +1134,7 @@ tr:hover td{background:#f7f9ff;}
           </div>
           <div class="form-group">
             <label>Nom du commerçant</label>
-            <input type="text" id="tr-commercant" placeholder="Ex: Boutique Saint-Marc" autocomplete="off" oninput="updateTransferCommercantList()" onfocus="updateTransferCommercantList()" list="transfer-commercant-list"/>
+            <input type="text" id="tr-commercant" placeholder="Ex: Boutique Saint-Marc" autocomplete="off" oninput="updateTransferCommercantList('tr-commercant')" onfocus="updateTransferCommercantList('tr-commercant')" list="transfer-commercant-list"/>
             <datalist id="transfer-commercant-list"></datalist>
           </div>
         </div>
@@ -1179,6 +1179,50 @@ tr:hover td{background:#f7f9ff;}
           <table>
             <thead><tr><th>Date</th><th>Type</th><th>Produit</th><th>Qté</th><th>Unité</th><th>Nb unité</th><th>Montant</th><th>Commerçant</th><th>Actions</th></tr></thead>
             <tbody id="transfer-table-body"><tr><td colspan="9" style="text-align:center;color:var(--text3);padding:1.5rem;">Aucun transfert enregistré.</td></tr></tbody>
+          </table>
+        </div>
+      </div>
+      <div class="card">
+        <div class="card-title">💰 Solde avec les commerçants (je dois / on me doit)</div>
+        <div style="font-size:.85rem;color:var(--text2);margin-bottom:.8rem;">
+          Demande du 24 juillet 2026 : pour noter manuellement un solde avec un commerçant allié qui résulte d'un échange de marchandises déséquilibré (par exemple si les quantités reçues et livrées ne s'équilibrent pas) — PAS pour une vieille dette d'avant l'application (voir "Liste des Dettes" pour ce cas). Indiquez qui doit à qui, le montant et une note explicative. Purement informatif : n'affecte jamais la caisse, la comptabilité ni le chiffre d'affaires.
+        </div>
+        <div id="transfer-balance-correction-banner" style="display:none;background:#fef3e2;color:#8a5a00;border:1px solid #f5d59a;border-radius:8px;padding:8px 12px;margin-bottom:12px;font-size:.85rem;font-weight:600;">
+          ✏️ Correction en cours — <span id="transfer-balance-correction-banner-text"></span>.
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label>Commerçant</label>
+            <input type="text" id="tb-commercant" placeholder="Ex: Boutique Saint-Marc" autocomplete="off" oninput="updateTransferCommercantList('tb-commercant')" onfocus="updateTransferCommercantList('tb-commercant')" list="transfer-commercant-list"/>
+          </div>
+          <div class="form-group">
+            <label>Direction</label>
+            <select id="tb-direction">
+              <option value="jedois">🔴 Je dois à ce commerçant</option>
+              <option value="ondoit">🟢 Ce commerçant me doit</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label>Montant (HTG)</label>
+            <input type="number" id="tb-montant" min="0" step="0.01" placeholder="Ex: 1200.00"/>
+          </div>
+          <div class="form-group">
+            <label>Date</label>
+            <input type="date" id="tb-date"/>
+          </div>
+        </div>
+        <div class="form-row">
+          <div class="form-group" style="flex:2;min-width:200px;">
+            <label>Note explicative</label>
+            <input type="text" id="tb-note" placeholder="Ex: Échange déséquilibré du 20/07 — il me doit encore 2 caisses de sprite"/>
+          </div>
+        </div>
+        <button class="send-btn" onclick="submitTransferBalance()">Enregistrer ➤</button>
+        <button id="btn-annuler-transfer-balance" class="btn btn-outline" style="margin-top:8px;font-size:.85rem;display:none;" onclick="unlockTransferBalanceForm()">✖ Annuler la correction</button>
+        <div class="table-wrap" style="margin-top:.8rem;">
+          <table>
+            <thead><tr><th>Date</th><th>Commerçant</th><th>Direction</th><th>Montant (HTG)</th><th>Note</th><th>Actions</th></tr></thead>
+            <tbody id="transfer-balance-table-body"><tr><td colspan="6" style="text-align:center;color:var(--text3);padding:1.5rem;">Aucun solde enregistré.</td></tr></tbody>
           </table>
         </div>
       </div>
@@ -1588,6 +1632,7 @@ let STATE = {
   manualSupplierDebts: [],  // synced from Firestore (dettes fournisseurs préexistantes, ajoutées manuellement)
   customProducts: [],       // synced from Firestore (produits ajoutés par les utilisateurs, en plus de la liste de base)
   stockTransfers: [],       // synced from Firestore (transferts de marchandises avec des commerçants alliés, sans paiement — voir submitStockTransfer())
+  transferBalances: [],     // synced from Firestore (soldes manuels "je dois / on me doit" avec des commerçants alliés, suite à un échange déséquilibré — demande du 24 juillet 2026, voir submitTransferBalance())
   stockMovementsResetAt: null, // synced from Firestore (settings/stock_movements) — voir resetStockMovementsTracking()
   marginManualPrices: {}, // synced from Firestore (settings/margin_manual_prices) — voir setMarginManualPrice()
   marginManualPricesSeeded: false, // synced from Firestore (settings/margin_manual_prices.seededV1)
@@ -1629,6 +1674,8 @@ let _pendingStockDepartEditId = null;
 // Idem pour une ligne de "Historique des transferts avec des commerçants"
 // (voir submitStockTransfer()).
 let _pendingTransferEditId = null;
+// Idem pour une ligne de "Solde avec les commerçants" (voir submitTransferBalance()).
+let _pendingTransferBalanceEditId = null;
 // Idem pour une ligne "Achats" du tableau "Historique des mouvements de
 // stock" (collection Firestore 'stocks') — admin/gestionnaire uniquement.
 let _pendingStockEditId = null;
@@ -1734,6 +1781,7 @@ if (!navigator.onLine && STATE.lastSession && STATE.lastSession.username) {
 // ============================================================
 let unsubCredits = null, unsubStockDepart = null, unsubCaisse = null, unsubCaisseRetraits = null, unsubCharges = null, unsubApports = null, unsubDepensesDom = null, unsubFournisseurPayments = null;
 let unsubStockTransfers = null;
+let unsubTransferBalances = null;
 let unsubManualClientDebts = null, unsubManualSupplierDebts = null;
 let unsubProduits = null;
 let unsubStockMovementsSettings = null;
@@ -1849,6 +1897,21 @@ function startFirebaseListeners() {
       renderStockActuel();
     },
     err => console.error('StockTransfers listener:', err)
+  );
+
+  // SOLDE AVEC LES COMMERÇANTS - Synchronisation globale (demande du 24
+  // juillet 2026) : notes manuelles "je dois / on me doit" avec un
+  // commerçant allié, suite à un échange de marchandises déséquilibré (PAS
+  // une dette d'avant l'application — voir "Liste des Dettes" pour ce cas).
+  // Purement informatif : jamais lu par aucun calcul de caisse/comptabilité.
+  if (unsubTransferBalances) unsubTransferBalances();
+  unsubTransferBalances = onSnapshot(
+    query(collection(db, 'transfer_balances'), orderBy('isoDate','desc')),
+    snap => {
+      STATE.transferBalances = snap.docs.map(d => ({id: d.id, ...d.data()}));
+      if (currentTab === 'transferts') renderTransferBalances();
+    },
+    err => console.error('TransferBalances listener:', err)
   );
 
   // RÉGLAGES MOUVEMENTS DE STOCK (doc unique) - Synchronisation globale : ne
@@ -2760,7 +2823,7 @@ function switchTab(tab) {
   if (tab==='depenses-dom') renderDepensesDom();
   if (tab==='stock-depart') renderStockDepart();
   if (tab==='stock-actuel') renderStockActuel();
-  if (tab==='transferts') renderStockTransfers();
+  if (tab==='transferts') { renderStockTransfers(); renderTransferBalances(); }
   if (tab==='notif') renderNotifications();
   if (tab==='ventes') { renderMySales(); }
 }
@@ -10145,13 +10208,16 @@ async function deleteStockDepart(id) {
 // réinitialisation du suivi — voir isStockMovementCounted()).
 // ============================================================
 
-function updateTransferCommercantList() {
-  const inputEl = document.getElementById('tr-commercant');
+function updateTransferCommercantList(fieldId) {
+  const inputEl = document.getElementById(fieldId || 'tr-commercant');
   const datalist = document.getElementById('transfer-commercant-list');
   if (!inputEl || !datalist) return;
   const input = inputEl.value.trim().toLowerCase();
   const commercants = new Set();
   (STATE.stockTransfers||[]).forEach(t => { if (t.commercant) commercants.add(t.commercant); });
+  // Demande du 24 juillet 2026 : les commerçants déjà notés dans "Solde avec
+  // les commerçants" alimentent aussi cette liste déroulante partagée.
+  (STATE.transferBalances||[]).forEach(t => { if (t.commercant) commercants.add(t.commercant); });
   datalist.innerHTML = [...commercants]
     .filter(c => c.toLowerCase().includes(input))
     .map(c => `<option value="${esc(c)}">`).join('');
@@ -10323,6 +10389,158 @@ function renderStockTransfers() {
     <td>${fmtHTG(t.montant||0)}</td>
     <td>${esc(t.commercant||'')}</td>
     <td style="white-space:nowrap;">${canEdit ? `<button class="btn" style="font-size:.75rem;padding:3px 10px;background:var(--danger-bg);color:var(--danger);border:1px solid #f5b7b1;" onclick="event.stopPropagation();deleteStockTransfer('${t.id||''}')">🗑</button>` : '—'}</td>
+  </tr>`;
+  }).join('');
+}
+
+// ============================================================
+// SOLDE AVEC LES COMMERÇANTS (demande du 24 juillet 2026) : notes manuelles
+// "je dois / on me doit" avec un commerçant allié, suite à un échange de
+// marchandises déséquilibré — PAS une dette d'avant l'application (voir
+// submitManualSupplierDebt() pour ce cas-là). Purement informatif : cette
+// collection Firestore séparée ('transfer_balances') n'est JAMAIS lue par
+// aucun calcul de caisse, comptabilité ou chiffre d'affaires.
+// ============================================================
+async function submitTransferBalance() {
+  if (!requireAdminOrGest()) return;
+  const commercant = document.getElementById('tb-commercant').value.trim();
+  const direction = document.getElementById('tb-direction').value;
+  const montant = parseFloat(document.getElementById('tb-montant').value) || 0;
+  const date = document.getElementById('tb-date').value || isoDate();
+  const note = document.getElementById('tb-note').value.trim();
+  if (!commercant || montant <= 0) {
+    showToast('⚠ Veuillez indiquer le nom du commerçant et un montant.','warn'); return;
+  }
+  const entry = {
+    commercant, direction, montant, note,
+    isoDate:date, date:date.split('-').reverse().join('/'),
+    addedBy:STATE.currentUser.username, createdAt:new Date().toISOString()
+  };
+
+  // Correction d'un solde déjà enregistré (admin/gestionnaire).
+  if (_pendingTransferBalanceEditId) {
+    if (!STATE.isOnline || !STATE.fbReady) {
+      showToast('⚠ Hors ligne — impossible d\'enregistrer la correction maintenant.','warn'); return;
+    }
+    try {
+      const {doc, updateDoc} = window._fbFns;
+      await updateDoc(doc(window._db,'transfer_balances',_pendingTransferBalanceEditId), {
+        ...entry, editedBy: STATE.currentUser.username, editedAt: new Date().toISOString()
+      });
+      const idx = STATE.transferBalances.findIndex(t => t.id === _pendingTransferBalanceEditId);
+      if (idx !== -1) STATE.transferBalances[idx] = {...STATE.transferBalances[idx], ...entry};
+      showToast('✅ Solde corrigé.');
+      markUnsaved();
+    } catch(e) { showToast('⚠ Erreur: '+e.message,'warn'); }
+    unlockTransferBalanceForm();
+    renderTransferBalances();
+    return;
+  }
+
+  if (STATE.isOnline && STATE.fbReady) {
+    try {
+      const {collection, addDoc} = window._fbFns;
+      const ref = await addDoc(collection(window._db,'transfer_balances'), entry);
+      if (!STATE.transferBalances.find(t => t.id === ref.id)) {
+        STATE.transferBalances = [{id: ref.id, ...entry}, ...(STATE.transferBalances||[])];
+      }
+      showToast('✅ Solde enregistré.');
+    } catch(e) {
+      STATE.pendingQueue.push({...entry, colTarget:'transfer_balances'});
+      saveLocal();
+      updatePendingUI();
+      showToast('⚠ Erreur Firebase — entrée en file d\'attente.','warn');
+    }
+  } else {
+    STATE.pendingQueue.push({...entry, colTarget:'transfer_balances'});
+    saveLocal();
+    showToast('📤 Hors ligne — entrée en file d\'attente (sera synchronisée automatiquement).','warn');
+    updatePendingUI();
+  }
+  markUnsaved();
+  renderTransferBalances();
+  document.getElementById('tb-commercant').value = '';
+  document.getElementById('tb-direction').value = 'jedois';
+  document.getElementById('tb-montant').value = '';
+  document.getElementById('tb-date').value = '';
+  document.getElementById('tb-note').value = '';
+}
+
+// Admin/gestionnaire : clic sur une ligne de "Solde avec les commerçants"
+// pour la charger dans le formulaire et la corriger.
+function loadTransferBalanceForCorrection(id) {
+  if (!requireAdminOrGest()) return;
+  const t = (STATE.transferBalances||[]).find(x => x.id === id);
+  if (!t) { showToast('⚠ Solde introuvable.','warn'); return; }
+  document.getElementById('tb-commercant').value = t.commercant || '';
+  document.getElementById('tb-direction').value = t.direction || 'jedois';
+  document.getElementById('tb-montant').value = t.montant || '';
+  document.getElementById('tb-date').value = t.isoDate || '';
+  document.getElementById('tb-note').value = t.note || '';
+  _pendingTransferBalanceEditId = id;
+  const banner = document.getElementById('transfer-balance-correction-banner');
+  const bannerText = document.getElementById('transfer-balance-correction-banner-text');
+  if (banner && bannerText) {
+    bannerText.textContent = `${t.commercant||''} du ${t.date||''}`;
+    banner.style.display = 'block';
+  }
+  const btnAnnuler = document.getElementById('btn-annuler-transfer-balance');
+  if (btnAnnuler) btnAnnuler.style.display = 'inline-flex';
+  document.getElementById('tb-commercant').scrollIntoView({behavior:'smooth', block:'center'});
+  showToast('✏️ Solde chargé — corrigez puis cliquez sur Enregistrer.');
+}
+
+function unlockTransferBalanceForm() {
+  _pendingTransferBalanceEditId = null;
+  const banner = document.getElementById('transfer-balance-correction-banner');
+  if (banner) banner.style.display = 'none';
+  const btnAnnuler = document.getElementById('btn-annuler-transfer-balance');
+  if (btnAnnuler) btnAnnuler.style.display = 'none';
+  document.getElementById('tb-commercant').value = '';
+  document.getElementById('tb-direction').value = 'jedois';
+  document.getElementById('tb-montant').value = '';
+  document.getElementById('tb-date').value = '';
+  document.getElementById('tb-note').value = '';
+}
+
+async function deleteTransferBalance(id) {
+  if (!requireAdminOrGest()) return;
+  if (!confirm('Supprimer définitivement ce solde ?')) return;
+  if (STATE.isOnline && STATE.fbReady && id) {
+    try {
+      const {doc, deleteDoc} = window._fbFns;
+      await deleteDoc(doc(window._db,'transfer_balances',id));
+      STATE.transferBalances = (STATE.transferBalances||[]).filter(t => t.id !== id);
+      if (_pendingTransferBalanceEditId === id) unlockTransferBalanceForm();
+      showToast('🗑 Solde supprimé.','warn');
+      markUnsaved();
+      renderTransferBalances();
+    } catch(e) { showToast('⚠ Erreur: '+e.message,'warn'); }
+  } else {
+    showToast('⚠ Hors ligne — impossible de supprimer maintenant.','warn');
+  }
+}
+
+function renderTransferBalances() {
+  const body = document.getElementById('transfer-balance-table-body');
+  if (!body) return;
+  const items = (STATE.transferBalances||[]).sort((a,b)=>(b.isoDate||'').localeCompare(a.isoDate||''));
+  if (!items.length) {
+    body.innerHTML = '<tr><td colspan="6" style="text-align:center;color:var(--text3);padding:1.5rem;">Aucun solde enregistré.</td></tr>';
+    return;
+  }
+  const canEdit = STATE.currentUser && (STATE.currentUser.role==='admin' || STATE.currentUser.role==='gestionnaire');
+  body.innerHTML = items.map(t => {
+    const badge = t.direction === 'ondoit'
+      ? `<span class="badge badge-sent">🟢 On me doit</span>`
+      : `<span class="badge badge-pending">🔴 Je dois</span>`;
+    return `<tr${canEdit ? ` style="cursor:pointer;" onclick="loadTransferBalanceForCorrection('${t.id||''}')" title="Cliquer pour corriger ce solde"` : ''}>
+    <td>${t.date||''}</td>
+    <td>${esc(t.commercant||'')}</td>
+    <td>${badge}</td>
+    <td>${fmtHTG(t.montant||0)}</td>
+    <td>${esc(t.note||'')}</td>
+    <td style="white-space:nowrap;">${canEdit ? `<button class="btn" style="font-size:.75rem;padding:3px 10px;background:var(--danger-bg);color:var(--danger);border:1px solid #f5b7b1;" onclick="event.stopPropagation();deleteTransferBalance('${t.id||''}')">🗑</button>` : '—'}</td>
   </tr>`;
   }).join('');
 }
