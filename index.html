@@ -355,6 +355,7 @@ tr:hover td{background:#f7f9ff;}
     <button id="tab-stock-depart-btn" onclick="switchTab('stock-depart')" style="display:none;">🏁 Stock de départ</button>
     <button id="tab-stocks-btn" onclick="switchTab('stocks')" style="display:none;">📦 Mouvements de Stocks</button>
     <button id="tab-stock-actuel-btn" onclick="switchTab('stock-actuel')" style="display:none;">📊 Stock Actuel</button>
+    <button id="tab-transferts-btn" onclick="switchTab('transferts')" style="display:none;">🤝 Transferts Commerçants</button>
     <button id="tab-tableau-btn" onclick="switchTab('tableau')" style="display:none;">📊 Tableau de bord</button>
     <button id="tab-data-analyse-btn" onclick="switchTab('data-analyse')" style="display:none;">🔎 Data Analyse</button>
     <button id="tab-admin-btn" onclick="switchTab('admin')" style="display:none;">⚙ Administration</button>
@@ -1109,6 +1110,80 @@ tr:hover td{background:#f7f9ff;}
       </div>
     </div>
 
+    <!-- TRANSFERTS COMMERÇANTS -->
+    <div class="tab-content" id="tab-transferts">
+      <div class="card">
+        <div class="card-title">🤝 Transfert de marchandises avec un commerçant (sans paiement)</div>
+        <div style="font-size:.85rem;color:var(--text2);margin-bottom:.8rem;">
+          Pour enregistrer une marchandise transférée à un commerçant allié SANS recevoir d'argent en retour (Livraison), ou reçue d'un commerçant allié SANS payer en contrepartie (Réception). Ces mouvements sont automatiquement et immédiatement intégrés aux Mouvements de Stocks et au Stock Actuel (Réception = Entrée, Livraison = Sortie) — mais n'affectent jamais la caisse, la comptabilité ni le chiffre d'affaires, puisqu'aucun argent n'est réellement échangé.
+        </div>
+        <div id="transfer-correction-banner" style="display:none;background:#fef3e2;color:#8a5a00;border:1px solid #f5d59a;border-radius:8px;padding:8px 12px;margin-bottom:12px;font-size:.85rem;font-weight:600;">
+          ✏️ Correction en cours — <span id="transfer-correction-banner-text"></span>.
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label>Type de mouvement</label>
+            <select id="tr-type">
+              <option value="reception">📥 Réception (reçue sans payer — entrée)</option>
+              <option value="livraison">📤 Livraison (donnée sans être payé — sortie)</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label>Date</label>
+            <input type="date" id="tr-date"/>
+          </div>
+          <div class="form-group">
+            <label>Nom du commerçant</label>
+            <input type="text" id="tr-commercant" placeholder="Ex: Boutique Saint-Marc" autocomplete="off" oninput="updateTransferCommercantList()" onfocus="updateTransferCommercantList()" list="transfer-commercant-list"/>
+            <datalist id="transfer-commercant-list"></datalist>
+          </div>
+        </div>
+        <div class="form-row">
+          <div class="form-group" style="flex:2;min-width:200px;">
+            <label>Produit</label>
+            <input type="text" id="tr-desc" list="produit-list" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" placeholder="Tapez le nom du produit..."
+              oninput="updateProduitList('tr-desc')" onchange="normalizeProduitField('tr-desc')" onfocus="updateProduitList('tr-desc')"/>
+          </div>
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label>Quantité</label>
+            <input type="number" id="tr-qty" min="1" placeholder="Ex: 10"/>
+          </div>
+          <div class="form-group">
+            <label>Unité</label>
+            <select id="tr-unit">
+              <option value="caisse">Caisse (24 unités)</option>
+              <option value="bout">Bout (12 unités)</option>
+              <option value="caisse-1-2">Caisse et 1/2 (36 unités)</option>
+              <option value="bout-1-2">Bout et 1/2 (18 unités)</option>
+              <option value="caisse-beller">Caisse Beller (40 unités)</option>
+              <option value="unite">Unité (1 unité)</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label>Nombre d'unité</label>
+            <input type="number" id="tr-nb-unite" min="0" step="1" placeholder="Ex: 1, 2, 3..."/>
+          </div>
+          <div class="form-group">
+            <label>Montant / Valeur estimée (HTG)</label>
+            <input type="number" id="tr-montant" min="0" step="0.01" placeholder="Ex: 1200.00"/>
+          </div>
+        </div>
+        <button class="send-btn" onclick="submitStockTransfer()">Enregistrer ➤</button>
+        <button id="btn-annuler-transfer" class="btn btn-outline" style="margin-top:8px;font-size:.85rem;display:none;" onclick="unlockTransferForm()">✖ Annuler la correction</button>
+      </div>
+      <div class="card">
+        <div class="card-title">🤝 Historique des transferts avec des commerçants</div>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Date</th><th>Type</th><th>Produit</th><th>Qté</th><th>Unité</th><th>Nb unité</th><th>Montant</th><th>Commerçant</th><th>Actions</th></tr></thead>
+            <tbody id="transfer-table-body"><tr><td colspan="9" style="text-align:center;color:var(--text3);padding:1.5rem;">Aucun transfert enregistré.</td></tr></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
     <!-- TABLEAU DE BORD -->
     <div class="tab-content" id="tab-tableau">
       <div class="metrics-grid">
@@ -1512,6 +1587,7 @@ let STATE = {
   manualClientDebts: [],    // synced from Firestore (créances clients préexistantes, ajoutées manuellement)
   manualSupplierDebts: [],  // synced from Firestore (dettes fournisseurs préexistantes, ajoutées manuellement)
   customProducts: [],       // synced from Firestore (produits ajoutés par les utilisateurs, en plus de la liste de base)
+  stockTransfers: [],       // synced from Firestore (transferts de marchandises avec des commerçants alliés, sans paiement — voir submitStockTransfer())
   stockMovementsResetAt: null, // synced from Firestore (settings/stock_movements) — voir resetStockMovementsTracking()
   marginManualPrices: {}, // synced from Firestore (settings/margin_manual_prices) — voir setMarginManualPrice()
   marginManualPricesSeeded: false, // synced from Firestore (settings/margin_manual_prices.seededV1)
@@ -1550,6 +1626,9 @@ let _pendingManualSupplierDebtEditId = null;
 // correction (admin/gestionnaire), on met à jour l'enregistrement existant
 // au lieu d'en créer un nouveau.
 let _pendingStockDepartEditId = null;
+// Idem pour une ligne de "Historique des transferts avec des commerçants"
+// (voir submitStockTransfer()).
+let _pendingTransferEditId = null;
 // Idem pour une ligne "Achats" du tableau "Historique des mouvements de
 // stock" (collection Firestore 'stocks') — admin/gestionnaire uniquement.
 let _pendingStockEditId = null;
@@ -1654,6 +1733,7 @@ if (!navigator.onLine && STATE.lastSession && STATE.lastSession.username) {
 // FIREBASE LISTENERS
 // ============================================================
 let unsubCredits = null, unsubStockDepart = null, unsubCaisse = null, unsubCaisseRetraits = null, unsubCharges = null, unsubApports = null, unsubDepensesDom = null, unsubFournisseurPayments = null;
+let unsubStockTransfers = null;
 let unsubManualClientDebts = null, unsubManualSupplierDebts = null;
 let unsubProduits = null;
 let unsubStockMovementsSettings = null;
@@ -1749,6 +1829,26 @@ function startFirebaseListeners() {
       renderStocks();
     },
     err => console.error('StockDepart listener:', err)
+  );
+
+  // TRANSFERTS COMMERÇANTS - Synchronisation globale (demande du 23 juillet
+  // 2026) : marchandises reçues (réception) ou données (livraison) à un
+  // commerçant allié SANS paiement en contrepartie. Intégrés automatiquement
+  // aux Mouvements de Stocks / Stock Actuel (voir renderStocks(),
+  // renderStockActuel(), computeStockAlerts()) comme des entrées/sorties de
+  // stock à part entière — mais dans une collection Firestore séparée de
+  // 'stocks'/'transactions', pour ne JAMAIS affecter la caisse, la
+  // comptabilité ou le chiffre d'affaires (aucun argent n'est échangé).
+  if (unsubStockTransfers) unsubStockTransfers();
+  unsubStockTransfers = onSnapshot(
+    query(collection(db, 'stock_transfers'), orderBy('isoDate','desc')),
+    snap => {
+      STATE.stockTransfers = snap.docs.map(d => ({id: d.id, ...d.data()}));
+      if (currentTab === 'transferts') renderStockTransfers();
+      renderStocks();
+      renderStockActuel();
+    },
+    err => console.error('StockTransfers listener:', err)
   );
 
   // RÉGLAGES MOUVEMENTS DE STOCK (doc unique) - Synchronisation globale : ne
@@ -2320,7 +2420,7 @@ async function doLogin() {
 // juillet 2026). Garder ces deux listes synchronisées avec les onglets
 // réellement définis dans le HTML (voir les id="tab-...-btn").
 const ADMIN_ONLY_TABS = ['admin', 'notif'];
-const ADMIN_OR_GEST_TABS = ['compta','stock-depart','stocks','stock-actuel','tableau','data-analyse','caisse','apport','autres-charges','depenses-dom'];
+const ADMIN_OR_GEST_TABS = ['compta','stock-depart','stocks','stock-actuel','transferts','tableau','data-analyse','caisse','apport','autres-charges','depenses-dom'];
 
 // Affiche/masque les onglets et boutons réservés selon le rôle donné.
 // Appelée à la connexion (avec le rôle tout juste vérifié) ET à chaque
@@ -2339,6 +2439,7 @@ function applyRoleUI(role) {
     document.getElementById('tab-stock-depart-btn').style.display = 'block';
     document.getElementById('tab-stocks-btn').style.display = 'block';
     document.getElementById('tab-stock-actuel-btn').style.display = 'block';
+    document.getElementById('tab-transferts-btn').style.display = 'block';
     document.getElementById('tab-tableau-btn').style.display = 'block';
     document.getElementById('tab-data-analyse-btn').style.display = 'block';
     document.getElementById('tab-credit-btn').style.display = 'block';
@@ -2373,6 +2474,7 @@ function applyRoleUI(role) {
     document.getElementById('tab-stock-depart-btn').style.display = 'none';
     document.getElementById('tab-stocks-btn').style.display = 'none';
     document.getElementById('tab-stock-actuel-btn').style.display = 'none';
+    document.getElementById('tab-transferts-btn').style.display = 'none';
     document.getElementById('tab-tableau-btn').style.display = 'none';
     document.getElementById('tab-data-analyse-btn').style.display = 'none';
     document.getElementById('tab-credit-btn').style.display = 'block';
@@ -2658,6 +2760,7 @@ function switchTab(tab) {
   if (tab==='depenses-dom') renderDepensesDom();
   if (tab==='stock-depart') renderStockDepart();
   if (tab==='stock-actuel') renderStockActuel();
+  if (tab==='transferts') renderStockTransfers();
   if (tab==='notif') renderNotifications();
   if (tab==='ventes') { renderMySales(); }
 }
@@ -4507,7 +4610,7 @@ function renderStocks() {
   const cutoffMap = computeStockDepartCutoffByProduct();
 
   // Entrées de stock
-  const entrees = STATE.stocks.filter(s => isStockMovementCounted(s.description, s.isoDate, cutoffMap, s.createdAt)).map(s => ({
+  const entreesAchats = STATE.stocks.filter(s => isStockMovementCounted(s.description, s.isoDate, cutoffMap, s.createdAt)).map(s => ({
     ...s, _type:'entree',
     qtyCaisses: s.quantityCaisses || s.quantity,
     prixCaisse: s.unitPrice || 0,
@@ -4516,10 +4619,35 @@ function renderStocks() {
   }));
 
   // Sorties (ventes)
-  const sorties = (STATE.transactions||[]).filter(t=>t.type==='vente').filter(t => isStockMovementCounted(t.description, t.isoDate, cutoffMap, t.createdAt)).map(t => {
+  const sortiesVentes = (STATE.transactions||[]).filter(t=>t.type==='vente').filter(t => isStockMovementCounted(t.description, t.isoDate, cutoffMap, t.createdAt)).map(t => {
     return {...t, _type:'sortie', qtyCaisses: getQtyCaisses(t), prixCaisse:t.prixCaisse||t.unitPrice||0,
       prixUnitaire: t.unitPrice||0, casseSize: getCasseSize(t.description, t.unit)};
   });
+
+  // Transferts commerçants (demande du 23 juillet 2026) : une "réception"
+  // (marchandise reçue d'un commerçant allié sans payer) compte comme une
+  // ENTRÉE, une "livraison" (marchandise donnée sans être payé) compte comme
+  // une SORTIE — synchronisées automatiquement ici, avec les mêmes règles
+  // d'intégration (Stock de départ requis, cutoff par produit) que les
+  // achats/ventes classiques.
+  const transfersCounted = (STATE.stockTransfers||[]).filter(t => isStockMovementCounted(t.description, t.isoDate, cutoffMap, t.createdAt));
+  const receptionsEntrees = transfersCounted.filter(t=>t.type==='reception').map(t => ({
+    ...t, _type:'entree', _isTransfer:true,
+    qtyCaisses: t.quantityCaisses || getQtyCaisses(t),
+    prixCaisse: t.prixCaisse || 0,
+    prixUnitaire: t.prixCaisse ? t.prixCaisse / getCasseSize(t.description, null) : 0,
+    casseSize: getCasseSize(t.description, null)
+  }));
+  const livraisonsSorties = transfersCounted.filter(t=>t.type==='livraison').map(t => ({
+    ...t, _type:'sortie', _isTransfer:true,
+    qtyCaisses: t.quantityCaisses || getQtyCaisses(t),
+    prixCaisse: t.prixCaisse || 0,
+    prixUnitaire: t.prixCaisse ? t.prixCaisse / getCasseSize(t.description, null) : 0,
+    casseSize: getCasseSize(t.description, null)
+  }));
+
+  const entrees = [...entreesAchats, ...receptionsEntrees];
+  const sorties = [...sortiesVentes, ...livraisonsSorties];
 
   // Combiner et trier du plus récent au plus ancien
   const all = [...entrees, ...sorties].sort((a,b) => {
@@ -4536,7 +4664,22 @@ function renderStocks() {
     // stock") — même alias déjà appliqué partout ailleurs (marge, Stock
     // Actuel...) pour fusionner les anciens enregistrements "coca" avec
     // "coca kola", sans toucher aux données stockées.
-    body.innerHTML=all.map(s=> s._type==='entree' ? `<tr style="background:#e6f6ef;${canEdit ? 'cursor:pointer;' : ''}"${canEdit ? ` onclick="loadStockForCorrection('${s.id||''}')" title="Cliquer pour corriger cet achat"` : ''}>
+    //
+    // Les lignes issues d'un transfert commerçant (_isTransfer) ne sont PAS
+    // cliquables/supprimables depuis cette vue combinée — leur correction se
+    // fait depuis l'onglet dédié "Transferts Commerçants" (même principe que
+    // les ventes, qui se corrigent depuis l'onglet Ventes et pas depuis ici).
+    body.innerHTML=all.map(s=> s._type==='entree' ? (s._isTransfer ? `<tr style="background:#e8f0fe;">
+      <td>${s.date}</td>
+      <td><span class="badge badge-in">🤝 Réception</span></td>
+      <td>${esc(normProduit(s.description))}</td>
+      <td style="color:#0f7b4f;font-weight:600;">+${formatCaissesDisplay(s.qtyCaisses, s.casseSize)}</td>
+      <td>${fmtHTG(s.prixCaisse)}</td>
+      <td>${fmtHTG(s.prixUnitaire)}</td>
+      <td>${fmtHTG(s.montant||0)}</td>
+      <td>${esc(s.commercant||'')}</td>
+      <td>—</td>
+    </tr>` : `<tr style="background:#e6f6ef;${canEdit ? 'cursor:pointer;' : ''}"${canEdit ? ` onclick="loadStockForCorrection('${s.id||''}')" title="Cliquer pour corriger cet achat"` : ''}>
       <td>${s.date}</td>
       <td><span class="badge badge-in">📥 Entrées/Achats</span></td>
       <td>${esc(normProduit(s.description))}</td>
@@ -4546,6 +4689,16 @@ function renderStocks() {
       <td>${fmtHTG(s.amount)}</td>
       <td>${esc(s.supplier||'')}</td>
       <td style="white-space:nowrap;">${canEdit ? `<button class="btn" style="font-size:.75rem;padding:3px 10px;background:var(--danger-bg);color:var(--danger);border:1px solid #f5b7b1;" onclick="event.stopPropagation();deleteStock('${s.id||''}')">🗑</button>` : '—'}</td>
+    </tr>`) : (s._isTransfer ? `<tr style="background:#fde9f3;">
+      <td>${s.date}</td>
+      <td><span class="badge badge-out">🤝 Livraison</span></td>
+      <td>${esc(normProduit(s.description))}</td>
+      <td style="color:#c0392b;font-weight:600;">-${formatCaissesDisplay(s.qtyCaisses, s.casseSize)}</td>
+      <td>${fmtHTG(s.prixCaisse||0)}</td>
+      <td>${fmtHTG(s.prixUnitaire||0)}</td>
+      <td>${fmtHTG(s.montant||0)}</td>
+      <td>${esc(s.commercant||'')}</td>
+      <td>—</td>
     </tr>` : `<tr style="background:#fdecea;">
       <td>${s.date}</td>
       <td><span class="badge badge-out">📤 Sortie</span></td>
@@ -4556,18 +4709,19 @@ function renderStocks() {
       <td>${fmtHTG(s.amount||0)}</td>
       <td>${esc(s.client||s.seller||'')}</td>
       <td>—</td>
-    </tr>`).join('') + `<tr style="background:var(--surface2);font-weight:700;border-top:2px solid var(--border);">
+    </tr>`)).join('') + `<tr style="background:var(--surface2);font-weight:700;border-top:2px solid var(--border);">
       <td colspan="3">📊 TOTAUX</td>
       <td>Achats: ${entrees.reduce((a,s)=>a+(s.qtyCaisses||0),0).toFixed(2)} | Sorties: ${sorties.reduce((a,s)=>a+(s.qtyCaisses||0),0).toFixed(2)}</td>
-      <td colspan="5">Valeur achats: ${fmtHTG(entrees.reduce((a,s)=>a+s.amount,0))}</td>
+      <td colspan="5">Valeur achats: ${fmtHTG(entreesAchats.reduce((a,s)=>a+(s.amount||0),0))}</td>
     </tr>`;
   }
   // "Valeur totale du stock" / "Achats enregistrés" ne portent que sur les
-  // achats effectivement intégrés (voir filtre ci-dessus), pas sur la
-  // totalité brute de STATE.stocks.
-  const stockVal = entrees.reduce((a,s)=>a+(s.amount||0),0);
+  // VRAIS achats effectivement intégrés (voir filtre ci-dessus), pas sur la
+  // totalité brute de STATE.stocks, et PAS sur les réceptions de transferts
+  // commerçants (aucun argent réellement dépensé pour celles-ci).
+  const stockVal = entreesAchats.reduce((a,s)=>a+(s.amount||0),0);
   document.getElementById('stock-value').textContent = fmtHTG(stockVal);
-  document.getElementById('stock-items').textContent = entrees.length;
+  document.getElementById('stock-items').textContent = entreesAchats.length;
 }
 
 // ============================================================
@@ -5906,6 +6060,18 @@ function computeStockAlerts() {
     const key = normProduit(t.description);
     if (!key || !isStockMovementCounted(t.description, t.isoDate, stockDepartCutoffMap, t.createdAt)) return;
     sortiesMap[key] = (sortiesMap[key]||0) + getQtyCaisses(t);
+  });
+  // Transferts commerçants (demande du 23 juillet 2026) : intégrés au calcul
+  // du Stock actuel (réception = entrée, livraison = sortie), mais PAS au
+  // rythme de vente moyen ci-dessous (recentQtyMap) — l'estimation "jours de
+  // stock restants" doit rester basée sur le rythme des VRAIES ventes, pas
+  // sur des transferts ponctuels entre commerçants.
+  (STATE.stockTransfers||[]).forEach(t=>{
+    const key = normProduit(t.description);
+    if (!key || !isStockMovementCounted(t.description, t.isoDate, stockDepartCutoffMap, t.createdAt)) return;
+    const qc = t.quantityCaisses || getQtyCaisses(t);
+    if (t.type === 'reception') entreesMap[key] = (entreesMap[key]||0) + qc;
+    else if (t.type === 'livraison') sortiesMap[key] = (sortiesMap[key]||0) + qc;
   });
   const cutoff = new Date(); cutoff.setDate(cutoff.getDate()-30);
   const cutoffIso = `${cutoff.getFullYear()}-${String(cutoff.getMonth()+1).padStart(2,'0')}-${String(cutoff.getDate()).padStart(2,'0')}`;
@@ -8435,7 +8601,22 @@ function buildFullWorkbook() {
     qtyCaisses: getQtyCaisses(t), prixCaisse: t.prixCaisse||t.unitPrice||0,
     amount: t.amount||0, tiers: t.client||t.seller||''
   }));
-  const mouvements = [...entrees, ...sorties].sort((a,b)=>(b.date||'').localeCompare(a.date||''));
+  // Transferts commerçants (demande du 23 juillet 2026) : une réception
+  // (marchandise reçue sans payer) compte comme une entrée, une livraison
+  // (marchandise donnée sans être payée) compte comme une sortie — mêmes
+  // règles d'intégration (cutoff Stock de départ) que dans l'app.
+  const transfersCountedXls = (STATE.stockTransfers||[]).filter(t=>isStockMovementCounted(t.description, t.isoDate, stockDepartCutoffMap, t.createdAt));
+  const receptionsEntreesXls = transfersCountedXls.filter(t=>t.type==='reception').map(t=>({
+    date:t.date, type:'Réception', description:normProduit(t.description),
+    qtyCaisses: t.quantityCaisses || getQtyCaisses(t), prixCaisse: t.prixCaisse||0,
+    amount: t.montant||0, tiers: t.commercant||''
+  }));
+  const livraisonsSortiesXls = transfersCountedXls.filter(t=>t.type==='livraison').map(t=>({
+    date:t.date, type:'Livraison', description:normProduit(t.description),
+    qtyCaisses: t.quantityCaisses || getQtyCaisses(t), prixCaisse: t.prixCaisse||0,
+    amount: t.montant||0, tiers: t.commercant||''
+  }));
+  const mouvements = [...entrees, ...sorties, ...receptionsEntreesXls, ...livraisonsSortiesXls].sort((a,b)=>(b.date||'').localeCompare(a.date||''));
   XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([
     ['Date','Type','Description','Qté (caisses)','Prix caisse','Montant','Fournisseur / Client'],
     ...mouvements.map(m=>[m.date,m.type,m.description,m.qtyCaisses,m.prixCaisse,m.amount,m.tiers])
@@ -8485,6 +8666,16 @@ function buildFullWorkbook() {
         venteRecentMap[key] = { prixCaisse: t.prixCaisse, unitPrice: t.unitPrice||0, _horodatage: horodatage };
       }
     }
+  });
+  // Transferts commerçants (demande du 23 juillet 2026) : réception = entrée,
+  // livraison = sortie, mêmes règles de cutoff que ci-dessus — voir
+  // renderStockActuel()/computeStockAlerts() pour la même logique à l'écran.
+  (STATE.stockTransfers||[]).forEach(t=>{
+    const key = normProduit(t.description);
+    if (!key || !isStockMovementCounted(t.description, t.isoDate, stockDepartCutoffMap, t.createdAt)) return;
+    const qc = t.quantityCaisses || getQtyCaisses(t);
+    if (t.type === 'reception') entreesMap[key] = (entreesMap[key]||0) + qc;
+    else if (t.type === 'livraison') sortiesMap[key] = (sortiesMap[key]||0) + qc;
   });
   const allProducts = new Set([...Object.keys(departMap), ...Object.keys(entreesMap), ...Object.keys(sortiesMap)]);
   const stockActuelRows = [...allProducts].map(p=>{
@@ -9939,6 +10130,203 @@ async function deleteStockDepart(id) {
   }
 }
 
+// ============================================================
+// TRANSFERTS COMMERÇANTS — marchandises transférées à/reçues d'un commerçant
+// allié SANS paiement en contrepartie (demande du 23 juillet 2026). Deux
+// types : "réception" (marchandise reçue sans payer — traitée comme une
+// ENTRÉE de stock) et "livraison" (marchandise donnée sans être payé —
+// traitée comme une SORTIE de stock). Enregistrés dans leur propre
+// collection Firestore ('stock_transfers'), séparée de 'stocks'/
+// 'transactions', afin de ne JAMAIS affecter la caisse, la comptabilité ou
+// le chiffre d'affaires — mais intégrés automatiquement aux Mouvements de
+// Stocks et au Stock Actuel (voir renderStocks(), renderStockActuel(),
+// computeStockAlerts()), exactement comme un achat ou une vente, en
+// respectant les mêmes règles (Stock de départ requis, cutoff par produit,
+// réinitialisation du suivi — voir isStockMovementCounted()).
+// ============================================================
+
+function updateTransferCommercantList() {
+  const inputEl = document.getElementById('tr-commercant');
+  const datalist = document.getElementById('transfer-commercant-list');
+  if (!inputEl || !datalist) return;
+  const input = inputEl.value.trim().toLowerCase();
+  const commercants = new Set();
+  (STATE.stockTransfers||[]).forEach(t => { if (t.commercant) commercants.add(t.commercant); });
+  datalist.innerHTML = [...commercants]
+    .filter(c => c.toLowerCase().includes(input))
+    .map(c => `<option value="${esc(c)}">`).join('');
+}
+
+async function submitStockTransfer() {
+  if (!requireAdminOrGest()) return;
+  const type = document.getElementById('tr-type').value;
+  const date = document.getElementById('tr-date').value || isoDate();
+  const commercant = document.getElementById('tr-commercant').value.trim();
+  const desc = document.getElementById('tr-desc').value.trim();
+  const qty = parseFloat(document.getElementById('tr-qty').value) || 0;
+  const unit = document.getElementById('tr-unit').value;
+  const nbUnite = parseFloat(document.getElementById('tr-nb-unite').value) || 0;
+  const montant = parseFloat(document.getElementById('tr-montant').value) || 0;
+  if (!desc || qty <= 0 || !commercant || montant <= 0) {
+    showToast('⚠ Veuillez remplir tous les champs obligatoires (produit, quantité, montant, nom du commerçant).','warn'); return;
+  }
+  const quantityCaisses = getQtyCaisses({description:desc, unit, quantity:qty, nombreUnite:nbUnite});
+  // Prix de vente/caisse dérivé (comme pour une vente) : montant total ÷
+  // équivalent-caisses — sert uniquement à l'affichage dans les Mouvements
+  // de Stocks (colonnes Prix/Valeur), par cohérence avec achats et ventes.
+  const prixCaisse = quantityCaisses > 0 ? montant / quantityCaisses : 0;
+  const entry = {
+    type, description:desc, unit, quantity:qty, nombreUnite:nbUnite,
+    quantityCaisses, montant, prixCaisse, commercant,
+    isoDate:date, date:date.split('-').reverse().join('/'), time:nowStr(),
+    seller:STATE.currentUser.username, createdAt:new Date().toISOString()
+  };
+
+  // Correction d'un transfert déjà enregistré (admin/gestionnaire).
+  if (_pendingTransferEditId) {
+    if (!STATE.isOnline || !STATE.fbReady) {
+      showToast('⚠ Hors ligne — impossible d\'enregistrer la correction maintenant.','warn'); return;
+    }
+    try {
+      const {doc, updateDoc} = window._fbFns;
+      await updateDoc(doc(window._db,'stock_transfers',_pendingTransferEditId), {
+        ...entry, editedBy: STATE.currentUser.username, editedAt: new Date().toISOString()
+      });
+      const idx = STATE.stockTransfers.findIndex(t => t.id === _pendingTransferEditId);
+      if (idx !== -1) STATE.stockTransfers[idx] = {...STATE.stockTransfers[idx], ...entry};
+      showToast('✅ Transfert corrigé.');
+      markUnsaved();
+    } catch(e) { showToast('⚠ Erreur: '+e.message,'warn'); }
+    unlockTransferForm();
+    renderStockTransfers();
+    renderStocks();
+    renderStockActuel();
+    return;
+  }
+
+  if (STATE.isOnline && STATE.fbReady) {
+    try {
+      const {collection, addDoc} = window._fbFns;
+      const ref = await addDoc(collection(window._db,'stock_transfers'), entry);
+      if (!STATE.stockTransfers.find(t => t.id === ref.id)) {
+        STATE.stockTransfers = [{id: ref.id, ...entry}, ...(STATE.stockTransfers||[])];
+      }
+      showToast(type === 'reception' ? '✅ Réception enregistrée.' : '✅ Livraison enregistrée.');
+    } catch(e) {
+      STATE.pendingQueue.push({...entry, colTarget:'stock_transfers'});
+      saveLocal();
+      updatePendingUI();
+      showToast('⚠ Erreur Firebase — entrée en file d\'attente.','warn');
+    }
+  } else {
+    STATE.pendingQueue.push({...entry, colTarget:'stock_transfers'});
+    saveLocal();
+    showToast('📤 Hors ligne — entrée en file d\'attente (sera synchronisée automatiquement).','warn');
+    updatePendingUI();
+  }
+  markUnsaved();
+  renderStockTransfers();
+  renderStocks();
+  renderStockActuel();
+  document.getElementById('tr-desc').value = '';
+  document.getElementById('tr-qty').value = '';
+  document.getElementById('tr-unit').value = 'caisse';
+  document.getElementById('tr-nb-unite').value = '';
+  document.getElementById('tr-montant').value = '';
+  document.getElementById('tr-commercant').value = '';
+  document.getElementById('tr-date').value = '';
+}
+
+// Admin/gestionnaire : clic sur une ligne de "Historique des transferts" pour
+// la charger dans le formulaire et la corriger.
+function loadTransferForCorrection(id) {
+  if (!requireAdminOrGest()) return;
+  const t = (STATE.stockTransfers||[]).find(x => x.id === id);
+  if (!t) { showToast('⚠ Enregistrement introuvable.','warn'); return; }
+  document.getElementById('tr-type').value = t.type || 'reception';
+  document.getElementById('tr-date').value = t.isoDate || '';
+  document.getElementById('tr-commercant').value = t.commercant || '';
+  document.getElementById('tr-desc').value = t.description || '';
+  document.getElementById('tr-qty').value = t.quantity || '';
+  document.getElementById('tr-unit').value = t.unit || 'caisse';
+  document.getElementById('tr-nb-unite').value = t.nombreUnite || '';
+  document.getElementById('tr-montant').value = t.montant || '';
+  _pendingTransferEditId = id;
+  const banner = document.getElementById('transfer-correction-banner');
+  const bannerText = document.getElementById('transfer-correction-banner-text');
+  if (banner && bannerText) {
+    bannerText.textContent = `${t.description||''} du ${t.date||''} (${t.commercant||''})`;
+    banner.style.display = 'block';
+  }
+  const btnAnnuler = document.getElementById('btn-annuler-transfer');
+  if (btnAnnuler) btnAnnuler.style.display = 'inline-flex';
+  document.getElementById('tr-desc').scrollIntoView({behavior:'smooth', block:'center'});
+  showToast('✏️ Transfert chargé — corrigez puis cliquez sur Enregistrer.');
+}
+
+function unlockTransferForm() {
+  _pendingTransferEditId = null;
+  const banner = document.getElementById('transfer-correction-banner');
+  if (banner) banner.style.display = 'none';
+  const btnAnnuler = document.getElementById('btn-annuler-transfer');
+  if (btnAnnuler) btnAnnuler.style.display = 'none';
+  document.getElementById('tr-desc').value = '';
+  document.getElementById('tr-qty').value = '';
+  document.getElementById('tr-unit').value = 'caisse';
+  document.getElementById('tr-nb-unite').value = '';
+  document.getElementById('tr-montant').value = '';
+  document.getElementById('tr-commercant').value = '';
+  document.getElementById('tr-date').value = '';
+  document.getElementById('tr-type').value = 'reception';
+}
+
+async function deleteStockTransfer(id) {
+  if (!requireAdminOrGest()) return;
+  if (!confirm('Supprimer définitivement ce transfert ?')) return;
+  if (STATE.isOnline && STATE.fbReady && id) {
+    try {
+      const {doc, deleteDoc} = window._fbFns;
+      await deleteDoc(doc(window._db,'stock_transfers',id));
+      STATE.stockTransfers = (STATE.stockTransfers||[]).filter(t => t.id !== id);
+      if (_pendingTransferEditId === id) unlockTransferForm();
+      showToast('🗑 Transfert supprimé.','warn');
+      markUnsaved();
+      renderStockTransfers();
+      renderStocks();
+      renderStockActuel();
+    } catch(e) { showToast('⚠ Erreur: '+e.message,'warn'); }
+  } else {
+    showToast('⚠ Hors ligne — impossible de supprimer maintenant.','warn');
+  }
+}
+
+function renderStockTransfers() {
+  const body = document.getElementById('transfer-table-body');
+  if (!body) return;
+  const items = (STATE.stockTransfers||[]).sort((a,b)=>(b.isoDate||'').localeCompare(a.isoDate||'')||(b.time||'').localeCompare(a.time||''));
+  if (!items.length) {
+    body.innerHTML = '<tr><td colspan="9" style="text-align:center;color:var(--text3);padding:1.5rem;">Aucun transfert enregistré.</td></tr>';
+    return;
+  }
+  const canEdit = STATE.currentUser && (STATE.currentUser.role==='admin' || STATE.currentUser.role==='gestionnaire');
+  body.innerHTML = items.map(t => {
+    const badge = t.type === 'reception'
+      ? `<span class="badge badge-in">📥 Réception</span>`
+      : `<span class="badge badge-out">📤 Livraison</span>`;
+    return `<tr${canEdit ? ` style="cursor:pointer;" onclick="loadTransferForCorrection('${t.id||''}')" title="Cliquer pour corriger ce transfert"` : ''}>
+    <td>${t.date||''}</td>
+    <td>${badge}</td>
+    <td>${esc(normProduit(t.description))}</td>
+    <td>${t.quantity||0}</td>
+    <td>${esc(formatUnitLabel(t.unit))}</td>
+    <td>${t.nombreUnite||0}</td>
+    <td>${fmtHTG(t.montant||0)}</td>
+    <td>${esc(t.commercant||'')}</td>
+    <td style="white-space:nowrap;">${canEdit ? `<button class="btn" style="font-size:.75rem;padding:3px 10px;background:var(--danger-bg);color:var(--danger);border:1px solid #f5b7b1;" onclick="event.stopPropagation();deleteStockTransfer('${t.id||''}')">🗑</button>` : '—'}</td>
+  </tr>`;
+  }).join('');
+}
+
 function renderStockDepart() {
   const body = document.getElementById('stock-depart-body');
   if (!body) return;
@@ -10540,6 +10928,22 @@ function renderStockActuel() {
     if (!key || !isStockMovementCounted(t.description, t.isoDate, cutoffMap, t.createdAt)) return;
     if (!sortiesMap[key]) sortiesMap[key] = 0;
     sortiesMap[key] += getQtyCaisses(t);
+  });
+
+  // 3bis. Transferts commerçants (demande du 23 juillet 2026) : une
+  // "réception" (reçue sans payer) s'ajoute aux Entrées, une "livraison"
+  // (donnée sans être payé) s'ajoute aux Sorties — mêmes règles
+  // d'intégration (Stock de départ requis, cutoff par produit) que les
+  // achats/ventes classiques.
+  (STATE.stockTransfers||[]).forEach(t => {
+    const key = normProduit(t.description);
+    if (!key || !isStockMovementCounted(t.description, t.isoDate, cutoffMap, t.createdAt)) return;
+    const qc = t.quantityCaisses || getQtyCaisses(t);
+    if (t.type === 'reception') {
+      entreesMap[key] = (entreesMap[key]||0) + qc;
+    } else if (t.type === 'livraison') {
+      sortiesMap[key] = (sortiesMap[key]||0) + qc;
+    }
   });
 
   // 4. Prix de vente le plus récent par produit, tiré des ventes elles-mêmes
