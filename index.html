@@ -487,6 +487,60 @@ tr:hover td{background:#f7f9ff;}
       </div>
 
       <div class="card">
+        <div class="card-title">📦 Livraison de marchandises payées d'avance (client)</div>
+        <div style="font-size:.85rem;color:var(--text2);margin-bottom:.8rem;">
+          Demande du 24 juillet 2026 : pour enregistrer la livraison d'une marchandise déjà payée d'avance par un client (l'argent a déjà été comptabilisé au moment du paiement) — cette livraison n'ajoute AUCUN nouveau montant en caisse ni au chiffre d'affaires, elle enregistre uniquement la SORTIE de stock correspondante, automatiquement et immédiatement dans les Mouvements de Stocks et le Stock Actuel.
+        </div>
+        <div id="lpa-correction-banner" style="display:none;background:#fef3e2;color:#8a5a00;border:1px solid #f5d59a;border-radius:8px;padding:8px 12px;margin-bottom:12px;font-size:.85rem;font-weight:600;">
+          ✏️ Correction en cours — <span id="lpa-correction-banner-text"></span>.
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label>Date</label>
+            <input type="date" id="lpa-date"/>
+          </div>
+          <div class="form-group" style="flex:2;min-width:200px;">
+            <label>Nom du client</label>
+            <input type="text" id="lpa-client" placeholder="Ex: Jean Pierre" autocomplete="off" list="vente-client-list" oninput="updateVenteClientList('lpa')"/>
+          </div>
+        </div>
+        <div class="form-row">
+          <div class="form-group" style="flex:2;min-width:200px;">
+            <label>Marchandise</label>
+            <input type="text" id="lpa-desc" list="produit-list" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" placeholder="Tapez le nom du produit..."
+              oninput="updateProduitList('lpa-desc')" onchange="normalizeProduitField('lpa-desc')" onfocus="updateProduitList('lpa-desc')"/>
+          </div>
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label>Quantité</label>
+            <input type="number" id="lpa-qty" min="1" placeholder="Ex: 10"/>
+          </div>
+          <div class="form-group">
+            <label>Unité</label>
+            <select id="lpa-unit">
+              <option value="caisse">Caisse (24 unités)</option>
+              <option value="bout">Bout (12 unités)</option>
+              <option value="caisse-1-2">Caisse et 1/2 (36 unités)</option>
+              <option value="bout-1-2">Bout et 1/2 (18 unités)</option>
+              <option value="caisse-beller">Caisse Beller (40 unités)</option>
+              <option value="unite">Unité (1 unité)</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label>Nombre d'unité</label>
+            <input type="number" id="lpa-nb-unite" min="0" step="1" placeholder="Ex: 1, 2, 3..."/>
+          </div>
+          <div class="form-group">
+            <label>Montant (déjà payé, HTG)</label>
+            <input type="number" id="lpa-montant" min="0" step="0.01" placeholder="Ex: 1200.00"/>
+          </div>
+        </div>
+        <button class="send-btn" onclick="submitAdvanceDelivery()">Enregistrer ➤</button>
+        <button id="btn-annuler-lpa" class="btn btn-outline" style="margin-top:8px;font-size:.85rem;display:none;" onclick="unlockAdvanceDeliveryForm()">✖ Annuler la correction</button>
+      </div>
+
+      <div class="card">
         <div class="section-title" style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;">
           <span id="my-sales-title">📋 Vente du jour</span>
           <div id="ventes-jour-admin-actions" style="display:none;">
@@ -509,6 +563,16 @@ tr:hover td{background:#f7f9ff;}
           <table>
             <thead><tr><th>Date</th><th>Montant (HTG)</th><th>Statut</th><th>Actions</th></tr></thead>
             <tbody id="glace-sales-body"><tr><td colspan="4" style="text-align:center;color:var(--text3);padding:1.5rem;">Aucune vente glacée.</td></tr></tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="section-title">📦 Livraisons de marchandises payées d'avance (tous vendeurs)</div>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Date</th><th>Produit</th><th>Qté</th><th>Unité</th><th>Nb unité</th><th>Montant</th><th>Client</th><th>Vendeur</th><th>Actions</th></tr></thead>
+            <tbody id="advance-delivery-table-body"><tr><td colspan="9" style="text-align:center;color:var(--text3);padding:1.5rem;">Aucune livraison enregistrée.</td></tr></tbody>
           </table>
         </div>
       </div>
@@ -1633,6 +1697,7 @@ let STATE = {
   customProducts: [],       // synced from Firestore (produits ajoutés par les utilisateurs, en plus de la liste de base)
   stockTransfers: [],       // synced from Firestore (transferts de marchandises avec des commerçants alliés, sans paiement — voir submitStockTransfer())
   transferBalances: [],     // synced from Firestore (soldes manuels "je dois / on me doit" avec des commerçants alliés, suite à un échange déséquilibré — demande du 24 juillet 2026, voir submitTransferBalance())
+  livraisonsAvance: [],     // synced from Firestore (livraisons de marchandises déjà payées d'avance par un client — demande du 24 juillet 2026, voir submitAdvanceDelivery()). Enregistre uniquement la SORTIE de stock ; l'argent a déjà été comptabilisé au moment du paiement, donc ceci n'ajoute jamais rien en caisse/comptabilité.
   stockMovementsResetAt: null, // synced from Firestore (settings/stock_movements) — voir resetStockMovementsTracking()
   marginManualPrices: {}, // synced from Firestore (settings/margin_manual_prices) — voir setMarginManualPrice()
   marginManualPricesSeeded: false, // synced from Firestore (settings/margin_manual_prices.seededV1)
@@ -1676,6 +1741,11 @@ let _pendingStockDepartEditId = null;
 let _pendingTransferEditId = null;
 // Idem pour une ligne de "Solde avec les commerçants" (voir submitTransferBalance()).
 let _pendingTransferBalanceEditId = null;
+// Idem pour une ligne de "Livraisons de marchandises payées d'avance" (voir
+// submitAdvanceDelivery()) — admin/gestionnaire uniquement pour la
+// correction/suppression, comme pour une vente classique (création ouverte à
+// vendeur/admin/gestionnaire, voir corrigerDerniereVente() pour le précédent).
+let _pendingAdvanceDeliveryEditId = null;
 // Idem pour une ligne "Achats" du tableau "Historique des mouvements de
 // stock" (collection Firestore 'stocks') — admin/gestionnaire uniquement.
 let _pendingStockEditId = null;
@@ -1782,6 +1852,7 @@ if (!navigator.onLine && STATE.lastSession && STATE.lastSession.username) {
 let unsubCredits = null, unsubStockDepart = null, unsubCaisse = null, unsubCaisseRetraits = null, unsubCharges = null, unsubApports = null, unsubDepensesDom = null, unsubFournisseurPayments = null;
 let unsubStockTransfers = null;
 let unsubTransferBalances = null;
+let unsubLivraisonsAvance = null;
 let unsubManualClientDebts = null, unsubManualSupplierDebts = null;
 let unsubProduits = null;
 let unsubStockMovementsSettings = null;
@@ -1912,6 +1983,25 @@ function startFirebaseListeners() {
       if (currentTab === 'transferts') renderTransferBalances();
     },
     err => console.error('TransferBalances listener:', err)
+  );
+
+  // LIVRAISONS DE MARCHANDISES PAYÉES D'AVANCE - Synchronisation globale
+  // (demande du 24 juillet 2026) : livraison à un client d'une marchandise
+  // déjà payée d'avance (l'argent a déjà été comptabilisé au moment du
+  // paiement) — enregistre UNIQUEMENT la sortie de stock correspondante,
+  // intégrée automatiquement aux Mouvements de Stocks / Stock Actuel (voir
+  // renderStocks(), renderStockActuel(), computeStockAlerts()), sans jamais
+  // ajouter de nouveau montant en caisse ni au chiffre d'affaires.
+  if (unsubLivraisonsAvance) unsubLivraisonsAvance();
+  unsubLivraisonsAvance = onSnapshot(
+    query(collection(db, 'livraisons_avance'), orderBy('isoDate','desc')),
+    snap => {
+      STATE.livraisonsAvance = snap.docs.map(d => ({id: d.id, ...d.data()}));
+      if (currentTab === 'ventes') renderAdvanceDeliveries();
+      renderStocks();
+      renderStockActuel();
+    },
+    err => console.error('LivraisonsAvance listener:', err)
   );
 
   // RÉGLAGES MOUVEMENTS DE STOCK (doc unique) - Synchronisation globale : ne
@@ -2825,7 +2915,7 @@ function switchTab(tab) {
   if (tab==='stock-actuel') renderStockActuel();
   if (tab==='transferts') { renderStockTransfers(); renderTransferBalances(); }
   if (tab==='notif') renderNotifications();
-  if (tab==='ventes') { renderMySales(); }
+  if (tab==='ventes') { renderMySales(); renderAdvanceDeliveries(); }
 }
 function switchAccTab(name, btn) {
   currentAccTab = name;
@@ -4295,6 +4385,183 @@ async function deleteTodaysSales() {
 }
 
 // ============================================================
+// LIVRAISONS DE MARCHANDISES PAYÉES D'AVANCE (demande du 24 juillet 2026) :
+// un client a déjà payé sa marchandise à l'avance (l'argent a déjà été
+// comptabilisé au moment du paiement) — ce formulaire sert uniquement à
+// enregistrer la LIVRAISON physique, plus tard, comme une SORTIE de stock.
+// Création ouverte à vendeur/admin/gestionnaire (comme une vente classique,
+// voir submitSale()) ; correction/suppression réservées à admin/gestionnaire
+// (comme corrigerDerniereVente()). Collection Firestore séparée
+// ('livraisons_avance') : jamais lue par aucun calcul de caisse, de
+// comptabilité ou de chiffre d'affaires — voir computeJournalEntries() et
+// consorts, qui ne lisent que STATE.transactions/stocks/credits/etc.
+// ============================================================
+async function submitAdvanceDelivery() {
+  if (!STATE.currentUser) return;
+  const date = document.getElementById('lpa-date').value || isoDate();
+  const client = document.getElementById('lpa-client').value.trim();
+  const desc = document.getElementById('lpa-desc').value.trim();
+  const qty = parseFloat(document.getElementById('lpa-qty').value) || 0;
+  const unit = document.getElementById('lpa-unit').value;
+  const nbUnite = parseFloat(document.getElementById('lpa-nb-unite').value) || 0;
+  const montant = parseFloat(document.getElementById('lpa-montant').value) || 0;
+  if (!desc || qty <= 0 || !client) {
+    showToast('⚠ Veuillez remplir tous les champs obligatoires (produit, quantité, nom du client).','warn'); return;
+  }
+  const quantityCaisses = getQtyCaisses({description:desc, unit, quantity:qty, nombreUnite:nbUnite});
+  // Prix caisse dérivé (comme pour une vente ou un transfert commerçant) :
+  // montant déjà payé ÷ équivalent-caisses — sert uniquement à l'affichage
+  // dans les Mouvements de Stocks (colonnes Prix/Valeur).
+  const prixCaisse = quantityCaisses > 0 ? montant / quantityCaisses : 0;
+  const entry = {
+    description:desc, unit, quantity:qty, nombreUnite:nbUnite,
+    quantityCaisses, montant, prixCaisse, client,
+    isoDate:date, date:date.split('-').reverse().join('/'), time:nowStr(),
+    seller:STATE.currentUser.username, createdAt:new Date().toISOString()
+  };
+
+  // Correction d'une livraison déjà enregistrée (admin/gestionnaire).
+  if (_pendingAdvanceDeliveryEditId) {
+    if (!requireAdminOrGest()) return;
+    if (!STATE.isOnline || !STATE.fbReady) {
+      showToast('⚠ Hors ligne — impossible d\'enregistrer la correction maintenant.','warn'); return;
+    }
+    try {
+      const {doc, updateDoc} = window._fbFns;
+      await updateDoc(doc(window._db,'livraisons_avance',_pendingAdvanceDeliveryEditId), {
+        ...entry, editedBy: STATE.currentUser.username, editedAt: new Date().toISOString()
+      });
+      const idx = STATE.livraisonsAvance.findIndex(t => t.id === _pendingAdvanceDeliveryEditId);
+      if (idx !== -1) STATE.livraisonsAvance[idx] = {...STATE.livraisonsAvance[idx], ...entry};
+      showToast('✅ Livraison corrigée.');
+      markUnsaved();
+    } catch(e) { showToast('⚠ Erreur: '+e.message,'warn'); }
+    unlockAdvanceDeliveryForm();
+    renderAdvanceDeliveries();
+    renderStocks();
+    renderStockActuel();
+    return;
+  }
+
+  if (STATE.isOnline && STATE.fbReady) {
+    try {
+      const {collection, addDoc} = window._fbFns;
+      const ref = await addDoc(collection(window._db,'livraisons_avance'), entry);
+      if (!STATE.livraisonsAvance.find(t => t.id === ref.id)) {
+        STATE.livraisonsAvance = [{id: ref.id, ...entry}, ...(STATE.livraisonsAvance||[])];
+      }
+      showToast('✅ Livraison enregistrée.');
+    } catch(e) {
+      STATE.pendingQueue.push({...entry, colTarget:'livraisons_avance'});
+      saveLocal();
+      updatePendingUI();
+      showToast('⚠ Erreur Firebase — entrée en file d\'attente.','warn');
+    }
+  } else {
+    STATE.pendingQueue.push({...entry, colTarget:'livraisons_avance'});
+    saveLocal();
+    showToast('📤 Hors ligne — entrée en file d\'attente (sera synchronisée automatiquement).','warn');
+    updatePendingUI();
+  }
+  markUnsaved();
+  renderAdvanceDeliveries();
+  renderStocks();
+  renderStockActuel();
+  document.getElementById('lpa-desc').value = '';
+  document.getElementById('lpa-qty').value = '';
+  document.getElementById('lpa-unit').value = 'caisse';
+  document.getElementById('lpa-nb-unite').value = '';
+  document.getElementById('lpa-montant').value = '';
+  document.getElementById('lpa-client').value = '';
+  document.getElementById('lpa-date').value = '';
+}
+
+// Admin/gestionnaire : clic sur une ligne de "Livraisons de marchandises
+// payées d'avance" pour la charger dans le formulaire et la corriger.
+function loadAdvanceDeliveryForCorrection(id) {
+  if (!requireAdminOrGest()) return;
+  const t = (STATE.livraisonsAvance||[]).find(x => x.id === id);
+  if (!t) { showToast('⚠ Livraison introuvable.','warn'); return; }
+  document.getElementById('lpa-date').value = t.isoDate || '';
+  document.getElementById('lpa-client').value = t.client || '';
+  document.getElementById('lpa-desc').value = t.description || '';
+  document.getElementById('lpa-qty').value = t.quantity || '';
+  document.getElementById('lpa-unit').value = t.unit || 'caisse';
+  document.getElementById('lpa-nb-unite').value = t.nombreUnite || '';
+  document.getElementById('lpa-montant').value = t.montant || '';
+  _pendingAdvanceDeliveryEditId = id;
+  const banner = document.getElementById('lpa-correction-banner');
+  const bannerText = document.getElementById('lpa-correction-banner-text');
+  if (banner && bannerText) {
+    bannerText.textContent = `${t.description||''} du ${t.date||''} (${t.client||''})`;
+    banner.style.display = 'block';
+  }
+  const btnAnnuler = document.getElementById('btn-annuler-lpa');
+  if (btnAnnuler) btnAnnuler.style.display = 'inline-flex';
+  document.getElementById('lpa-desc').scrollIntoView({behavior:'smooth', block:'center'});
+  showToast('✏️ Livraison chargée — corrigez puis cliquez sur Enregistrer.');
+}
+
+function unlockAdvanceDeliveryForm() {
+  _pendingAdvanceDeliveryEditId = null;
+  const banner = document.getElementById('lpa-correction-banner');
+  if (banner) banner.style.display = 'none';
+  const btnAnnuler = document.getElementById('btn-annuler-lpa');
+  if (btnAnnuler) btnAnnuler.style.display = 'none';
+  document.getElementById('lpa-desc').value = '';
+  document.getElementById('lpa-qty').value = '';
+  document.getElementById('lpa-unit').value = 'caisse';
+  document.getElementById('lpa-nb-unite').value = '';
+  document.getElementById('lpa-montant').value = '';
+  document.getElementById('lpa-client').value = '';
+  document.getElementById('lpa-date').value = '';
+}
+
+async function deleteAdvanceDelivery(id) {
+  if (!requireAdminOrGest()) return;
+  if (!confirm('Supprimer définitivement cette livraison ?')) return;
+  if (STATE.isOnline && STATE.fbReady && id) {
+    try {
+      const {doc, deleteDoc} = window._fbFns;
+      await deleteDoc(doc(window._db,'livraisons_avance',id));
+      STATE.livraisonsAvance = (STATE.livraisonsAvance||[]).filter(t => t.id !== id);
+      if (_pendingAdvanceDeliveryEditId === id) unlockAdvanceDeliveryForm();
+      showToast('🗑 Livraison supprimée.','warn');
+      markUnsaved();
+      renderAdvanceDeliveries();
+      renderStocks();
+      renderStockActuel();
+    } catch(e) { showToast('⚠ Erreur: '+e.message,'warn'); }
+  } else {
+    showToast('⚠ Hors ligne — impossible de supprimer maintenant.','warn');
+  }
+}
+
+function renderAdvanceDeliveries() {
+  const body = document.getElementById('advance-delivery-table-body');
+  if (!body) return;
+  const items = (STATE.livraisonsAvance||[]).sort((a,b)=>(b.isoDate||'').localeCompare(a.isoDate||'')||(b.time||'').localeCompare(a.time||''));
+  if (!items.length) {
+    body.innerHTML = '<tr><td colspan="9" style="text-align:center;color:var(--text3);padding:1.5rem;">Aucune livraison enregistrée.</td></tr>';
+    return;
+  }
+  const canEdit = STATE.currentUser && (STATE.currentUser.role==='admin' || STATE.currentUser.role==='gestionnaire');
+  body.innerHTML = items.map(t => {
+    return `<tr${canEdit ? ` style="cursor:pointer;" onclick="loadAdvanceDeliveryForCorrection('${t.id||''}')" title="Cliquer pour corriger cette livraison"` : ''}>
+    <td>${t.date||''}</td>
+    <td>${esc(normProduit(t.description))}</td>
+    <td>${t.quantity||0}</td>
+    <td>${esc(formatUnitLabel(t.unit))}</td>
+    <td>${t.nombreUnite||0}</td>
+    <td>${fmtHTG(t.montant||0)}</td>
+    <td>${esc(t.client||'')}</td>
+    <td>${esc(t.seller||'')}</td>
+    <td style="white-space:nowrap;">${canEdit ? `<button class="btn" style="font-size:.75rem;padding:3px 10px;background:var(--danger-bg);color:var(--danger);border:1px solid #f5b7b1;" onclick="event.stopPropagation();deleteAdvanceDelivery('${t.id||''}')">🗑</button>` : '—'}</td>
+  </tr>`;
+  }).join('');
+}
+
+// ============================================================
 // STOCKS
 // ============================================================
 function calcStockQty() {
@@ -4709,8 +4976,19 @@ function renderStocks() {
     casseSize: getCasseSize(t.description, null)
   }));
 
+  // Livraisons de marchandises payées d'avance (demande du 24 juillet 2026) :
+  // l'argent a déjà été comptabilisé au moment du paiement, donc ceci compte
+  // uniquement comme une SORTIE de stock, jamais comme une nouvelle vente.
+  const livraisonsAvanceSorties = (STATE.livraisonsAvance||[]).filter(t => isStockMovementCounted(t.description, t.isoDate, cutoffMap, t.createdAt)).map(t => ({
+    ...t, _type:'sortie', _isAdvanceDelivery:true,
+    qtyCaisses: t.quantityCaisses || getQtyCaisses(t),
+    prixCaisse: t.prixCaisse || 0,
+    prixUnitaire: t.prixCaisse ? t.prixCaisse / getCasseSize(t.description, null) : 0,
+    casseSize: getCasseSize(t.description, null)
+  }));
+
   const entrees = [...entreesAchats, ...receptionsEntrees];
-  const sorties = [...sortiesVentes, ...livraisonsSorties];
+  const sorties = [...sortiesVentes, ...livraisonsSorties, ...livraisonsAvanceSorties];
 
   // Combiner et trier du plus récent au plus ancien
   const all = [...entrees, ...sorties].sort((a,b) => {
@@ -4762,6 +5040,16 @@ function renderStocks() {
       <td>${fmtHTG(s.montant||0)}</td>
       <td>${esc(s.commercant||'')}</td>
       <td>—</td>
+    </tr>` : (s._isAdvanceDelivery ? `<tr style="background:#fff4e5;">
+      <td>${s.date}</td>
+      <td><span class="badge badge-out">📦 Livraison avance</span></td>
+      <td>${esc(normProduit(s.description))}</td>
+      <td style="color:#c0392b;font-weight:600;">-${formatCaissesDisplay(s.qtyCaisses, s.casseSize)}</td>
+      <td>${fmtHTG(s.prixCaisse||0)}</td>
+      <td>${fmtHTG(s.prixUnitaire||0)}</td>
+      <td>${fmtHTG(s.montant||0)}</td>
+      <td>${esc(s.client||'')}</td>
+      <td>—</td>
     </tr>` : `<tr style="background:#fdecea;">
       <td>${s.date}</td>
       <td><span class="badge badge-out">📤 Sortie</span></td>
@@ -4772,7 +5060,7 @@ function renderStocks() {
       <td>${fmtHTG(s.amount||0)}</td>
       <td>${esc(s.client||s.seller||'')}</td>
       <td>—</td>
-    </tr>`)).join('') + `<tr style="background:var(--surface2);font-weight:700;border-top:2px solid var(--border);">
+    </tr>`))).join('') + `<tr style="background:var(--surface2);font-weight:700;border-top:2px solid var(--border);">
       <td colspan="3">📊 TOTAUX</td>
       <td>Achats: ${entrees.reduce((a,s)=>a+(s.qtyCaisses||0),0).toFixed(2)} | Sorties: ${sorties.reduce((a,s)=>a+(s.qtyCaisses||0),0).toFixed(2)}</td>
       <td colspan="5">Valeur achats: ${fmtHTG(entreesAchats.reduce((a,s)=>a+(s.amount||0),0))}</td>
@@ -6142,6 +6430,19 @@ function computeStockAlerts() {
   ventesAll.filter(t=>getIsoFromTx(t) >= cutoffIso).forEach(t=>{
     const key = normProduit(t.description); if (!key) return;
     recentQtyMap[key] = (recentQtyMap[key]||0) + getQtyCaisses(t);
+  });
+  // Livraisons de marchandises payées d'avance (demande du 24 juillet 2026) :
+  // contrairement aux transferts commerçants (barter sans lien avec la
+  // demande client), une livraison payée d'avance EST une vraie sortie liée
+  // à un vrai client — elle compte donc aussi dans le rythme de vente moyen
+  // (recentQtyMap) utilisé pour "jours de stock restants", en plus du Stock
+  // actuel (sortiesMap).
+  (STATE.livraisonsAvance||[]).forEach(t=>{
+    const key = normProduit(t.description);
+    if (!key || !isStockMovementCounted(t.description, t.isoDate, stockDepartCutoffMap, t.createdAt)) return;
+    const qc = t.quantityCaisses || getQtyCaisses(t);
+    sortiesMap[key] = (sortiesMap[key]||0) + qc;
+    if (getIsoFromTx(t) >= cutoffIso) recentQtyMap[key] = (recentQtyMap[key]||0) + qc;
   });
   const allProducts = new Set([...Object.keys(departMap), ...Object.keys(entreesMap), ...Object.keys(sortiesMap)]);
   return [...allProducts].map(p => {
@@ -8679,7 +8980,16 @@ function buildFullWorkbook() {
     qtyCaisses: t.quantityCaisses || getQtyCaisses(t), prixCaisse: t.prixCaisse||0,
     amount: t.montant||0, tiers: t.commercant||''
   }));
-  const mouvements = [...entrees, ...sorties, ...receptionsEntreesXls, ...livraisonsSortiesXls].sort((a,b)=>(b.date||'').localeCompare(a.date||''));
+  // Livraisons de marchandises payées d'avance (demande du 24 juillet 2026) :
+  // sortie de stock uniquement, l'argent ayant déjà été comptabilisé au
+  // moment du paiement — voir isStockMovementCounted() pour les mêmes règles
+  // d'intégration (cutoff Stock de départ) que le reste de cette feuille.
+  const livraisonsAvanceXls = (STATE.livraisonsAvance||[]).filter(t=>isStockMovementCounted(t.description, t.isoDate, stockDepartCutoffMap, t.createdAt)).map(t=>({
+    date:t.date, type:'Livraison (payée d\'avance)', description:normProduit(t.description),
+    qtyCaisses: t.quantityCaisses || getQtyCaisses(t), prixCaisse: t.prixCaisse||0,
+    amount: t.montant||0, tiers: t.client||''
+  }));
+  const mouvements = [...entrees, ...sorties, ...receptionsEntreesXls, ...livraisonsSortiesXls, ...livraisonsAvanceXls].sort((a,b)=>(b.date||'').localeCompare(a.date||''));
   XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([
     ['Date','Type','Description','Qté (caisses)','Prix caisse','Montant','Fournisseur / Client'],
     ...mouvements.map(m=>[m.date,m.type,m.description,m.qtyCaisses,m.prixCaisse,m.amount,m.tiers])
@@ -8739,6 +9049,14 @@ function buildFullWorkbook() {
     const qc = t.quantityCaisses || getQtyCaisses(t);
     if (t.type === 'reception') entreesMap[key] = (entreesMap[key]||0) + qc;
     else if (t.type === 'livraison') sortiesMap[key] = (sortiesMap[key]||0) + qc;
+  });
+  // Livraisons de marchandises payées d'avance (demande du 24 juillet 2026) :
+  // sortie de stock uniquement (voir renderStockActuel() pour la même logique
+  // à l'écran).
+  (STATE.livraisonsAvance||[]).forEach(t=>{
+    const key = normProduit(t.description);
+    if (!key || !isStockMovementCounted(t.description, t.isoDate, stockDepartCutoffMap, t.createdAt)) return;
+    sortiesMap[key] = (sortiesMap[key]||0) + (t.quantityCaisses || getQtyCaisses(t));
   });
   const allProducts = new Set([...Object.keys(departMap), ...Object.keys(entreesMap), ...Object.keys(sortiesMap)]);
   const stockActuelRows = [...allProducts].map(p=>{
@@ -11162,6 +11480,16 @@ function renderStockActuel() {
     } else if (t.type === 'livraison') {
       sortiesMap[key] = (sortiesMap[key]||0) + qc;
     }
+  });
+
+  // 3ter. Livraisons de marchandises payées d'avance (demande du 24 juillet
+  // 2026) : la marchandise sort réellement du stock au moment de la
+  // livraison, donc s'ajoute aux Sorties — l'argent, lui, a déjà été
+  // comptabilisé au moment du paiement (aucun impact caisse ici).
+  (STATE.livraisonsAvance||[]).forEach(t => {
+    const key = normProduit(t.description);
+    if (!key || !isStockMovementCounted(t.description, t.isoDate, cutoffMap, t.createdAt)) return;
+    sortiesMap[key] = (sortiesMap[key]||0) + (t.quantityCaisses || getQtyCaisses(t));
   });
 
   // 4. Prix de vente le plus récent par produit, tiré des ventes elles-mêmes
