@@ -5119,19 +5119,24 @@ function prevMonthStr(monthStr) {
 // stocks (onglet Achats / STATE.stocks, champ unitPrice saisi à l'achat).
 // Ces prix ne sont pas propres à une période : seul le mix de produits vendus
 // (et donc le quota de chacun) varie selon le jour/semaine/mois choisi.
-// Vrai si l'unité choisie N'appartient PAS à la famille "Bout" (demande du 21
-// juillet 2026 : le taux de marge ne doit se baser QUE sur le prix de vente
-// Caisse et le prix d'achat Caisse — les ventes/achats enregistrés en
-// "Bout" sont exclus de ce calcul, car leur prix par bout n'est pas
-// directement comparable au prix par caisse complète). Une unité absente
-// (achats/ventes anciens, enregistrés avant l'introduction du choix
-// Caisse/Bout, où quantityCaisses était stocké directement sans champ
-// "unit") est traitée comme Caisse par défaut — comportement historique
-// inchangé, pour ne pas exclure par erreur des données existantes qui
-// n'ont simplement jamais eu ce champ.
+// Revirement du 24 juillet 2026 : jusqu'ici, cette fonction renvoyait faux
+// pour la famille "Bout" (demande du 21 juillet 2026 : "le taux de marge ne
+// doit se baser QUE sur le prix de vente Caisse et le prix d'achat Caisse",
+// car un prix par bout n'était pas jugé directement comparable au prix par
+// caisse complète) — ce qui excluait ces ventes/achats des tableaux de
+// marge (ex: une vente de Culligan en "Bout" n'apparaissait pas du tout dans
+// "Taux de marge par produit"). Nouvelle demande explicite : inclure les
+// ventes/achats en "Bout" dans ces calculs, À CONDITION qu'ils soient bien
+// normalisés en équivalent-caisse (1 bout = une demi-caisse = 12 unités pour
+// une caisse de 24 — voir getQtyCaisses()/getCasseSize()). C'est déjà
+// exactement ce que représentent prixCaisse (ventes) et unitPrice (achats) :
+// ces champs sont toujours exprimés en équivalent-caisse complète (montant
+// total ÷ quantité en équivalent-caisses), qu'il s'agisse d'une vente/achat
+// en Caisse ou en Bout — donc directement comparables entre eux sans
+// distinction d'unité. Cette fonction (nom conservé pour ne pas devoir
+// toucher tous ses appels) ne filtre donc plus rien.
 function isCaisseUnit(unit) {
-  if (!unit) return true;
-  return !String(unit).trim().toLowerCase().startsWith('bout');
+  return true;
 }
 
 // Renvoie la dernière valeur connue d'une liste de points {isoDate,
