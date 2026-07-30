@@ -5787,6 +5787,12 @@ async function promptSetMarginManualPrice(produitBrut) {
     STATE.marginManualPricesSeeded = true;
     renderDataAnalyse();
     if (currentTab === 'compta') refreshAccounting();
+    // Demande du 30 juillet 2026 : si la fenêtre "Détail du taux de marge par
+    // produit" (jour/semaine/mois) est ouverte, on la rafraîchit aussi
+    // immédiatement — sinon le prix modifié depuis là n'apparaîtrait qu'après
+    // avoir fermé/réouvert la fenêtre.
+    const mgdModal = document.getElementById('margin-detail-modal-bg');
+    if (mgdModal && mgdModal.classList.contains('show')) renderMarginDetailModal();
     showToast(trimmed === '' ? '✅ Prix manuel retiré — retour au calcul automatique.' : '✅ Prix de vente/caisse manuel enregistré.');
   } catch(e) { showToast('⚠ Erreur: '+e.message,'warn'); }
 }
@@ -5841,6 +5847,11 @@ async function promptSetMarginManualAchatPrice(produitBrut) {
     STATE.marginManualAchatPrices = newPrices;
     renderDataAnalyse();
     if (currentTab === 'compta') refreshAccounting();
+    // Demande du 30 juillet 2026 : même rafraîchissement immédiat que côté
+    // vente ci-dessus si la fenêtre "Détail du taux de marge par produit" est
+    // ouverte.
+    const mgdModalAchat = document.getElementById('margin-detail-modal-bg');
+    if (mgdModalAchat && mgdModalAchat.classList.contains('show')) renderMarginDetailModal();
     showToast(trimmed === '' ? '✅ Prix manuel retiré — retour au calcul automatique.' : '✅ Prix d\'achat/caisse manuel enregistré.');
   } catch(e) { showToast('⚠ Erreur: '+e.message,'warn'); }
 }
@@ -6113,14 +6124,29 @@ function renderMarginRateSection(title, period) {
     <div class="label">Taux de marge moyen</div><div class="value">${period.tauxMoyenPondere.toFixed(1)}%</div>
   </div>`;
   if (period.margeRows.length) {
+    // Demande du 30 juillet 2026 : même bouton ✏️ (admin/gestionnaire
+    // seulement) + badge "manuel" que dans le tableau principal "Taux de
+    // marge par produit" (Comptabilité) — voir promptSetMarginManualPrice()/
+    // promptSetMarginManualAchatPrice() — pour pouvoir corriger un prix
+    // directement depuis cette fenêtre "Détail du taux de marge par produit"
+    // (jour/semaine/mois), sans devoir retourner dans l'autre tableau.
+    const isAdminOrGest = STATE.currentUser && (STATE.currentUser.role==='admin' || STATE.currentUser.role==='gestionnaire');
     html += `<div class="table-wrap"><table><thead><tr><th>Produit</th><th>Prix de vente caisse</th><th>Prix d'achat caisse</th><th>Quota (part des ventes)</th><th>Taux de marge</th></tr></thead><tbody>` +
-      period.margeRows.map(r=>`<tr>
+      period.margeRows.map(r=>{
+        const isManuel = getMarginManualPrice(r.produit) > 0;
+        const editBtn = isAdminOrGest ? `<button class="btn btn-outline" style="font-size:.7rem;padding:2px 8px;margin-left:6px;" onclick="promptSetMarginManualPrice('${esc(r.produit)}')" title="Fixer/modifier le prix de vente/caisse de ce produit à la main">✏️</button>` : '';
+        const badge = isManuel ? ` <span style="font-size:.72rem;color:#1a56db;" title="Prix fixé manuellement, prioritaire sur le calcul automatique">✋ manuel</span>` : '';
+        const isManuelAchat = getMarginManualAchatPrice(r.produit) > 0;
+        const editBtnAchat = isAdminOrGest ? `<button class="btn btn-outline" style="font-size:.7rem;padding:2px 8px;margin-left:6px;" onclick="promptSetMarginManualAchatPrice('${esc(r.produit)}')" title="Fixer/modifier le prix d'achat/caisse de ce produit à la main (utile si aucun achat n'a jamais été enregistré dans l'onglet Achats)">✏️</button>` : '';
+        const badgeAchat = isManuelAchat ? ` <span style="font-size:.72rem;color:#1a56db;" title="Prix fixé manuellement, prioritaire sur le dernier achat connu">✋ manuel</span>` : '';
+        return `<tr>
         <td>${esc(r.produit)}</td>
-        <td>${fmtHTG(r.prixVente)}</td>
-        <td>${fmtHTG(r.prixAchat)}</td>
+        <td>${fmtHTG(r.prixVente)}${badge}${editBtn}</td>
+        <td>${fmtHTG(r.prixAchat)}${badgeAchat}${editBtnAchat}</td>
         <td>${(r.quota*100).toFixed(1)}%</td>
         <td style="font-weight:600;color:${r.donneesOk?(r.tauxMarge>=0?'#1a7a4c':'#c0392b'):'var(--text3)'};">${r.donneesOk?r.tauxMarge.toFixed(1)+'%':'Données insuffisantes'}</td>
-      </tr>`).join('') + `</tbody></table></div>`;
+      </tr>`;
+      }).join('') + `</tbody></table></div>`;
   }
   html += `</div>`;
   return html;
