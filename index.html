@@ -1451,6 +1451,11 @@ tr:hover td{background:#f7f9ff;}
           <span>✏ Corriger / Supprimer une transaction</span>
           <button class="btn" style="font-size:.78rem;padding:5px 12px;width:auto;background:var(--danger-bg);color:var(--danger);border:1px solid #f5b7b1;" onclick="deleteAllTransactions()" title="Ventes, achats, charges et retraits de caisse — les remboursements crédit/fournisseur ne sont pas affectés">🗑 Effacer toutes les transactions</button>
         </div>
+        <!-- Demande du 30 juillet 2026 : pour retrouver rapidement une vente
+             précise à corriger (ex: prix de vente caisse incohérent dans le
+             tableau Taux de marge par produit) sans devoir défiler toute la
+             liste — filtre simple par nom de produit, voir renderAdminTrans(). -->
+        <input type="text" id="admin-trans-filter" placeholder="🔎 Filtrer par produit (ex: dassani)..." style="width:100%;max-width:320px;padding:6px 10px;border:1.5px solid var(--border);border-radius:7px;font-size:.85rem;margin-bottom:10px;" oninput="renderAdminTrans()"/>
         <div class="table-wrap">
           <table>
             <thead><tr><th>Date</th><th>Heure</th><th>Vendeur</th><th>Description</th><th>Qté</th><th>Montant</th><th>Actions</th></tr></thead>
@@ -7676,12 +7681,22 @@ function clearFilter() { document.getElementById('filter-date').value=''; render
 // ============================================================
 function renderAdminTrans() {
   const body = document.getElementById('admin-trans-body');
-  const sorted = [...STATE.transactions].sort((a,b) => {
+  const filterEl = document.getElementById('admin-trans-filter');
+  const filterText = filterEl ? filterEl.value.trim().toLowerCase() : '';
+  let sorted = [...STATE.transactions].sort((a,b) => {
     if ((b.isoDate||'') !== (a.isoDate||'')) return (b.isoDate||'').localeCompare(a.isoDate||'');
     return (b.time||'').localeCompare(a.time||'');
   });
+  // Filtre par nom de produit (demande du 30 juillet 2026) — comparé sur la
+  // description NORMALISÉE (normProduit), pour que "dassani" retrouve aussi
+  // bien une vente enregistrée "Dassani" que sous une variante d'alias.
+  if (filterText) {
+    sorted = sorted.filter(t => normProduit(t.description||'').includes(filterText) || (t.description||'').toLowerCase().includes(filterText));
+  }
   if (!sorted.length) {
-    body.innerHTML='<tr><td colspan="7" style="text-align:center;color:var(--text3);padding:1.5rem;">Aucune transaction.</td></tr>';
+    body.innerHTML = filterText
+      ? '<tr><td colspan="7" style="text-align:center;color:var(--text3);padding:1.5rem;">Aucune transaction ne correspond à ce filtre.</td></tr>'
+      : '<tr><td colspan="7" style="text-align:center;color:var(--text3);padding:1.5rem;">Aucune transaction.</td></tr>';
     return;
   }
   // Admin et Gestionnaire peuvent modifier/supprimer
