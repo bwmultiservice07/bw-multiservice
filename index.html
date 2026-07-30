@@ -1159,6 +1159,76 @@ tr:hover td{background:#f7f9ff;}
           </table>
         </div>
       </div>
+      <div class="card">
+        <div class="card-title">🗑️ Perte / Sortie sans vente (ajustement d'inventaire)</div>
+        <div style="font-size:.85rem;color:var(--text2);margin-bottom:.8rem;">
+          Demande du 30 juillet 2026 : pour enregistrer une marchandise sortie du stock SANS avoir été vendue (casse, vol, péremption, erreur de comptage...), afin de corriger un écart constaté lors d'un inventaire. Synchronisé automatiquement avec les Mouvements de Stocks et le Stock Actuel comme une sortie, ET enregistré comme une charge ("Perte d'inventaire") qui réduit réellement la caisse et apparaît dans la Comptabilité — contrairement aux Transferts Commerçants/Livraisons payées d'avance, une perte représente un vrai manque à gagner.
+        </div>
+        <div id="perte-correction-banner" style="display:none;background:#fef3e2;color:#8a5a00;border:1px solid #f5d59a;border-radius:8px;padding:8px 12px;margin-bottom:12px;font-size:.85rem;font-weight:600;">
+          ✏️ Correction en cours — <span id="perte-correction-banner-text"></span>.
+        </div>
+        <div class="form-row">
+          <div class="form-group" style="flex:2;min-width:200px;">
+            <label>Produit</label>
+            <input type="text" id="pt-desc" list="produit-list" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" placeholder="Tapez le nom du produit..."
+              oninput="updateProduitList('pt-desc')" onchange="normalizeProduitField('pt-desc');calcPerteQty();calcPertePrixUnitaire();" onfocus="updateProduitList('pt-desc')"/>
+          </div>
+          <div class="form-group">
+            <label>Date</label>
+            <input type="date" id="pt-date"/>
+          </div>
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label>Quantité</label>
+            <input type="number" id="pt-qty" min="1" placeholder="Ex: 2" oninput="calcPerteQty()"/>
+          </div>
+          <div class="form-group">
+            <label>Unité</label>
+            <select id="pt-unit" onchange="calcPerteQty();calcPertePrixUnitaire();">
+              <option value="caisse">Caisse (24 unités)</option>
+              <option value="bout">Bout (12 unités)</option>
+              <option value="caisse-1-2">Caisse et 1/2 (36 unités)</option>
+              <option value="bout-1-2">Bout et 1/2 (18 unités)</option>
+              <option value="caisse-beller">Caisse Beller (40 unités)</option>
+              <option value="unite">Unité (1 unité)</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label>Nombre d'unité</label>
+            <input type="number" id="pt-nb-unite" min="0" step="1" placeholder="Ex: 1, 2, 3..." oninput="calcPerteQty()"/>
+          </div>
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label>Prix d'achat / Caisse (HTG)</label>
+            <input type="number" id="pt-price" min="0" step="0.01" placeholder="Ex: 1200.00" oninput="calcPertePrixUnitaire()"/>
+          </div>
+          <div class="form-group">
+            <label>Prix d'achat unitaire (HTG) — auto</label>
+            <input type="number" id="pt-prix-unitaire" step="0.01" readonly style="background:#f0f2f7;"/>
+          </div>
+          <div class="form-group">
+            <label>Valeur de la perte (HTG) — auto</label>
+            <input type="number" id="pt-valeur" step="0.01" readonly style="background:#f0f2f7;font-weight:700;color:#c0392b;"/>
+          </div>
+          <input type="hidden" id="pt-qty-caisses"/>
+        </div>
+        <div class="form-row">
+          <div class="form-group" style="flex:2;min-width:200px;">
+            <label>Raison (optionnel)</label>
+            <input type="text" id="pt-raison" placeholder="Ex: casse, vol, péremption, erreur de comptage..." maxlength="300"/>
+          </div>
+        </div>
+        <button class="send-btn" onclick="submitStockPerte()">Enregistrer ➤</button>
+        <button id="btn-annuler-perte" class="btn btn-outline" style="margin-top:8px;font-size:.85rem;display:none;" onclick="unlockStockPerteForm()">✖ Annuler la correction</button>
+        <div class="table-wrap" style="margin-top:1rem;">
+          <table>
+            <thead><tr><th>Date</th><th>Produit</th><th>Qté</th><th>Unité</th><th>Nb unité</th><th>Valeur perte (HTG)</th><th>Raison</th><th>Actions</th></tr></thead>
+            <tbody id="perte-table-body"><tr><td colspan="8" style="text-align:center;color:var(--text3);padding:1.5rem;">Aucune perte enregistrée.</td></tr></tbody>
+          </table>
+        </div>
+      </div>
     </div>
 
     <!-- STOCK ACTUEL -->
@@ -1702,6 +1772,7 @@ let STATE = {
   marginManualPrices: {}, // synced from Firestore (settings/margin_manual_prices) — voir setMarginManualPrice()
   marginManualPricesSeeded: false, // synced from Firestore (settings/margin_manual_prices.seededV1)
   marginManualAchatPrices: {}, // synced from Firestore (settings/margin_manual_achat_prices) — demande du 27 juillet 2026 : plusieurs produits vendus régulièrement (ex: Guinness, Beller, Coca Kola...) n'ont jamais d'achat enregistré dans l'onglet Achats (seulement un Stock de départ, qui ne porte qu'un prix de VENTE) — leur Prix d'achat caisse reste alors à 0 et le tableau affiche "Données insuffisantes" même si le produit se vend bien. Ce réglage permet à un admin/gestionnaire de fixer ce prix à la main, pour resynchroniser immédiatement le taux de marge sans devoir retrouver/corriger un achat historique — voir getMarginManualAchatPrice()/promptSetMarginManualAchatPrice().
+  stockPertes: [],    // synced from Firestore (pertes / sorties de caisse sans vente — demande du 30 juillet 2026, pour corriger les écarts constatés lors des inventaires : casse, vol, péremption, erreur de comptage...). Chaque perte crée AUSSI automatiquement une charge liée (compte "6250 – Pertes sur stocks") qui réduit réellement la caisse/comptabilité, en plus de synchroniser la sortie dans les Mouvements de Stocks/Stock Actuel — voir submitStockPerte().
   pendingQueue: [],   // offline queue
   currentUser: null,
   isOnline: navigator.onLine,
@@ -1747,6 +1818,10 @@ let _pendingTransferBalanceEditId = null;
 // correction/suppression, comme pour une vente classique (création ouverte à
 // vendeur/admin/gestionnaire, voir corrigerDerniereVente() pour le précédent).
 let _pendingAdvanceDeliveryEditId = null;
+// Idem pour une ligne de "Perte / Sortie sans vente" (voir submitStockPerte())
+// — admin/gestionnaire uniquement (création ET correction), comme le reste de
+// l'onglet Mouvements de Stocks (voir ADMIN_OR_GEST_TABS).
+let _pendingPerteEditId = null;
 // Idem pour une ligne "Achats" du tableau "Historique des mouvements de
 // stock" (collection Firestore 'stocks') — admin/gestionnaire uniquement.
 let _pendingStockEditId = null;
@@ -1859,6 +1934,7 @@ let unsubProduits = null;
 let unsubStockMovementsSettings = null;
 let unsubMarginManualPrices = null;
 let unsubMarginManualAchatPrices = null;
+let unsubStockPertes = null;
 
 function startFirebaseListeners() {
   if (!window._fbReady || !window._db) return;
@@ -2004,6 +2080,27 @@ function startFirebaseListeners() {
       renderStockActuel();
     },
     err => console.error('LivraisonsAvance listener:', err)
+  );
+
+  // PERTES / SORTIES DE CAISSE SANS VENTE - Synchronisation globale (demande
+  // du 30 juillet 2026) : ajustement d'inventaire (casse, vol, péremption,
+  // erreur de comptage...) — synchronisé automatiquement comme une SORTIE
+  // dans les Mouvements de Stocks / Stock Actuel (voir renderStocks(),
+  // renderStockActuel(), computeStockAlerts()) ET réduit réellement la caisse
+  // via une charge liée (compte "6250 – Pertes sur stocks", voir
+  // computeJournalEntries()/chargeAccountFor()) — contrairement aux
+  // Transferts Commerçants/Livraisons payées d'avance, qui n'ont jamais
+  // d'impact financier.
+  if (unsubStockPertes) unsubStockPertes();
+  unsubStockPertes = onSnapshot(
+    query(collection(db, 'stock_pertes'), orderBy('isoDate','desc')),
+    snap => {
+      STATE.stockPertes = snap.docs.map(d => ({id: d.id, ...d.data()}));
+      if (currentTab === 'stocks') renderStockPertes();
+      renderStocks();
+      renderStockActuel();
+    },
+    err => console.error('StockPertes listener:', err)
   );
 
   // RÉGLAGES MOUVEMENTS DE STOCK (doc unique) - Synchronisation globale : ne
@@ -2929,7 +3026,7 @@ function switchTab(tab) {
   if (tab==='admin') { renderAdminTrans(); renderUsers(); renderCustomProductsAdmin(); updateBackupStatusLine(); }
   if (tab==='tableau') renderDashboard();
   if (tab==='data-analyse') renderDataAnalyse();
-  if (tab==='stocks') { renderStocks(); renderStockMovementsResetStatus(); }
+  if (tab==='stocks') { renderStocks(); renderStockMovementsResetStatus(); renderStockPertes(); }
   if (tab==='credit') { renderCredits(); renderFournisseurPayments(); }
   if (tab==='dettes') { renderDettes(); renderDettesFournisseurs(); }
   if (tab==='caisse') { renderCaisse(); renderCaisseRetraits(); }
@@ -4833,6 +4930,262 @@ async function deleteStock(id) {
   }
 }
 
+// ============================================================
+// PERTE / SORTIE SANS VENTE (demande du 30 juillet 2026) : ajustement
+// d'inventaire — casse, vol, péremption, erreur de comptage... — SANS aucune
+// vente réelle. Réservé à admin/gestionnaire (comme tout l'onglet Mouvements
+// de Stocks, voir ADMIN_OR_GEST_TABS). Formulaire calqué sur celui des Achats
+// (Prix d'achat/Caisse -> Prix d'achat unitaire auto -> Valeur auto), car une
+// perte se valorise à son coût d'achat, pas à un prix de vente.
+//
+// Contrairement aux Transferts Commerçants / Livraisons payées d'avance (qui
+// n'affectent jamais la caisse, aucun argent n'étant réellement en jeu), une
+// perte représente un vrai manque à gagner : chaque perte crée donc AUSSI
+// automatiquement une charge liée dans la collection 'charges' (description
+// "Perte d'inventaire — <produit>", compte "6250 – Pertes sur stocks", voir
+// chargeAccountFor()) qui réduit réellement la caisse et apparaît dans le
+// Journal général / l'Analyse financière — voir computeJournalEntries().
+// ============================================================
+function calcPerteQty() {
+  const produit = document.getElementById('pt-desc').value;
+  const unit = document.getElementById('pt-unit').value;
+  const qty = parseFloat(document.getElementById('pt-qty').value) || 0;
+  const nbUnite = parseFloat(document.getElementById('pt-nb-unite').value) || 0;
+  const qtyCaisses = getQtyCaisses({description:produit, unit, quantity:qty, nombreUnite:nbUnite});
+  document.getElementById('pt-qty-caisses').value = qtyCaisses.toFixed(4);
+  calcPerteValeur();
+}
+
+function calcPertePrixUnitaire() {
+  const prixCaisse = parseFloat(document.getElementById('pt-price').value) || 0;
+  const produit = document.getElementById('pt-desc').value;
+  const unit = document.getElementById('pt-unit').value;
+  const casseSize = getCasseSize(produit, unit);
+  const prixUnit = prixCaisse > 0 ? prixCaisse / casseSize : 0;
+  document.getElementById('pt-prix-unitaire').value = prixUnit.toFixed(2);
+  calcPerteValeur();
+}
+
+function calcPerteValeur() {
+  const qtyCaisses = parseFloat(document.getElementById('pt-qty-caisses').value) || 0;
+  const prixCaisse = parseFloat(document.getElementById('pt-price').value) || 0;
+  document.getElementById('pt-valeur').value = (qtyCaisses * prixCaisse).toFixed(2);
+}
+
+function resetPerteFormFields() {
+  document.getElementById('pt-desc').value = '';
+  document.getElementById('pt-date').value = '';
+  document.getElementById('pt-qty').value = '';
+  document.getElementById('pt-unit').value = 'caisse';
+  document.getElementById('pt-nb-unite').value = '';
+  document.getElementById('pt-price').value = '';
+  document.getElementById('pt-prix-unitaire').value = '';
+  document.getElementById('pt-valeur').value = '';
+  document.getElementById('pt-qty-caisses').value = '';
+  document.getElementById('pt-raison').value = '';
+}
+
+async function submitStockPerte() {
+  if (!requireAdminOrGest()) return;
+  const desc = document.getElementById('pt-desc').value.trim();
+  const date = document.getElementById('pt-date').value || isoDate();
+  const qty = parseFloat(document.getElementById('pt-qty').value) || 0;
+  const unit = document.getElementById('pt-unit').value;
+  const nbUnite = parseFloat(document.getElementById('pt-nb-unite').value) || 0;
+  const price = parseFloat(document.getElementById('pt-price').value) || 0;
+  const prixUnitaire = parseFloat(document.getElementById('pt-prix-unitaire').value) || 0;
+  const raison = document.getElementById('pt-raison').value.trim();
+  if (!desc || qty <= 0 || price <= 0) {
+    showToast('⚠ Veuillez remplir tous les champs obligatoires (produit, quantité, prix d\'achat/caisse).','warn'); return;
+  }
+  const quantityCaisses = getQtyCaisses({description:desc, unit, quantity:qty, nombreUnite:nbUnite});
+  const montant = quantityCaisses * price;
+  if (!(montant > 0)) {
+    showToast('⚠ La valeur de la perte doit être supérieure à 0.','warn'); return;
+  }
+  const chargeDescription = `Perte d'inventaire — ${normProduit(desc)}`;
+  const entry = {
+    description:desc, unit, quantity:qty, nombreUnite:nbUnite,
+    quantityCaisses, prixCaisse:price, prixUnitaire, montant, raison:raison||'',
+    isoDate:date, date:isoToDisplayDate(date) || todayStr(), time:nowStr(),
+    seller:STATE.currentUser.username, createdAt:new Date().toISOString()
+  };
+
+  // Correction d'une perte déjà enregistrée (admin/gestionnaire) : on met à
+  // jour le document 'stock_pertes' ET on répercute le changement sur la
+  // charge liée (montant/description/date/note), pour que la Comptabilité
+  // reste toujours cohérente avec l'ajustement de stock affiché ici.
+  if (_pendingPerteEditId) {
+    if (!STATE.isOnline || !STATE.fbReady) {
+      showToast('⚠ Hors ligne — impossible d\'enregistrer la correction maintenant.','warn'); return;
+    }
+    try {
+      const {doc, updateDoc} = window._fbFns;
+      const old = (STATE.stockPertes||[]).find(p => p.id === _pendingPerteEditId);
+      await updateDoc(doc(window._db,'stock_pertes',_pendingPerteEditId), {
+        ...entry, editedBy: STATE.currentUser.username, editedAt: new Date().toISOString()
+      });
+      if (old && old.chargeId) {
+        try {
+          await updateDoc(doc(window._db,'charges',old.chargeId), {
+            montant, description: chargeDescription, date: entry.date, isoDate: entry.isoDate,
+            note: raison||'', editedBy: STATE.currentUser.username, editedAt: new Date().toISOString()
+          });
+          const cidx = (STATE.charges||[]).findIndex(c => c.id === old.chargeId);
+          if (cidx !== -1) STATE.charges[cidx] = {...STATE.charges[cidx], montant, description:chargeDescription, date:entry.date, isoDate:entry.isoDate, note:raison||''};
+        } catch(e) { console.error('Mise à jour charge liée à la perte:', e); }
+      }
+      const idx = (STATE.stockPertes||[]).findIndex(p => p.id === _pendingPerteEditId);
+      if (idx !== -1) STATE.stockPertes[idx] = {...STATE.stockPertes[idx], ...entry};
+      showToast('✅ Perte corrigée.');
+      markUnsaved();
+    } catch(e) { showToast('⚠ Erreur: '+e.message,'warn'); }
+    unlockStockPerteForm();
+    renderStockPertes();
+    renderStocks();
+    renderStockActuel();
+    if (currentTab === 'compta') refreshAccounting();
+    return;
+  }
+
+  if (STATE.isOnline && STATE.fbReady) {
+    try {
+      const {collection, addDoc} = window._fbFns;
+      // La charge liée est créée EN PREMIER pour que son ID Firestore soit
+      // disponible et rattaché (chargeId) au document 'stock_pertes' — ce qui
+      // permet de retrouver/mettre à jour/supprimer la charge correspondante
+      // depuis une correction ou une suppression de la perte.
+      const chargeEntry = {
+        date: entry.date, isoDate: entry.isoDate, montant, description: chargeDescription,
+        note: raison||'', seller: STATE.currentUser.username, createdAt: new Date().toISOString()
+      };
+      const chargeRef = await addDoc(collection(window._db,'charges'), chargeEntry);
+      if (!STATE.charges) STATE.charges = [];
+      if (!STATE.charges.find(c=>c.id===chargeRef.id)) STATE.charges = [{id:chargeRef.id, ...chargeEntry}, ...STATE.charges];
+      const ref = await addDoc(collection(window._db,'stock_pertes'), {...entry, chargeId: chargeRef.id});
+      if (!STATE.stockPertes.find(p => p.id === ref.id)) {
+        STATE.stockPertes = [{id: ref.id, ...entry, chargeId: chargeRef.id}, ...(STATE.stockPertes||[])];
+      }
+      showToast('✅ Perte enregistrée — la caisse a été réduite en conséquence.','warn');
+    } catch(e) {
+      // Écriture échouée malgré la connexion : mise en file d'attente des
+      // DEUX documents (perte + charge liée), sans chargeId (une perte
+      // synchronisée hors ligne restera sans charge automatiquement rattachée
+      // tant qu'un admin ne la corrige pas une fois reconnecté — limitation
+      // acceptée, comme pour les autres écritures liées de l'application).
+      STATE.pendingQueue.push({...entry, colTarget:'stock_pertes'});
+      STATE.pendingQueue.push({date:entry.date, isoDate:entry.isoDate, montant, description:chargeDescription, note:raison||'', seller:STATE.currentUser.username, createdAt:new Date().toISOString(), colTarget:'charges'});
+      saveLocal();
+      updatePendingUI();
+      showToast('⚠ Erreur Firebase — perte en file d\'attente.','warn');
+    }
+  } else {
+    STATE.pendingQueue.push({...entry, colTarget:'stock_pertes'});
+    STATE.pendingQueue.push({date:entry.date, isoDate:entry.isoDate, montant, description:chargeDescription, note:raison||'', seller:STATE.currentUser.username, createdAt:new Date().toISOString(), colTarget:'charges'});
+    saveLocal();
+    updatePendingUI();
+    showToast("📤 Hors ligne — perte en file d'attente (sera synchronisée automatiquement).",'warn');
+  }
+  markUnsaved();
+  renderStockPertes();
+  renderStocks();
+  renderStockActuel();
+  renderDashboard();
+  if (currentTab === 'compta') refreshAccounting();
+  resetPerteFormFields();
+}
+
+// Admin/gestionnaire : clic sur une ligne de l'historique des Pertes pour la
+// charger dans le formulaire et la corriger.
+function loadPerteForCorrection(id) {
+  if (!requireAdminOrGest()) return;
+  const p = (STATE.stockPertes||[]).find(x => x.id === id);
+  if (!p) { showToast('⚠ Perte introuvable.','warn'); return; }
+  document.getElementById('pt-desc').value = p.description || '';
+  document.getElementById('pt-date').value = p.isoDate || '';
+  document.getElementById('pt-qty').value = p.quantity || '';
+  document.getElementById('pt-unit').value = p.unit || 'caisse';
+  document.getElementById('pt-nb-unite').value = p.nombreUnite || '';
+  document.getElementById('pt-price').value = p.prixCaisse || '';
+  document.getElementById('pt-raison').value = p.raison || '';
+  calcPerteQty();
+  calcPertePrixUnitaire();
+  _pendingPerteEditId = id;
+  const banner = document.getElementById('perte-correction-banner');
+  const bannerText = document.getElementById('perte-correction-banner-text');
+  if (banner && bannerText) {
+    bannerText.textContent = `${normProduit(p.description||'')} du ${p.date||''}`;
+    banner.style.display = 'block';
+  }
+  const btnAnnuler = document.getElementById('btn-annuler-perte');
+  if (btnAnnuler) btnAnnuler.style.display = 'inline-flex';
+  document.getElementById('pt-desc').scrollIntoView({behavior:'smooth', block:'center'});
+  showToast('✏️ Perte chargée dans le formulaire — corrigez puis cliquez sur Enregistrer.');
+}
+
+function unlockStockPerteForm() {
+  _pendingPerteEditId = null;
+  const banner = document.getElementById('perte-correction-banner');
+  if (banner) banner.style.display = 'none';
+  const btnAnnuler = document.getElementById('btn-annuler-perte');
+  if (btnAnnuler) btnAnnuler.style.display = 'none';
+  resetPerteFormFields();
+}
+
+// Supprime une perte ET, en cascade, la charge liée (sinon la caisse
+// resterait diminuée pour une perte qui n'existe plus vraiment).
+async function deleteStockPerte(id) {
+  if (!requireAdminOrGest()) return;
+  if (!confirm("Supprimer définitivement cette perte ? La charge liée (réduction de caisse) sera aussi supprimée.")) return;
+  if (STATE.isOnline && STATE.fbReady && id) {
+    try {
+      const {doc, deleteDoc} = window._fbFns;
+      const p = (STATE.stockPertes||[]).find(x => x.id === id);
+      await deleteDoc(doc(window._db,'stock_pertes',id));
+      if (p && p.chargeId) {
+        try {
+          await deleteDoc(doc(window._db,'charges',p.chargeId));
+          STATE.charges = (STATE.charges||[]).filter(c => c.id !== p.chargeId);
+        } catch(e) { console.error('Suppression charge liée à la perte:', e); }
+      }
+      STATE.stockPertes = (STATE.stockPertes||[]).filter(x => x.id !== id);
+      if (_pendingPerteEditId === id) unlockStockPerteForm();
+      showToast('🗑 Perte supprimée — la charge liée a aussi été supprimée.','warn');
+      markUnsaved();
+      renderStockPertes();
+      renderStocks();
+      renderStockActuel();
+      renderDashboard();
+      if (currentTab === 'compta') refreshAccounting();
+    } catch(e) { showToast('⚠ Erreur: '+e.message,'warn'); }
+  } else {
+    showToast('⚠ Hors ligne — impossible de supprimer maintenant.','warn');
+  }
+}
+
+function renderStockPertes() {
+  const body = document.getElementById('perte-table-body');
+  if (!body) return;
+  const items = (STATE.stockPertes||[]).sort((a,b)=>(b.isoDate||'').localeCompare(a.isoDate||'')||(b.time||'').localeCompare(a.time||''));
+  if (!items.length) {
+    body.innerHTML = '<tr><td colspan="8" style="text-align:center;color:var(--text3);padding:1.5rem;">Aucune perte enregistrée.</td></tr>';
+    return;
+  }
+  const canEdit = STATE.currentUser && (STATE.currentUser.role==='admin' || STATE.currentUser.role==='gestionnaire');
+  body.innerHTML = items.map(p => {
+    return `<tr${canEdit ? ` style="cursor:pointer;" onclick="loadPerteForCorrection('${p.id||''}')" title="Cliquer pour corriger cette perte"` : ''}>
+    <td>${p.date||''}</td>
+    <td>${esc(normProduit(p.description))}</td>
+    <td>${p.quantity||0}</td>
+    <td>${esc(formatUnitLabel(p.unit))}</td>
+    <td>${p.nombreUnite||0}</td>
+    <td>${fmtHTG(p.montant||0)}</td>
+    <td>${esc(p.raison||'')}</td>
+    <td style="white-space:nowrap;">${canEdit ? `<button class="btn" style="font-size:.75rem;padding:3px 10px;background:var(--danger-bg);color:var(--danger);border:1px solid #f5b7b1;" onclick="event.stopPropagation();deleteStockPerte('${p.id||''}')">🗑</button>` : '—'}</td>
+  </tr>`;
+  }).join('');
+}
+
 // Affiche, au-dessus de l'historique des Mouvements de Stocks, l'instant de
 // la dernière réinitialisation (voir resetStockMovementsTracking()), pour
 // que l'équipe sache clairement à partir de quand le suivi actuel compte.
@@ -5016,8 +5369,19 @@ function renderStocks() {
     casseSize: getCasseSize(t.description, null)
   }));
 
+  // Pertes / Sorties sans vente (demande du 30 juillet 2026) : ajustement
+  // d'inventaire — compte comme une SORTIE de stock, valorisée à son prix
+  // d'achat (pas un prix de vente) puisqu'il ne s'agit pas d'une vente.
+  const pertesSorties = (STATE.stockPertes||[]).filter(p => isStockMovementCounted(p.description, p.isoDate, cutoffMap, p.createdAt)).map(p => ({
+    ...p, _type:'sortie', _isPerte:true,
+    qtyCaisses: p.quantityCaisses || getQtyCaisses(p),
+    prixCaisse: p.prixCaisse || 0,
+    prixUnitaire: p.prixUnitaire || (p.prixCaisse ? p.prixCaisse / getCasseSize(p.description, null) : 0),
+    casseSize: getCasseSize(p.description, null)
+  }));
+
   const entrees = [...entreesAchats, ...receptionsEntrees];
-  const sorties = [...sortiesVentes, ...livraisonsSorties, ...livraisonsAvanceSorties];
+  const sorties = [...sortiesVentes, ...livraisonsSorties, ...livraisonsAvanceSorties, ...pertesSorties];
 
   // Combiner et trier du plus récent au plus ancien
   const all = [...entrees, ...sorties].sort((a,b) => {
@@ -5079,6 +5443,16 @@ function renderStocks() {
       <td>${fmtHTG(s.montant||0)}</td>
       <td>${esc(s.client||'')}</td>
       <td>—</td>
+    </tr>` : (s._isPerte ? `<tr style="background:#f3e8ff;">
+      <td>${s.date}</td>
+      <td><span class="badge badge-out">🗑️ Perte</span></td>
+      <td>${esc(normProduit(s.description))}</td>
+      <td style="color:#c0392b;font-weight:600;">-${formatCaissesDisplay(s.qtyCaisses, s.casseSize)}</td>
+      <td>${fmtHTG(s.prixCaisse||0)}</td>
+      <td>${fmtHTG(s.prixUnitaire||0)}</td>
+      <td>${fmtHTG(s.montant||0)}</td>
+      <td>${esc(s.raison||'')}</td>
+      <td>—</td>
     </tr>` : `<tr style="background:#fdecea;">
       <td>${s.date}</td>
       <td><span class="badge badge-out">📤 Sortie</span></td>
@@ -5089,7 +5463,7 @@ function renderStocks() {
       <td>${fmtHTG(s.amount||0)}</td>
       <td>${esc(s.client||s.seller||'')}</td>
       <td>—</td>
-    </tr>`))).join('') + `<tr style="background:var(--surface2);font-weight:700;border-top:2px solid var(--border);">
+    </tr>`)))).join('') + `<tr style="background:var(--surface2);font-weight:700;border-top:2px solid var(--border);">
       <td colspan="3">📊 TOTAUX</td>
       <td>Achats: ${entrees.reduce((a,s)=>a+(s.qtyCaisses||0),0).toFixed(2)} | Sorties: ${sorties.reduce((a,s)=>a+(s.qtyCaisses||0),0).toFixed(2)}</td>
       <td colspan="5">Valeur achats: ${fmtHTG(entreesAchats.reduce((a,s)=>a+(s.amount||0),0))}</td>
@@ -6575,6 +6949,16 @@ function computeStockAlerts() {
     const qc = t.quantityCaisses || getQtyCaisses(t);
     sortiesMap[key] = (sortiesMap[key]||0) + qc;
     if (getIsoFromTx(t) >= cutoffIso) recentQtyMap[key] = (recentQtyMap[key]||0) + qc;
+  });
+  // Pertes / Sorties sans vente (demande du 30 juillet 2026) : comme les
+  // Transferts Commerçants ci-dessus, une perte réduit bien le Stock actuel
+  // (sortiesMap) mais est volontairement EXCLUE du rythme de vente moyen
+  // (recentQtyMap) — un ajustement d'inventaire n'est pas un signal de
+  // demande réelle, il fausserait l'estimation "jours de stock restants".
+  (STATE.stockPertes||[]).forEach(p=>{
+    const key = normProduit(p.description);
+    if (!key || !isStockMovementCounted(p.description, p.isoDate, stockDepartCutoffMap, p.createdAt)) return;
+    sortiesMap[key] = (sortiesMap[key]||0) + (p.quantityCaisses || getQtyCaisses(p));
   });
   const allProducts = new Set([...Object.keys(departMap), ...Object.keys(entreesMap), ...Object.keys(sortiesMap)]);
   return [...allProducts].map(p => {
@@ -8183,6 +8567,10 @@ function renderDepensesDom() {
 function chargeAccountFor(description) {
   if (description === 'Salaire') return '6410 – Salaires';
   if (description === 'Prime') return '6420 – Primes';
+  // Charge auto-créée par une "Perte / Sortie sans vente" (demande du 30
+  // juillet 2026, voir submitStockPerte()) — compte dédié pour bien
+  // distinguer un ajustement d'inventaire d'un achat de marchandise classique.
+  if ((description||'').startsWith("Perte d'inventaire")) return '6250 – Pertes sur stocks';
   return '6200 – Charges diverses';
 }
 
@@ -9128,7 +9516,15 @@ function buildFullWorkbook() {
     qtyCaisses: t.quantityCaisses || getQtyCaisses(t), prixCaisse: t.prixCaisse||0,
     amount: t.montant||0, tiers: t.client||''
   }));
-  const mouvements = [...entrees, ...sorties, ...receptionsEntreesXls, ...livraisonsSortiesXls, ...livraisonsAvanceXls].sort((a,b)=>(b.date||'').localeCompare(a.date||''));
+  // Pertes / Sorties sans vente (demande du 30 juillet 2026) : sortie de
+  // stock, valorisée à son prix d'achat — mêmes règles d'intégration (cutoff
+  // Stock de départ) que le reste de cette feuille.
+  const pertesXls = (STATE.stockPertes||[]).filter(p=>isStockMovementCounted(p.description, p.isoDate, stockDepartCutoffMap, p.createdAt)).map(p=>({
+    date:p.date, type:'Perte / Sortie sans vente', description:normProduit(p.description),
+    qtyCaisses: p.quantityCaisses || getQtyCaisses(p), prixCaisse: p.prixCaisse||0,
+    amount: p.montant||0, tiers: p.raison||''
+  }));
+  const mouvements = [...entrees, ...sorties, ...receptionsEntreesXls, ...livraisonsSortiesXls, ...livraisonsAvanceXls, ...pertesXls].sort((a,b)=>(b.date||'').localeCompare(a.date||''));
   XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([
     ['Date','Type','Description','Qté (caisses)','Prix caisse','Montant','Fournisseur / Client'],
     ...mouvements.map(m=>[m.date,m.type,m.description,m.qtyCaisses,m.prixCaisse,m.amount,m.tiers])
@@ -9196,6 +9592,13 @@ function buildFullWorkbook() {
     const key = normProduit(t.description);
     if (!key || !isStockMovementCounted(t.description, t.isoDate, stockDepartCutoffMap, t.createdAt)) return;
     sortiesMap[key] = (sortiesMap[key]||0) + (t.quantityCaisses || getQtyCaisses(t));
+  });
+  // Pertes / Sorties sans vente (demande du 30 juillet 2026) : voir
+  // renderStockActuel()/computeStockAlerts() pour la même logique à l'écran.
+  (STATE.stockPertes||[]).forEach(p=>{
+    const key = normProduit(p.description);
+    if (!key || !isStockMovementCounted(p.description, p.isoDate, stockDepartCutoffMap, p.createdAt)) return;
+    sortiesMap[key] = (sortiesMap[key]||0) + (p.quantityCaisses || getQtyCaisses(p));
   });
   const allProducts = new Set([...Object.keys(departMap), ...Object.keys(entreesMap), ...Object.keys(sortiesMap)]);
   const stockActuelRows = [...allProducts].map(p=>{
@@ -11629,6 +12032,16 @@ function renderStockActuel() {
     const key = normProduit(t.description);
     if (!key || !isStockMovementCounted(t.description, t.isoDate, cutoffMap, t.createdAt)) return;
     sortiesMap[key] = (sortiesMap[key]||0) + (t.quantityCaisses || getQtyCaisses(t));
+  });
+
+  // 3quater. Pertes / Sorties sans vente (demande du 30 juillet 2026) :
+  // ajustement d'inventaire — s'ajoute aux Sorties comme n'importe quelle
+  // autre sortie de stock réelle, pour que le Stock Actuel reflète bien
+  // l'écart corrigé.
+  (STATE.stockPertes||[]).forEach(p => {
+    const key = normProduit(p.description);
+    if (!key || !isStockMovementCounted(p.description, p.isoDate, cutoffMap, p.createdAt)) return;
+    sortiesMap[key] = (sortiesMap[key]||0) + (p.quantityCaisses || getQtyCaisses(p));
   });
 
   // 4. Prix de vente le plus récent par produit, tiré des ventes elles-mêmes
