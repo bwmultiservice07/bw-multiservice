@@ -1088,6 +1088,14 @@ tr:hover td{background:#f7f9ff;}
             <input type="text" id="s-desc" list="produit-list" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" placeholder="Tapez le nom du produit..."
               oninput="updateProduitList('s-desc')" onchange="normalizeProduitField('s-desc');calcStockQty();calcStockPrixUnitaire();" onfocus="updateProduitList('s-desc')"/>
           </div>
+          <!-- Demande du 30 juillet 2026 : permettre de dater un achat
+               (ex: achat saisi en retard, ou le mauvais jour par erreur) —
+               laissé vide, la date reste celle du jour pour un nouvel achat,
+               ou la date d'origine en cas de correction (voir submitStock()). -->
+          <div class="form-group">
+            <label>Date de l'achat (optionnel)</label>
+            <input type="date" id="s-date" title="Laissez vide pour garder la date par défaut (aujourd'hui, ou la date d'origine en cas de correction)."/>
+          </div>
         </div>
         <div class="form-row">
           <div class="form-group">
@@ -4768,6 +4776,11 @@ async function submitStock() {
   const prixUnitaire = parseFloat(document.getElementById('s-prix-unitaire').value) || 0;
   const supplier = document.getElementById('s-supplier').value.trim();
   const paymentMode = document.getElementById('s-payment').value || 'cash';
+  // Demande du 30 juillet 2026 : date de l'achat modifiable (optionnel) —
+  // même principe que la date optionnelle des ventes (v-date) : laissée
+  // vide, on garde le comportement d'origine (aujourd'hui pour un nouvel
+  // achat, date d'origine en cas de correction — voir loadStockForCorrection()).
+  const sDateVal = document.getElementById('s-date').value;
   if (!desc||qty<=0||price<=0) {
     showToast('⚠ Veuillez remplir tous les champs obligatoires.','warn'); return;
   }
@@ -4776,7 +4789,8 @@ async function submitStock() {
   }
   const amount = qtyCaisses*price;
   const entry = {
-    type:'stock-in', date:todayStr(), isoDate:isoDate(), time:nowStr(),
+    type:'stock-in', date: sDateVal ? (isoToDisplayDate(sDateVal) || todayStr()) : todayStr(),
+    isoDate: sDateVal || isoDate(), time:nowStr(),
     seller:STATE.currentUser.username, description:desc, supplier:supplier||'',
     quantity:qty, unit:unit, extraUnits:extra, quantityCaisses:qtyCaisses,
     unitPrice:price, prixUnitaire:prixUnitaire, amount:amount, paymentMode:paymentMode, createdAt: new Date().toISOString()
@@ -4856,6 +4870,7 @@ async function submitStock() {
   renderDettesFournisseurs();
   renderFournisseurPayments();
   document.getElementById('s-desc').value='';
+  document.getElementById('s-date').value='';
   document.getElementById('s-qty').value='';
   document.getElementById('s-unit').value='caisse';
   document.getElementById('s-extra-units').value='';
@@ -4875,6 +4890,7 @@ function loadStockForCorrection(id) {
   const s = (STATE.stocks||[]).find(x => x.id === id);
   if (!s) { showToast('⚠ Enregistrement introuvable.','warn'); return; }
   document.getElementById('s-desc').value = s.description || '';
+  document.getElementById('s-date').value = s.isoDate || '';
   document.getElementById('s-qty').value = s.quantity || '';
   document.getElementById('s-unit').value = s.unit || 'caisse';
   document.getElementById('s-extra-units').value = s.extraUnits || '';
@@ -4904,6 +4920,7 @@ function unlockStockForm() {
   const btnAnnuler = document.getElementById('btn-annuler-stock');
   if (btnAnnuler) btnAnnuler.style.display = 'none';
   document.getElementById('s-desc').value='';
+  document.getElementById('s-date').value='';
   document.getElementById('s-qty').value='';
   document.getElementById('s-unit').value='caisse';
   document.getElementById('s-extra-units').value='';
@@ -5592,7 +5609,19 @@ function computeAchatLastPriceCheckpoints(productKey) {
     .map(s => ({ isoDate: s.isoDate || s.date || '', sortKey: s.createdAt || ((s.isoDate||s.date||'') + 'T' + (s.time||'')), prix: s.unitPrice||0 }))
     .filter(p => p.prix > 0)
     .sort((a,b) => a.sortKey.localeCompare(b.sortKey))
-    .map(p => ({ isoDate: p.isoDate, valeurCumulee: p.prix }));
+    .map(p => ({ isoDate: p.isoDate, sortKey: p.sortKey, valeurCumulee: p.prix }));
+}
+
+// Horodatage (sortKey) du DERNIER achat connu pour un produit, ou null si
+// aucun achat n'a jamais été enregistré — demande du 30 juillet 2026 ("meme
+// apres une modification manuelle, si le prix est modifie au moment d'une
+// vente ou d'un achat, ce prix remplace immediatement la derniere
+// modification manuelle") : sert à déterminer si un achat plus récent que la
+// dernière modification manuelle doit reprendre la main — voir
+// getMarginManualAchatPrice().
+function getLastAchatTimestamp(productKey) {
+  const checkpoints = computeAchatLastPriceCheckpoints(productKey);
+  return checkpoints.length ? checkpoints[checkpoints.length-1].sortKey : null;
 }
 
 // Renvoie le prix d'achat du DERNIER achat connu pour un produit, à une date
@@ -5657,7 +5686,15 @@ function computeVenteLastPriceCheckpoints(productKey) {
     })
     .filter(p => p.prix > 0)
     .sort((a,b) => a.sortKey.localeCompare(b.sortKey))
-    .map(p => ({ isoDate: p.isoDate, valeurCumulee: p.prix }));
+    .map(p => ({ isoDate: p.isoDate, sortKey: p.sortKey, valeurCumulee: p.prix }));
+}
+
+// Horodatage (sortKey) de la DERNIÈRE vente connue pour un produit, ou null
+// si jamais vendu — pendant symétrique de getLastAchatTimestamp() ci-dessus,
+// voir getMarginManualPrice().
+function getLastVenteTimestamp(productKey) {
+  const checkpoints = computeVenteLastPriceCheckpoints(productKey);
+  return checkpoints.length ? checkpoints[checkpoints.length-1].sortKey : null;
 }
 
 // Renvoie le prix de vente Caisse de la DERNIÈRE vente connue pour un
@@ -5711,10 +5748,35 @@ function getStockDepartPrixCaisse(productKey) {
 // caisse partout où ce prix est utilisé pour la marge (tableau Taux de marge
 // par produit, Marge commerciale évolutive) — au-dessus des vraies ventes et
 // du Stock de départ, jusqu'à ce qu'elle soit changée ou retirée (voir
-// setMarginManualPrice()).
+// promptSetMarginManualPrice()).
+//
+// Revirement du 30 juillet 2026 ("meme apres une modification manuelle, si
+// le prix est modifie au moment d'une vente ... ce prix remplace
+// immediatement la derniere modification manuelle") : un prix manuel n'est
+// plus prioritaire de façon PERMANENTE — il ne reste actif que tant
+// qu'AUCUNE vente plus récente que cette modification n'a eu lieu. Dès
+// qu'une nouvelle vente de ce produit est enregistrée après coup, le prix
+// réellement pratiqué à cette vente reprend automatiquement la main (voir
+// getLastVenteTimestamp()), rendant le tableau "dynamique et évolutif"
+// plutôt que figé sur une correction ponctuelle. Chaque modification
+// manuelle (voir promptSetMarginManualPrice()) enregistre désormais un
+// horodatage "setAt" en plus du prix — {price, setAt} — pour permettre cette
+// comparaison. Rétrocompatibilité : les valeurs enregistrées AVANT ce
+// changement (simple nombre, sans setAt) restent prioritaires comme avant
+// (comportement historique inchangé) tant qu'elles ne sont pas modifiées de
+// nouveau — seules les modifications faites à partir de maintenant obtiennent
+// ce nouveau comportement dynamique.
 function getMarginManualPrice(productKey) {
-  const v = (STATE.marginManualPrices||{})[productKey];
-  return (typeof v === 'number' && v > 0) ? v : 0;
+  const entry = (STATE.marginManualPrices||{})[productKey];
+  if (!entry) return 0;
+  const price = typeof entry === 'number' ? entry : entry.price;
+  const setAt = typeof entry === 'number' ? '' : (entry.setAt || '');
+  if (!(price > 0)) return 0;
+  if (setAt) {
+    const lastVenteTs = getLastVenteTimestamp(productKey);
+    if (lastVenteTs && lastVenteTs > setAt) return 0;
+  }
+  return price;
 }
 
 // Empêche une deuxième tentative d'écriture pendant qu'une première est déjà
@@ -5776,7 +5838,11 @@ async function promptSetMarginManualPrice(produitBrut) {
   } else {
     const val = parseFloat(trimmed.replace(',', '.'));
     if (isNaN(val) || val <= 0) { showToast('⚠ Montant invalide.','warn'); return; }
-    newPrices[key] = val;
+    // Demande du 30 juillet 2026 : on enregistre désormais aussi l'instant de
+    // cette modification (setAt) — voir getMarginManualPrice() pour la
+    // comparaison avec la dernière vente réelle qui permet à ce prix d'être
+    // automatiquement remplacé dès qu'une nouvelle vente a lieu.
+    newPrices[key] = { price: val, setAt: new Date().toISOString() };
   }
   try {
     const {doc, setDoc} = window._fbFns;
@@ -5807,9 +5873,26 @@ async function promptSetMarginManualPrice(produitBrut) {
 // une valeur manuelle existe, elle devient la source PRIORITAIRE du Prix
 // d'achat/caisse partout où ce prix est utilisé pour la marge, au-dessus du
 // dernier achat réel connu — voir promptSetMarginManualAchatPrice().
+//
+// Revirement du 30 juillet 2026 : même comportement dynamique que
+// getMarginManualPrice() ci-dessus — un prix d'achat manuel ne reste actif
+// que tant qu'aucun NOUVEL achat de ce produit n'a été enregistré depuis
+// cette modification (voir getLastAchatTimestamp()) ; dès qu'un nouvel achat
+// arrive, son prix reprend automatiquement la main. Même rétrocompatibilité
+// pour les valeurs enregistrées avant ce changement (simple nombre, sans
+// setAt) : elles restent prioritaires comme avant jusqu'à leur prochaine
+// modification.
 function getMarginManualAchatPrice(productKey) {
-  const v = (STATE.marginManualAchatPrices||{})[productKey];
-  return (typeof v === 'number' && v > 0) ? v : 0;
+  const entry = (STATE.marginManualAchatPrices||{})[productKey];
+  if (!entry) return 0;
+  const price = typeof entry === 'number' ? entry : entry.price;
+  const setAt = typeof entry === 'number' ? '' : (entry.setAt || '');
+  if (!(price > 0)) return 0;
+  if (setAt) {
+    const lastAchatTs = getLastAchatTimestamp(productKey);
+    if (lastAchatTs && lastAchatTs > setAt) return 0;
+  }
+  return price;
 }
 
 // Admin/gestionnaire : ouvre une invite pour fixer, modifier ou retirer le
@@ -5837,7 +5920,9 @@ async function promptSetMarginManualAchatPrice(produitBrut) {
   } else {
     const val = parseFloat(trimmed.replace(',', '.'));
     if (isNaN(val) || val <= 0) { showToast('⚠ Montant invalide.','warn'); return; }
-    newPrices[key] = val;
+    // Demande du 30 juillet 2026 : même horodatage "setAt" que côté vente —
+    // voir getMarginManualAchatPrice().
+    newPrices[key] = { price: val, setAt: new Date().toISOString() };
   }
   try {
     const {doc, setDoc} = window._fbFns;
