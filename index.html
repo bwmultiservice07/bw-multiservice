@@ -1168,6 +1168,70 @@ tr:hover td{background:#f7f9ff;}
         </div>
       </div>
       <div class="card">
+        <div class="card-title">➕ Entrée sans achat (ajustement d'inventaire)</div>
+        <div style="font-size:.85rem;color:var(--text2);margin-bottom:.8rem;">
+          Demande du 1er août 2026 : pour enregistrer une marchandise qui ENTRE dans le stock SANS avoir été achetée via le formulaire "Achats" (stock retrouvé ou non compté lors d'un inventaire, erreur de comptage...), afin de corriger un écart constaté. Synchronisé automatiquement avec les Mouvements de Stocks et le Stock Actuel comme une entrée. Contrairement à un Achat, aucun fournisseur ni mode de paiement n'est demandé et aucun argent n'est réellement dépensé : sans impact sur la caisse ni la Comptabilité, et exclue de "Valeur totale du stock"/"Achats enregistrés" — même principe que les Réceptions de Transferts Commerçants.
+        </div>
+        <div id="entree-correction-banner" style="display:none;background:#fef3e2;color:#8a5a00;border:1px solid #f5d59a;border-radius:8px;padding:8px 12px;margin-bottom:12px;font-size:.85rem;font-weight:600;">
+          ✏️ Correction en cours — <span id="entree-correction-banner-text"></span>.
+        </div>
+        <div class="form-row">
+          <div class="form-group" style="flex:2;min-width:200px;">
+            <label>Produit</label>
+            <input type="text" id="se-desc" list="produit-list" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" placeholder="Tapez le nom du produit..."
+              oninput="updateProduitList('se-desc')" onchange="normalizeProduitField('se-desc');calcEntreeQty();calcEntreePrixUnitaire();" onfocus="updateProduitList('se-desc')"/>
+          </div>
+          <div class="form-group">
+            <label>Date</label>
+            <input type="date" id="se-date"/>
+          </div>
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label>Quantité</label>
+            <input type="number" id="se-qty" min="1" placeholder="Ex: 2" oninput="calcEntreeQty()"/>
+          </div>
+          <div class="form-group">
+            <label>Unité</label>
+            <select id="se-unit" onchange="calcEntreeQty();calcEntreePrixUnitaire();">
+              <option value="caisse">Caisse (24 unités)</option>
+              <option value="bout">Bout (12 unités)</option>
+              <option value="caisse-1-2">Caisse et 1/2 (36 unités)</option>
+              <option value="bout-1-2">Bout et 1/2 (18 unités)</option>
+              <option value="caisse-beller">Caisse Beller (40 unités)</option>
+              <option value="unite">Unité (1 unité)</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label>Nombre d'unité</label>
+            <input type="number" id="se-nb-unite" min="0" step="1" placeholder="Ex: 1, 2, 3..." oninput="calcEntreeQty()"/>
+          </div>
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label>Prix d'achat / Caisse (HTG)</label>
+            <input type="number" id="se-price" min="0" step="0.01" placeholder="Ex: 1200.00" oninput="calcEntreePrixUnitaire()"/>
+          </div>
+          <div class="form-group">
+            <label>Prix d'achat unitaire (HTG) — auto</label>
+            <input type="number" id="se-prix-unitaire" step="0.01" readonly style="background:#f0f2f7;"/>
+          </div>
+          <div class="form-group">
+            <label>Valeur (HTG) — auto</label>
+            <input type="number" id="se-valeur" step="0.01" readonly style="background:#f0f2f7;font-weight:700;color:#0f7b4f;"/>
+          </div>
+          <input type="hidden" id="se-qty-caisses"/>
+        </div>
+        <div class="form-row">
+          <div class="form-group" style="flex:2;min-width:200px;">
+            <label>Raison (optionnel)</label>
+            <input type="text" id="se-raison" placeholder="Ex: stock retrouvé lors de l'inventaire, erreur de comptage..." maxlength="300"/>
+          </div>
+        </div>
+        <button class="send-btn" onclick="submitStockEntree()">Enregistrer ➤</button>
+        <button id="btn-annuler-entree" class="btn btn-outline" style="margin-top:8px;font-size:.85rem;display:none;" onclick="unlockStockEntreeForm()">✖ Annuler la correction</button>
+      </div>
+      <div class="card">
         <div class="card-title">🗑️ Perte / Sortie sans vente (ajustement d'inventaire)</div>
         <div style="font-size:.85rem;color:var(--text2);margin-bottom:.8rem;">
           Demande du 30 juillet 2026 : pour enregistrer une marchandise sortie du stock SANS avoir été vendue (casse, vol, péremption, erreur de comptage...), afin de corriger un écart constaté lors d'un inventaire. Synchronisé automatiquement avec les Mouvements de Stocks et le Stock Actuel comme une sortie, ET enregistré comme une charge ("Perte d'inventaire") qui réduit réellement la caisse et apparaît dans la Comptabilité — contrairement aux Transferts Commerçants/Livraisons payées d'avance, une perte représente un vrai manque à gagner.
@@ -1786,6 +1850,7 @@ let STATE = {
   marginManualPricesSeeded: false, // synced from Firestore (settings/margin_manual_prices.seededV1)
   marginManualAchatPrices: {}, // synced from Firestore (settings/margin_manual_achat_prices) — demande du 27 juillet 2026 : plusieurs produits vendus régulièrement (ex: Guinness, Beller, Coca Kola...) n'ont jamais d'achat enregistré dans l'onglet Achats (seulement un Stock de départ, qui ne porte qu'un prix de VENTE) — leur Prix d'achat caisse reste alors à 0 et le tableau affiche "Données insuffisantes" même si le produit se vend bien. Ce réglage permet à un admin/gestionnaire de fixer ce prix à la main, pour resynchroniser immédiatement le taux de marge sans devoir retrouver/corriger un achat historique — voir getMarginManualAchatPrice()/promptSetMarginManualAchatPrice().
   stockPertes: [],    // synced from Firestore (pertes / sorties de caisse sans vente — demande du 30 juillet 2026, pour corriger les écarts constatés lors des inventaires : casse, vol, péremption, erreur de comptage...). Chaque perte crée AUSSI automatiquement une charge liée (compte "6250 – Pertes sur stocks") qui réduit réellement la caisse/comptabilité, en plus de synchroniser la sortie dans les Mouvements de Stocks/Stock Actuel — voir submitStockPerte().
+  stockEntrees: [],   // synced from Firestore (entrées de stock sans achat — demande du 1er août 2026, pour corriger les écarts constatés lors des inventaires dans l'autre sens : stock retrouvé/non compté, erreur de comptage...). Contrairement aux Pertes ci-dessus, aucune charge liée n'est créée : aucun argent n'est réellement dépensé, même principe que les Réceptions de Transferts Commerçants — voir submitStockEntree().
   pendingQueue: [],   // offline queue
   currentUser: null,
   isOnline: navigator.onLine,
@@ -1835,6 +1900,9 @@ let _pendingAdvanceDeliveryEditId = null;
 // — admin/gestionnaire uniquement (création ET correction), comme le reste de
 // l'onglet Mouvements de Stocks (voir ADMIN_OR_GEST_TABS).
 let _pendingPerteEditId = null;
+// Idem pour une ligne de "Entrée sans achat" (voir submitStockEntree()) —
+// même principe que _pendingPerteEditId ci-dessus, mais pour une ENTRÉE.
+let _pendingEntreeEditId = null;
 // Idem pour une ligne "Achats" du tableau "Historique des mouvements de
 // stock" (collection Firestore 'stocks') — admin/gestionnaire uniquement.
 let _pendingStockEditId = null;
@@ -1948,6 +2016,7 @@ let unsubStockMovementsSettings = null;
 let unsubMarginManualPrices = null;
 let unsubMarginManualAchatPrices = null;
 let unsubStockPertes = null;
+let unsubStockEntrees = null;
 
 function startFirebaseListeners() {
   if (!window._fbReady || !window._db) return;
@@ -2114,6 +2183,25 @@ function startFirebaseListeners() {
       renderStockActuel();
     },
     err => console.error('StockPertes listener:', err)
+  );
+
+  // ENTRÉES SANS ACHAT - Synchronisation globale (demande du 1er août 2026) :
+  // ajustement d'inventaire dans l'autre sens que les Pertes ci-dessus (stock
+  // retrouvé/non compté, erreur de comptage...) — synchronisé automatiquement
+  // comme une ENTRÉE dans les Mouvements de Stocks / Stock Actuel (voir
+  // renderStocks(), renderStockActuel(), computeStockAlerts()). Contrairement
+  // aux Pertes, aucune charge liée n'est créée : aucun argent n'est
+  // réellement dépensé — même principe que les Réceptions de Transferts
+  // Commerçants.
+  if (unsubStockEntrees) unsubStockEntrees();
+  unsubStockEntrees = onSnapshot(
+    query(collection(db, 'stock_entrees'), orderBy('isoDate','desc')),
+    snap => {
+      STATE.stockEntrees = snap.docs.map(d => ({id: d.id, ...d.data()}));
+      renderStocks();
+      renderStockActuel();
+    },
+    err => console.error('StockEntrees listener:', err)
   );
 
   // RÉGLAGES MOUVEMENTS DE STOCK (doc unique) - Synchronisation globale : ne
@@ -5208,6 +5296,193 @@ function renderStockPertes() {
   }).join('');
 }
 
+// ============================================================
+// ENTRÉE SANS ACHAT (Mouvements de Stocks) — demande du 1er août 2026 :
+// pouvoir enregistrer une entrée de stock (en caisses) SANS qu'il y ait un
+// réel achat correspondant, pour corriger un écart constaté lors d'un
+// inventaire (stock retrouvé/non compté, erreur de comptage...). Formulaire
+// calqué sur celui des Achats (Prix d'achat/Caisse -> Prix d'achat unitaire
+// auto -> Valeur auto) puisqu'elle se valorise au même titre à un coût
+// d'achat — MAIS sans fournisseur ni mode de paiement, et sans être comptée
+// dans "Valeur totale du stock"/"Achats enregistrés" ni dans la Comptabilité :
+// contrairement à un vrai achat, aucun argent n'est réellement dépensé, même
+// principe que les Réceptions de Transferts Commerçants. Contrairement à une
+// Perte, aucune charge liée n'est créée (voir submitStockPerte()) puisqu'il
+// n'y a aucune sortie de caisse à comptabiliser. Réservé admin/gestionnaire,
+// comme le reste de l'onglet Mouvements de Stocks (voir ADMIN_OR_GEST_TABS).
+// Pas de mini-tableau dédié : contrairement aux Pertes, cette entrée apparaît
+// et se corrige/supprime directement depuis le tableau combiné "Historique
+// des mouvements de stock" (voir renderStocks()), exactement comme un Achat.
+// ============================================================
+function calcEntreeQty() {
+  const produit = document.getElementById('se-desc').value;
+  const unit = document.getElementById('se-unit').value;
+  const qty = parseFloat(document.getElementById('se-qty').value) || 0;
+  const nbUnite = parseFloat(document.getElementById('se-nb-unite').value) || 0;
+  const qtyCaisses = getQtyCaisses({description:produit, unit, quantity:qty, nombreUnite:nbUnite});
+  document.getElementById('se-qty-caisses').value = qtyCaisses.toFixed(4);
+  calcEntreeValeur();
+}
+
+function calcEntreePrixUnitaire() {
+  const prixCaisse = parseFloat(document.getElementById('se-price').value) || 0;
+  const produit = document.getElementById('se-desc').value;
+  const unit = document.getElementById('se-unit').value;
+  const casseSize = getCasseSize(produit, unit);
+  const prixUnit = prixCaisse > 0 ? prixCaisse / casseSize : 0;
+  document.getElementById('se-prix-unitaire').value = prixUnit.toFixed(2);
+  calcEntreeValeur();
+}
+
+function calcEntreeValeur() {
+  const qtyCaisses = parseFloat(document.getElementById('se-qty-caisses').value) || 0;
+  const prixCaisse = parseFloat(document.getElementById('se-price').value) || 0;
+  document.getElementById('se-valeur').value = (qtyCaisses * prixCaisse).toFixed(2);
+}
+
+function resetEntreeFormFields() {
+  document.getElementById('se-desc').value = '';
+  document.getElementById('se-date').value = '';
+  document.getElementById('se-qty').value = '';
+  document.getElementById('se-unit').value = 'caisse';
+  document.getElementById('se-nb-unite').value = '';
+  document.getElementById('se-price').value = '';
+  document.getElementById('se-prix-unitaire').value = '';
+  document.getElementById('se-valeur').value = '';
+  document.getElementById('se-qty-caisses').value = '';
+  document.getElementById('se-raison').value = '';
+}
+
+async function submitStockEntree() {
+  if (!requireAdminOrGest()) return;
+  const desc = document.getElementById('se-desc').value.trim();
+  const date = document.getElementById('se-date').value || isoDate();
+  const qty = parseFloat(document.getElementById('se-qty').value) || 0;
+  const unit = document.getElementById('se-unit').value;
+  const nbUnite = parseFloat(document.getElementById('se-nb-unite').value) || 0;
+  const price = parseFloat(document.getElementById('se-price').value) || 0;
+  const prixUnitaire = parseFloat(document.getElementById('se-prix-unitaire').value) || 0;
+  const raison = document.getElementById('se-raison').value.trim();
+  if (!desc || qty <= 0 || price <= 0) {
+    showToast('⚠ Veuillez remplir tous les champs obligatoires (produit, quantité, prix d\'achat/caisse).','warn'); return;
+  }
+  const quantityCaisses = getQtyCaisses({description:desc, unit, quantity:qty, nombreUnite:nbUnite});
+  const montant = quantityCaisses * price;
+  if (!(montant > 0)) {
+    showToast('⚠ La valeur de cette entrée doit être supérieure à 0.','warn'); return;
+  }
+  const entry = {
+    description:desc, unit, quantity:qty, nombreUnite:nbUnite,
+    quantityCaisses, prixCaisse:price, prixUnitaire, montant, raison:raison||'',
+    isoDate:date, date:isoToDisplayDate(date) || todayStr(), time:nowStr(),
+    seller:STATE.currentUser.username, createdAt:new Date().toISOString()
+  };
+
+  // Correction d'une entrée déjà enregistrée (admin/gestionnaire).
+  if (_pendingEntreeEditId) {
+    if (!STATE.isOnline || !STATE.fbReady) {
+      showToast('⚠ Hors ligne — impossible d\'enregistrer la correction maintenant.','warn'); return;
+    }
+    try {
+      const {doc, updateDoc} = window._fbFns;
+      await updateDoc(doc(window._db,'stock_entrees',_pendingEntreeEditId), {
+        ...entry, editedBy: STATE.currentUser.username, editedAt: new Date().toISOString()
+      });
+      const idx = (STATE.stockEntrees||[]).findIndex(p => p.id === _pendingEntreeEditId);
+      if (idx !== -1) STATE.stockEntrees[idx] = {...STATE.stockEntrees[idx], ...entry};
+      showToast('✅ Entrée corrigée.');
+      markUnsaved();
+    } catch(e) { showToast('⚠ Erreur: '+e.message,'warn'); }
+    unlockStockEntreeForm();
+    renderStocks();
+    renderStockActuel();
+    return;
+  }
+
+  if (STATE.isOnline && STATE.fbReady) {
+    try {
+      const {collection, addDoc} = window._fbFns;
+      const ref = await addDoc(collection(window._db,'stock_entrees'), entry);
+      if (!STATE.stockEntrees.find(p => p.id === ref.id)) {
+        STATE.stockEntrees = [{id: ref.id, ...entry}, ...(STATE.stockEntrees||[])];
+      }
+      showToast('✅ Entrée enregistrée — le Stock Actuel a été mis à jour.');
+    } catch(e) {
+      STATE.pendingQueue.push({...entry, colTarget:'stock_entrees'});
+      saveLocal();
+      updatePendingUI();
+      showToast('⚠ Erreur Firebase — entrée en file d\'attente.','warn');
+    }
+  } else {
+    STATE.pendingQueue.push({...entry, colTarget:'stock_entrees'});
+    saveLocal();
+    updatePendingUI();
+    showToast("📤 Hors ligne — entrée en file d'attente (sera synchronisée automatiquement).",'warn');
+  }
+  markUnsaved();
+  renderStocks();
+  renderStockActuel();
+  resetEntreeFormFields();
+}
+
+// Admin/gestionnaire : clic sur une ligne "Entrée (invent.)" du tableau
+// combiné "Historique des mouvements de stock" pour la charger dans le
+// formulaire et la corriger — exactement comme pour un Achat classique (voir
+// loadStockForCorrection()).
+function loadStockEntreeForCorrection(id) {
+  if (!requireAdminOrGest()) return;
+  const p = (STATE.stockEntrees||[]).find(x => x.id === id);
+  if (!p) { showToast('⚠ Entrée introuvable.','warn'); return; }
+  document.getElementById('se-desc').value = p.description || '';
+  document.getElementById('se-date').value = p.isoDate || '';
+  document.getElementById('se-qty').value = p.quantity || '';
+  document.getElementById('se-unit').value = p.unit || 'caisse';
+  document.getElementById('se-nb-unite').value = p.nombreUnite || '';
+  document.getElementById('se-price').value = p.prixCaisse || '';
+  document.getElementById('se-raison').value = p.raison || '';
+  calcEntreeQty();
+  calcEntreePrixUnitaire();
+  _pendingEntreeEditId = id;
+  const banner = document.getElementById('entree-correction-banner');
+  const bannerText = document.getElementById('entree-correction-banner-text');
+  if (banner && bannerText) {
+    bannerText.textContent = `${normProduit(p.description||'')} du ${p.date||''}`;
+    banner.style.display = 'block';
+  }
+  const btnAnnuler = document.getElementById('btn-annuler-entree');
+  if (btnAnnuler) btnAnnuler.style.display = 'inline-flex';
+  document.getElementById('se-desc').scrollIntoView({behavior:'smooth', block:'center'});
+  showToast('✏️ Entrée chargée dans le formulaire — corrigez puis cliquez sur Enregistrer.');
+}
+
+function unlockStockEntreeForm() {
+  _pendingEntreeEditId = null;
+  const banner = document.getElementById('entree-correction-banner');
+  if (banner) banner.style.display = 'none';
+  const btnAnnuler = document.getElementById('btn-annuler-entree');
+  if (btnAnnuler) btnAnnuler.style.display = 'none';
+  resetEntreeFormFields();
+}
+
+async function deleteStockEntree(id) {
+  if (!requireAdminOrGest()) return;
+  if (!confirm("Supprimer définitivement cette entrée ?")) return;
+  if (STATE.isOnline && STATE.fbReady && id) {
+    try {
+      const {doc, deleteDoc} = window._fbFns;
+      await deleteDoc(doc(window._db,'stock_entrees',id));
+      STATE.stockEntrees = (STATE.stockEntrees||[]).filter(x => x.id !== id);
+      if (_pendingEntreeEditId === id) unlockStockEntreeForm();
+      showToast('🗑 Entrée supprimée.','warn');
+      markUnsaved();
+      renderStocks();
+      renderStockActuel();
+    } catch(e) { showToast('⚠ Erreur: '+e.message,'warn'); }
+  } else {
+    showToast('⚠ Hors ligne — impossible de supprimer maintenant.','warn');
+  }
+}
+
 // Affiche, au-dessus de l'historique des Mouvements de Stocks, l'instant de
 // la dernière réinitialisation (voir resetStockMovementsTracking()), pour
 // que l'équipe sache clairement à partir de quand le suivi actuel compte.
@@ -5402,7 +5677,20 @@ function renderStocks() {
     casseSize: getCasseSize(p.description, null)
   }));
 
-  const entrees = [...entreesAchats, ...receptionsEntrees];
+  // Entrées sans achat (ajustement d'inventaire, demande du 1er août 2026) :
+  // compte comme une ENTRÉE de stock, valorisée à son prix d'achat comme un
+  // Achat classique — mais sans argent réellement dépensé, même principe que
+  // les Réceptions de Transferts Commerçants ci-dessus (donc exclue de
+  // "Valeur totale du stock"/"Achats enregistrés", voir stockVal plus bas).
+  const entreesSansAchat = (STATE.stockEntrees||[]).filter(s => isStockMovementCounted(s.description, s.isoDate, cutoffMap, s.createdAt)).map(s => ({
+    ...s, _type:'entree', _isEntreeSansAchat:true,
+    qtyCaisses: s.quantityCaisses || getQtyCaisses(s),
+    prixCaisse: s.prixCaisse || 0,
+    prixUnitaire: s.prixUnitaire || (s.prixCaisse ? s.prixCaisse / getCasseSize(s.description, null) : 0),
+    casseSize: getCasseSize(s.description, null)
+  }));
+
+  const entrees = [...entreesAchats, ...receptionsEntrees, ...entreesSansAchat];
   const sorties = [...sortiesVentes, ...livraisonsSorties, ...livraisonsAvanceSorties, ...pertesSorties];
 
   // Combiner et trier du plus récent au plus ancien
@@ -5435,6 +5723,16 @@ function renderStocks() {
       <td>${fmtHTG(s.montant||0)}</td>
       <td>${esc(s.commercant||'')}</td>
       <td>—</td>
+    </tr>` : (s._isEntreeSansAchat ? `<tr style="background:#eafbe9;${canEdit ? 'cursor:pointer;' : ''}"${canEdit ? ` onclick="loadStockEntreeForCorrection('${s.id||''}')" title="Cliquer pour corriger cette entrée"` : ''}>
+      <td>${s.date}</td>
+      <td><span class="badge badge-in">➕ Entrée (invent.)</span></td>
+      <td>${esc(normProduit(s.description))}</td>
+      <td style="color:#0f7b4f;font-weight:600;">+${formatCaissesDisplay(s.qtyCaisses, s.casseSize)}</td>
+      <td>${fmtHTG(s.prixCaisse)}</td>
+      <td>${fmtHTG(s.prixUnitaire)}</td>
+      <td>${fmtHTG(s.montant||0)}</td>
+      <td>${esc(s.raison||'')}</td>
+      <td style="white-space:nowrap;">${canEdit ? `<button class="btn" style="font-size:.75rem;padding:3px 10px;background:var(--danger-bg);color:var(--danger);border:1px solid #f5b7b1;" onclick="event.stopPropagation();deleteStockEntree('${s.id||''}')">🗑</button>` : '—'}</td>
     </tr>` : `<tr style="background:#e6f6ef;${canEdit ? 'cursor:pointer;' : ''}"${canEdit ? ` onclick="loadStockForCorrection('${s.id||''}')" title="Cliquer pour corriger cet achat"` : ''}>
       <td>${s.date}</td>
       <td><span class="badge badge-in">📥 Entrées/Achats</span></td>
@@ -5445,7 +5743,7 @@ function renderStocks() {
       <td>${fmtHTG(s.amount)}</td>
       <td>${esc(s.supplier||'')}</td>
       <td style="white-space:nowrap;">${canEdit ? `<button class="btn" style="font-size:.75rem;padding:3px 10px;background:var(--danger-bg);color:var(--danger);border:1px solid #f5b7b1;" onclick="event.stopPropagation();deleteStock('${s.id||''}')">🗑</button>` : '—'}</td>
-    </tr>`) : (s._isTransfer ? `<tr style="background:#fde9f3;">
+    </tr>`)) : (s._isTransfer ? `<tr style="background:#fde9f3;">
       <td>${s.date}</td>
       <td><span class="badge badge-out">🤝 Livraison</span></td>
       <td>${esc(normProduit(s.description))}</td>
@@ -5604,9 +5902,20 @@ function computeAchatLastPriceCheckpoints(productKey) {
   // premier), pour ne jamais faire disparaître silencieusement un prix
   // d'achat réellement saisi — même philosophie que isCaisseUnit() pour les
   // champs optionnels manquants sur d'anciens enregistrements.
-  return (STATE.stocks||[])
+  //
+  // Depuis le 1er août 2026, les Entrées sans achat (STATE.stockEntrees —
+  // ajustement d'inventaire, voir submitStockEntree()) sont incluses ici au
+  // même titre que les vrais Achats : elles portent un vrai prix d'achat
+  // caisse (champ prixCaisse, alors que STATE.stocks utilise unitPrice) et
+  // représentent un coût d'acquisition tout aussi réel pour le calcul du
+  // "dernier achat connu", même si aucun argent n'a été dépensé au moment de
+  // la correction — ce qui permet aussi à une Entrée sans achat récente de
+  // remplacer immédiatement un prix d'achat manuel obsolète (voir
+  // getMarginManualAchatPrice()/getLastAchatTimestamp()), exactement comme un
+  // vrai achat le ferait.
+  return [...(STATE.stocks||[]), ...(STATE.stockEntrees||[])]
     .filter(s => normProduit(s.description) === productKey && isCaisseUnit(s.unit))
-    .map(s => ({ isoDate: s.isoDate || s.date || '', sortKey: s.createdAt || ((s.isoDate||s.date||'') + 'T' + (s.time||'')), prix: s.unitPrice||0 }))
+    .map(s => ({ isoDate: s.isoDate || s.date || '', sortKey: s.createdAt || ((s.isoDate||s.date||'') + 'T' + (s.time||'')), prix: (s.unitPrice!=null ? s.unitPrice : s.prixCaisse) || 0 }))
     .filter(p => p.prix > 0)
     .sort((a,b) => a.sortKey.localeCompare(b.sortKey))
     .map(p => ({ isoDate: p.isoDate, sortKey: p.sortKey, valeurCumulee: p.prix }));
@@ -7075,6 +7384,15 @@ function computeStockAlerts() {
     const key = normProduit(p.description);
     if (!key || !isStockMovementCounted(p.description, p.isoDate, stockDepartCutoffMap, p.createdAt)) return;
     sortiesMap[key] = (sortiesMap[key]||0) + (p.quantityCaisses || getQtyCaisses(p));
+  });
+  // Entrées sans achat (ajustement d'inventaire, demande du 1er août 2026) :
+  // comme les Transferts Commerçants (réception) ci-dessus, une entrée sans
+  // achat augmente bien le Stock actuel (entreesMap) mais n'est pas un signal
+  // de demande réelle — n'affecte donc pas recentQtyMap.
+  (STATE.stockEntrees||[]).forEach(s=>{
+    const key = normProduit(s.description);
+    if (!key || !isStockMovementCounted(s.description, s.isoDate, stockDepartCutoffMap, s.createdAt)) return;
+    entreesMap[key] = (entreesMap[key]||0) + (s.quantityCaisses || getQtyCaisses(s));
   });
   const allProducts = new Set([...Object.keys(departMap), ...Object.keys(entreesMap), ...Object.keys(sortiesMap)]);
   return [...allProducts].map(p => {
@@ -9650,7 +9968,15 @@ function buildFullWorkbook() {
     qtyCaisses: p.quantityCaisses || getQtyCaisses(p), prixCaisse: p.prixCaisse||0,
     amount: p.montant||0, tiers: p.raison||''
   }));
-  const mouvements = [...entrees, ...sorties, ...receptionsEntreesXls, ...livraisonsSortiesXls, ...livraisonsAvanceXls, ...pertesXls].sort((a,b)=>(b.date||'').localeCompare(a.date||''));
+  // Entrées sans achat (ajustement d'inventaire, demande du 1er août 2026) :
+  // entrée de stock, valorisée à son prix d'achat — mêmes règles
+  // d'intégration (cutoff Stock de départ) que le reste de cette feuille.
+  const entreesSansAchatXls = (STATE.stockEntrees||[]).filter(s=>isStockMovementCounted(s.description, s.isoDate, stockDepartCutoffMap, s.createdAt)).map(s=>({
+    date:s.date, type:'Entrée sans achat', description:normProduit(s.description),
+    qtyCaisses: s.quantityCaisses || getQtyCaisses(s), prixCaisse: s.prixCaisse||0,
+    amount: s.montant||0, tiers: s.raison||''
+  }));
+  const mouvements = [...entrees, ...sorties, ...receptionsEntreesXls, ...livraisonsSortiesXls, ...livraisonsAvanceXls, ...pertesXls, ...entreesSansAchatXls].sort((a,b)=>(b.date||'').localeCompare(a.date||''));
   XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([
     ['Date','Type','Description','Qté (caisses)','Prix caisse','Montant','Fournisseur / Client'],
     ...mouvements.map(m=>[m.date,m.type,m.description,m.qtyCaisses,m.prixCaisse,m.amount,m.tiers])
@@ -9725,6 +10051,13 @@ function buildFullWorkbook() {
     const key = normProduit(p.description);
     if (!key || !isStockMovementCounted(p.description, p.isoDate, stockDepartCutoffMap, p.createdAt)) return;
     sortiesMap[key] = (sortiesMap[key]||0) + (p.quantityCaisses || getQtyCaisses(p));
+  });
+  // Entrées sans achat (ajustement d'inventaire, demande du 1er août 2026) :
+  // voir renderStockActuel()/computeStockAlerts() pour la même logique à l'écran.
+  (STATE.stockEntrees||[]).forEach(s=>{
+    const key = normProduit(s.description);
+    if (!key || !isStockMovementCounted(s.description, s.isoDate, stockDepartCutoffMap, s.createdAt)) return;
+    entreesMap[key] = (entreesMap[key]||0) + (s.quantityCaisses || getQtyCaisses(s));
   });
   const allProducts = new Set([...Object.keys(departMap), ...Object.keys(entreesMap), ...Object.keys(sortiesMap)]);
   const stockActuelRows = [...allProducts].map(p=>{
@@ -12168,6 +12501,16 @@ function renderStockActuel() {
     const key = normProduit(p.description);
     if (!key || !isStockMovementCounted(p.description, p.isoDate, cutoffMap, p.createdAt)) return;
     sortiesMap[key] = (sortiesMap[key]||0) + (p.quantityCaisses || getQtyCaisses(p));
+  });
+
+  // 3quinquies. Entrées sans achat (ajustement d'inventaire, demande du 1er
+  // août 2026) : s'ajoute aux Entrées comme n'importe quelle autre entrée de
+  // stock réelle, pour que le Stock Actuel reflète bien l'écart corrigé —
+  // même principe que les Pertes ci-dessus, mais en sens inverse.
+  (STATE.stockEntrees||[]).forEach(s => {
+    const key = normProduit(s.description);
+    if (!key || !isStockMovementCounted(s.description, s.isoDate, cutoffMap, s.createdAt)) return;
+    entreesMap[key] = (entreesMap[key]||0) + (s.quantityCaisses || getQtyCaisses(s));
   });
 
   // 4. Prix de vente le plus récent par produit, tiré des ventes elles-mêmes
