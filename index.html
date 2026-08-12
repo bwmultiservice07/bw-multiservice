@@ -6313,8 +6313,8 @@ function computeProductPriceMaps() {
 // de ventes donné (ex : les ventes d'un seul jour ou d'un seul mois) — simple
 // enveloppe autour de computeProductMarginRatesForVentes() pour ne renvoyer
 // que le chiffre agrégé (utilisé par le tableau jour/mois d'Analyse financière).
-function computeMargeProduitPourVentes(ventes) {
-  const {margeRows, tauxMoyenPondere} = computeProductMarginRatesForVentes(ventes);
+function computeMargeProduitPourVentes(ventes, allowManualOverride) {
+  const {margeRows, tauxMoyenPondere} = computeProductMarginRatesForVentes(ventes, allowManualOverride);
   const hasData = margeRows.some(r => r.donneesOk);
   return hasData ? tauxMoyenPondere : null;
 }
@@ -6322,8 +6322,15 @@ function computeMargeProduitPourVentes(ventes) {
 // Calcule le taux moyen de marge par produit vendu, jour par jour et mois par
 // mois — réutilisé par Analyse financière (tableau + export Excel) pour
 // afficher ce taux à côté des autres indicateurs cumulés.
+//
+// Demande du 12 août 2026 : seuls le jour et le mois EN COURS restent
+// modifiables par une correction manuelle de prix — un jour ou un mois déjà
+// écoulé garde son calcul automatique figé (voir allowManualOverride sur
+// computeProductMarginRatesForVentes()).
 function computeProductMarginRatesByPeriod() {
   const ventes = (STATE.transactions||[]).filter(t=>t.type==='vente' && !t.isGlace);
+  const todayIso = isoDate();
+  const currentMonthKey = todayIso.slice(0,7);
   const ventesByDay = {}, ventesByMonth = {};
   ventes.forEach(t => {
     const day = getIsoFromTx(t);
@@ -6334,8 +6341,8 @@ function computeProductMarginRatesByPeriod() {
     ventesByMonth[month].push(t);
   });
   const byDay = {}, byMonth = {};
-  Object.keys(ventesByDay).forEach(day => { byDay[day] = computeMargeProduitPourVentes(ventesByDay[day]); });
-  Object.keys(ventesByMonth).forEach(month => { byMonth[month] = computeMargeProduitPourVentes(ventesByMonth[month]); });
+  Object.keys(ventesByDay).forEach(day => { byDay[day] = computeMargeProduitPourVentes(ventesByDay[day], day === todayIso); });
+  Object.keys(ventesByMonth).forEach(month => { byMonth[month] = computeMargeProduitPourVentes(ventesByMonth[month], month === currentMonthKey); });
   return {byDay, byMonth};
 }
 
@@ -6359,7 +6366,24 @@ function computeProductMarginRatesByPeriod() {
 // Taux moyen de marge produit = ((Prix de vente caisse − Prix d'achat
 // caisse) / Prix d'achat caisse) × Quota vente, le quota étant la part du
 // produit dans le total des quantités vendues de ce sous-ensemble.
-function computeProductMarginRatesForVentes(ventes) {
+//
+// allowManualOverride (demande du 12 août 2026 : "fais en sorte que le taux
+// de marge moyen des produits ne soit pas modifiables pour les jours et les
+// mois deja ecoules", puis "Les semaines doivent etre concernees aussi") :
+// par défaut (true, ou paramètre omis) un prix fixé manuellement (voir
+// getMarginManualPrice()/getMarginManualAchatPrice()) reste PRIORITAIRE
+// comme avant — utilisé pour le tableau cumulé "en cours"
+// (computeProductMarginRates()) et pour le jour/semaine/mois EN COURS. Quand
+// un appelant passe explicitement false (jour, semaine ou mois déjà écoulé,
+// voir computeMarginDetailForDate()/computeProductMarginRatesByPeriod()/
+// computeAllWeeksMarginRates()/computeAllMonthsMarginRatesForYear()
+// ci-dessous), la correction manuelle est ignorée : une période déjà close
+// reste figée sur son calcul automatique réel (dernier prix connu à cette
+// date), même si un admin/gestionnaire modifie ensuite le prix manuel pour
+// une autre période — une modification manuelle ne peut plus "remonter dans
+// le temps".
+function computeProductMarginRatesForVentes(ventes, allowManualOverride) {
+  const allow = allowManualOverride !== false;
   const ventesCaisse = (ventes||[]).filter(t => isCaisseUnit(t.unit));
   const qtyVenduMap = {};
   let totalQtyVendu = 0;
@@ -6384,15 +6408,17 @@ function computeProductMarginRatesForVentes(ventes) {
     const prixVenteVentes = agg && agg.refDate ? getLastVentePrice(p, agg.refDate) : 0;
     const prixVenteDepart = getStockDepartPrixCaisse(p);
     // Demande du 23 juillet 2026 : un prix fixé manuellement (voir
-    // getMarginManualPrice()) est PRIORITAIRE sur tout le reste.
-    const prixVenteManuel = getMarginManualPrice(p);
+    // getMarginManualPrice()) est PRIORITAIRE sur tout le reste — sauf pour
+    // une période déjà écoulée (voir allowManualOverride ci-dessus).
+    const prixVenteManuel = allow ? getMarginManualPrice(p) : 0;
     const prixVente = prixVenteManuel > 0 ? prixVenteManuel : (prixVenteVentes > 0 ? prixVenteVentes : prixVenteDepart);
     const prixAchatVentes = agg && agg.refDate ? getLastAchatPrice(p, agg.refDate) : 0;
     // Demande du 27 juillet 2026 : un prix d'achat fixé manuellement (voir
     // getMarginManualAchatPrice()) est PRIORITAIRE sur tout le reste — utile
     // pour un produit jamais acheté via l'onglet Achats (ex: Guinness),
     // resté bloqué sur "Données insuffisantes" faute d'un seul achat connu.
-    const prixAchatManuel = getMarginManualAchatPrice(p);
+    // Même exception pour une période déjà écoulée que côté vente.
+    const prixAchatManuel = allow ? getMarginManualAchatPrice(p) : 0;
     const prixAchat = prixAchatManuel > 0 ? prixAchatManuel : prixAchatVentes;
     const qtyVendu = qtyVenduMap[p] || 0;
     const quota = totalQtyVendu > 0 ? qtyVendu / totalQtyVendu : 0;
@@ -6401,7 +6427,13 @@ function computeProductMarginRatesForVentes(ventes) {
     // Taux moyen de marge produit = ((Prix de vente caisse − Prix d'achat caisse)
     // / Prix d'achat caisse) × Quota vente — formule demandée, calculée pour chaque produit.
     const tauxMarge = donneesOk ? ratioMarge * quota * 100 : null;
-    return {produit:p, prixVente, prixAchat, qtyVendu, quota, tauxMarge, donneesOk};
+    // isManuelVente/isManuelAchat (demande du 12 août 2026) : reflète si CE
+    // prix vient réellement d'une correction manuelle POUR CETTE LIGNE (donc
+    // toujours false pour une période déjà écoulée, même si un prix manuel
+    // est actif aujourd'hui pour ce produit) — sert de badge fiable dans
+    // renderMarginRateSection() sans avoir à rappeler getMarginManualPrice().
+    return {produit:p, prixVente, prixAchat, qtyVendu, quota, tauxMarge, donneesOk,
+      isManuelVente: prixVenteManuel > 0, isManuelAchat: prixAchatManuel > 0};
   }).filter(r => r.qtyVendu > 0)
     .sort((a,b) => b.qtyVendu - a.qtyVendu);
   // La moyenne pondérée est simplement la somme des taux moyens par produit
@@ -6444,8 +6476,13 @@ function getWeekRangeForIsoDate(isoDateStr) {
 function computeMarginDetailForDate(isoDateStr) {
   const ventes = (STATE.transactions||[]).filter(t=>t.type==='vente' && !t.isGlace);
   const ventesJour = ventes.filter(t => getIsoFromTx(t) === isoDateStr);
-  const jour = computeProductMarginRatesForVentes(ventesJour);
-  return { jour: {...jour, label: formatGroupLabel(isoDateStr)} };
+  // Demande du 12 août 2026 : seul le jour EN COURS (aujourd'hui) accepte
+  // encore une correction manuelle de prix ; un jour déjà écoulé reste figé
+  // sur son calcul automatique réel. isEditable reflète ce même état pour
+  // que renderMarginRateSection() masque les boutons ✏️ sur un jour passé.
+  const isEditable = isoDateStr === isoDate();
+  const jour = computeProductMarginRatesForVentes(ventesJour, isEditable);
+  return { jour: {...jour, label: formatGroupLabel(isoDateStr), isEditable} };
 }
 
 // Calcule automatiquement le taux de marge moyen pondéré pour CHAQUE semaine
@@ -6454,6 +6491,13 @@ function computeMarginDetailForDate(isoDateStr) {
 // la plus ancienne.
 function computeAllWeeksMarginRates() {
   const ventes = (STATE.transactions||[]).filter(t=>t.type==='vente' && !t.isGlace);
+  // Demande du 12 août 2026 (mise à jour : "Les semaines doivent etre
+  // concernees aussi") : seule la semaine EN COURS (celle contenant
+  // aujourd'hui) accepte encore une correction manuelle de prix — une
+  // semaine déjà écoulée reste figée sur son calcul automatique réel, même
+  // principe que pour les jours et les mois (voir allowManualOverride sur
+  // computeProductMarginRatesForVentes()).
+  const currentWeekStart = getWeekRangeForIsoDate(isoDate()).startIso;
   const weekBuckets = {};
   ventes.forEach(t => {
     const day = getIsoFromTx(t);
@@ -6465,7 +6509,7 @@ function computeAllWeeksMarginRates() {
   return Object.values(weekBuckets)
     .sort((a,b) => b.startIso.localeCompare(a.startIso))
     .map(w => {
-      const {margeRows, tauxMoyenPondere} = computeProductMarginRatesForVentes(w.ventes);
+      const {margeRows, tauxMoyenPondere} = computeProductMarginRatesForVentes(w.ventes, w.startIso === currentWeekStart);
       return {
         startIso: w.startIso, endIso: w.endIso,
         label: `Semaine du ${w.startIso.split('-').reverse().join('/')} au ${w.endIso.split('-').reverse().join('/')}`,
@@ -6481,11 +6525,15 @@ function computeAllWeeksMarginRates() {
 function computeAllMonthsMarginRatesForYear(year) {
   const ventes = (STATE.transactions||[]).filter(t=>t.type==='vente' && !t.isGlace);
   const monthNames = ['Janvier','Février','Mars','Avril','Mai','Juin','Juillet','Août','Septembre','Octobre','Novembre','Décembre'];
+  const currentMonthKey = isoDate().slice(0,7);
   const rows = [];
   for (let m = 1; m <= 12; m++) {
     const monthKey = `${year}-${String(m).padStart(2,'0')}`;
     const ventesMois = ventes.filter(t => getIsoFromTx(t).slice(0,7) === monthKey);
-    const {tauxMoyenPondere} = computeProductMarginRatesForVentes(ventesMois);
+    // Demande du 12 août 2026 : un mois déjà écoulé reste figé sur son calcul
+    // automatique réel, seul le mois EN COURS accepte encore une correction
+    // manuelle de prix (voir allowManualOverride).
+    const {tauxMoyenPondere} = computeProductMarginRatesForVentes(ventesMois, monthKey === currentMonthKey);
     rows.push({ month: monthKey, label: `${monthNames[m-1]} ${year}`, tauxMoyenPondere });
   }
   return rows;
@@ -6525,13 +6573,21 @@ function renderMarginRateSection(title, period) {
     // directement depuis cette fenêtre "Détail du taux de marge par produit"
     // (jour/semaine/mois), sans devoir retourner dans l'autre tableau.
     const isAdminOrGest = STATE.currentUser && (STATE.currentUser.role==='admin' || STATE.currentUser.role==='gestionnaire');
+    // Demande du 12 août 2026 : une période déjà écoulée (jour/mois passé)
+    // n'accepte plus de correction manuelle — les boutons ✏️ sont masqués et
+    // le badge "manuel" (r.isManuelVente/r.isManuelAchat, calculés par
+    // computeProductMarginRatesForVentes selon allowManualOverride) ne peut
+    // plus apparaître pour ces lignes. period.isEditable vaut true par
+    // défaut (undefined !== false) pour ne rien changer aux appels qui ne
+    // le renseignent pas (ex: le total général, toujours "en cours").
+    const canEdit = isAdminOrGest && period.isEditable !== false;
     html += `<div class="table-wrap"><table><thead><tr><th>Produit</th><th>Prix de vente caisse</th><th>Prix d'achat caisse</th><th>Quota (part des ventes)</th><th>Taux de marge</th></tr></thead><tbody>` +
       period.margeRows.map(r=>{
-        const isManuel = getMarginManualPrice(r.produit) > 0;
-        const editBtn = isAdminOrGest ? `<button class="btn btn-outline" style="font-size:.7rem;padding:2px 8px;margin-left:6px;" onclick="promptSetMarginManualPrice('${esc(r.produit)}')" title="Fixer/modifier le prix de vente/caisse de ce produit à la main">✏️</button>` : '';
+        const isManuel = !!r.isManuelVente;
+        const editBtn = canEdit ? `<button class="btn btn-outline" style="font-size:.7rem;padding:2px 8px;margin-left:6px;" onclick="promptSetMarginManualPrice('${esc(r.produit)}')" title="Fixer/modifier le prix de vente/caisse de ce produit à la main">✏️</button>` : '';
         const badge = isManuel ? ` <span style="font-size:.72rem;color:#1a56db;" title="Prix fixé manuellement, prioritaire sur le calcul automatique">✋ manuel</span>` : '';
-        const isManuelAchat = getMarginManualAchatPrice(r.produit) > 0;
-        const editBtnAchat = isAdminOrGest ? `<button class="btn btn-outline" style="font-size:.7rem;padding:2px 8px;margin-left:6px;" onclick="promptSetMarginManualAchatPrice('${esc(r.produit)}')" title="Fixer/modifier le prix d'achat/caisse de ce produit à la main (utile si aucun achat n'a jamais été enregistré dans l'onglet Achats)">✏️</button>` : '';
+        const isManuelAchat = !!r.isManuelAchat;
+        const editBtnAchat = canEdit ? `<button class="btn btn-outline" style="font-size:.7rem;padding:2px 8px;margin-left:6px;" onclick="promptSetMarginManualAchatPrice('${esc(r.produit)}')" title="Fixer/modifier le prix d'achat/caisse de ce produit à la main (utile si aucun achat n'a jamais été enregistré dans l'onglet Achats)">✏️</button>` : '';
         const badgeAchat = isManuelAchat ? ` <span style="font-size:.72rem;color:#1a56db;" title="Prix fixé manuellement, prioritaire sur le dernier achat connu">✋ manuel</span>` : '';
         return `<tr>
         <td>${esc(r.produit)}</td>
@@ -6607,6 +6663,9 @@ function renderMarginDetailModal() {
 // plus ancien au plus récent.
 function computeProductMarginEvolution(granularity) {
   const ventes = (STATE.transactions||[]).filter(t=>t.type==='vente' && !t.isGlace).filter(t=>isCaisseUnit(t.unit));
+  const todayIso = isoDate();
+  const currentMonthKey = todayIso.slice(0,7);
+  const currentWeekStart = getWeekRangeForIsoDate(todayIso).startIso;
 
   const byProduct = {};
   ventes.forEach(t => {
@@ -6637,15 +6696,22 @@ function computeProductMarginEvolution(granularity) {
     // référence de cette période, pas une moyenne ; le Stock de départ ne
     // sert que de repli si le produit n'a jamais été vendu.
     const prixVenteDepart = getStockDepartPrixCaisse(produit);
-    // Demande du 23 juillet 2026 : un prix fixé manuellement est PRIORITAIRE
-    // sur tout le reste (voir getMarginManualPrice()).
-    const prixVenteManuel = getMarginManualPrice(produit);
-    // Demande du 27 juillet 2026 : même priorité côté achat (voir
-    // getMarginManualAchatPrice()) — un produit jamais acheté via l'onglet
-    // Achats reste sinon bloqué à 0 sur toute sa série d'évolution.
-    const prixAchatManuel = getMarginManualAchatPrice(produit);
     const periods = Object.values(byProduct[produit]).sort((a,b)=>a.sortKey.localeCompare(b.sortKey));
     result[produit] = periods.map(p => {
+      // Demande du 12 août 2026 (mise à jour : "Les semaines doivent etre
+      // concernees aussi") : un prix fixé manuellement (voir
+      // getMarginManualPrice()/getMarginManualAchatPrice()) reste
+      // PRIORITAIRE uniquement pour le point EN COURS de la série (jour
+      // d'aujourd'hui, semaine en cours, ou mois en cours). Un point déjà
+      // écoulé (jour, semaine ou mois passé) reste figé sur son calcul
+      // automatique réel, même si une correction manuelle est active
+      // aujourd'hui pour ce produit.
+      const isCurrentPeriod = granularity === 'jour' ? p.periodKey === todayIso
+        : granularity === 'mois' ? p.periodKey === currentMonthKey
+        : granularity === 'semaine' ? p.periodKey === currentWeekStart
+        : true;
+      const prixVenteManuel = isCurrentPeriod ? getMarginManualPrice(produit) : 0;
+      const prixAchatManuel = isCurrentPeriod ? getMarginManualAchatPrice(produit) : 0;
       const prixVenteVentes = getLastVentePrice(produit, p.refDate);
       const prixVente = prixVenteManuel > 0 ? prixVenteManuel : (prixVenteVentes > 0 ? prixVenteVentes : prixVenteDepart);
       const prixAchatVentes = getLastAchatPrice(produit, p.refDate);
